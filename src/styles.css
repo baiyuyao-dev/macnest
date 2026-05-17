@@ -95,3 +95,17 @@
   background-size: 200% 100%;
   animation: skeletonShimmer 1.5s ease-in-out infinite;
 }
+
+/* xterm.js styles */
+.xterm {
+  height: 100% !important;
+  padding: 8px;
+}
+
+.xterm-viewport {
+  background-color: transparent !important;
+}
+
+.xterm-screen {
+  width: 100% !important;
+}
