@@ -102,3 +102,27 @@ export interface ResourceUsage {
   network_rx_mb: number;
   network_tx_mb: number;
 }
+
+export interface SshConnection {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  auth_type:
+    | { type: "Password"; password: string }
+    | { type: "PublicKey"; key_path: string; passphrase?: string };
+  group_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SshSessionInfo {
+  session_id: string;
+  connection_id: number;
+  host: string;
+  username: string;
+  connected: boolean;
+  connected_at: string;
+  websocket_port: number;
+}
