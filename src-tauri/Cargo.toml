@@ -25,6 +25,16 @@ anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
 regex = "1"
 
+# === SSH 协议 ===
+russh = "0.49"
+
+# === WebSocket 服务器（PTY 数据流）===
+tokio-tungstenite = "0.29"
+futures = "0.3"
+
+# === SSH Handler trait 需要 ===
+async-trait = "0.1"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
