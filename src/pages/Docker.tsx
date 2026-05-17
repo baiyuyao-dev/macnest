@@ -98,10 +98,10 @@ export default function Docker() {
           const stats = await getContainerStats(container.container_id);
           newStatsMap.set(container.container_id, {
             containerId: container.container_id,
-            cpu_percent: stats.cpu_percent,
-            memory_usage_mb: stats.memory_usage_mb,
-            memory_limit_mb: stats.memory_limit_mb,
-            memory_percent: stats.memory_percent,
+            cpu_percent: parseFloat(stats.cpu_percent),
+            memory_usage_mb: parseFloat(stats.memory_usage),
+            memory_limit_mb: parseFloat(stats.memory_limit),
+            memory_percent: parseFloat(stats.memory_percent),
           });
         } catch (error) {
           console.error(
@@ -498,16 +498,16 @@ export default function Docker() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">显示行数:</span>
-                <Select
+                <select
                   value={String(logTail)}
                   onChange={(e) => handleLogTailChange(Number(e.target.value))}
-                  className="w-20 h-8 text-xs"
+                  className="w-20 h-8 text-xs flex rounded-md border border-border bg-transparent px-2 py-1 shadow-sm"
                 >
                   <option value="50">50</option>
                   <option value="100">100</option>
                   <option value="200">200</option>
                   <option value="500">500</option>
-                </Select>
+                </select>
               </div>
               <Button
                 variant="outline"

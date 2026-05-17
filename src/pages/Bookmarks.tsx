@@ -702,11 +702,12 @@ export default function BookmarksPage() {
             </div>
             <div className="space-y-2">
               <Label>分组</Label>
-              <Select
+              <select
                 value={formData.group_id?.toString() || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, group_id: e.target.value ? Number(e.target.value) : null })
                 }
+                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
               >
                 <option value="">未分组</option>
                 {flatGroupsForSelect.map((g) => (
@@ -714,18 +715,19 @@ export default function BookmarksPage() {
                     {"\u00A0".repeat(g.depth * 2)}{g.name}
                   </option>
                 ))}
-              </Select>
+              </select>
             </div>
             <div className="space-y-2">
               <Label>图标</Label>
-              <Select
+              <select
                 value={formData.icon}
                 onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
+                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
               >
                 {ICON_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
-              </Select>
+              </select>
             </div>
             <div className="space-y-2">
               <Label>健康检测 URL</Label>
@@ -769,11 +771,12 @@ export default function BookmarksPage() {
             </div>
             <div className="space-y-2">
               <Label>上级分组</Label>
-              <Select
+              <select
                 value={groupForm.parent_id?.toString() || ""}
                 onChange={(e) =>
                   setGroupForm({ ...groupForm, parent_id: e.target.value ? Number(e.target.value) : null })
                 }
+                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
               >
                 <option value="">一级分组</option>
                 {flatGroupsForSelect.map((g) => (
@@ -781,7 +784,7 @@ export default function BookmarksPage() {
                     {"\u00A0".repeat(g.depth * 2)}{g.name}
                   </option>
                 ))}
-              </Select>
+              </select>
               <p className="text-xs text-muted-foreground">选择上级分组可将该分组作为子分组，留空则为一级分组</p>
             </div>
             <div className="flex justify-end gap-2 pt-2">

@@ -5,6 +5,7 @@ import Services from "./pages/Services";
 import Docker from "./pages/Docker";
 import Bookmarks from "./pages/Bookmarks";
 import System from "./pages/System";
+import Terminal from "./pages/Terminal";
 import Settings from "./pages/Settings";
 import { useThemeStore } from "./stores/theme";
 import { useEffect } from "react";
@@ -28,6 +29,7 @@ function App() {
           <Route path="services" element={<Services />} />
           <Route path="docker" element={<Docker />} />
           <Route path="bookmarks" element={<Bookmarks />} />
+          <Route path="terminal" element={<Terminal />} />
           <Route path="system" element={<System />} />
           <Route path="settings" element={<Settings />} />
         </Route>

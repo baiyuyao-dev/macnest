@@ -129,7 +129,7 @@ export default function Terminal() {
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b p-3">
         <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
-          <DialogTrigger asChild>
+          <DialogTrigger>
             <Button size="sm">
               <Plus className="mr-1 h-3 w-3" />
               新建连接
@@ -182,8 +182,8 @@ export default function Terminal() {
                 <Label>认证方式</Label>
                 <Select
                   value={formAuthType}
-                  onValueChange={(v: "password" | "publickey") =>
-                    setFormAuthType(v)
+                  onValueChange={(v) =>
+                    setFormAuthType(v as "password" | "publickey")
                   }
                 >
                   <SelectTrigger>

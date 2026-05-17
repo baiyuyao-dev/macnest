@@ -195,6 +195,13 @@ export default function Services() {
           restart_policy: formData.restart_policy,
           max_restarts: formData.max_restarts,
           port_auto_detect: formData.port_auto_detect,
+          status: "stopped",
+          pid: null,
+          ports: "",
+          cpu_percent: 0,
+          memory_mb: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         });
       } else {
         await createService({
@@ -263,9 +270,9 @@ export default function Services() {
     // Load historical logs
     try {
       const historicalLogs = await getServiceLogs(service.id);
-      const formatted = historicalLogs.map((l: ServiceLog) => ({
+      const formatted = historicalLogs.map((l: { content: string; level: string; created_at: string }) => ({
         content: l.content,
-        level: l.level,
+        level: l.level as "info" | "warn" | "error" | "stdout" | "stderr",
         created_at: l.created_at,
       }));
       setLogs(formatted);
@@ -590,7 +597,7 @@ export default function Services() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="svc-policy">重启策略</Label>
-                <Select
+                <select
                   id="svc-policy"
                   value={formData.restart_policy}
                   onChange={(e) =>
@@ -602,13 +609,14 @@ export default function Services() {
                         | "never",
                     })
                   }
+                  className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
                 >
                   <option value="always">{restartPolicyLabels.always}</option>
                   <option value="on-failure">
                     {restartPolicyLabels["on-failure"]}
                   </option>
                   <option value="never">{restartPolicyLabels.never}</option>
-                </Select>
+                </select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="svc-max">最大重启次数</Label>

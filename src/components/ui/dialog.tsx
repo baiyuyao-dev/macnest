@@ -19,6 +19,13 @@ function Dialog({ open, onOpenChange, children }: DialogProps) {
   );
 }
 
+const DialogTrigger = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+  ({ className, ...props }, ref) => (
+    <button ref={ref} className={cn("inline-flex items-center justify-center", className)} {...props} />
+  )
+);
+DialogTrigger.displayName = "DialogTrigger";
+
 const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div ref={ref} className={cn("w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg", className)} {...props} />
@@ -34,4 +41,4 @@ function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingEl
   return <h2 className={cn("text-lg font-semibold leading-none tracking-tight", className)} {...props} />;
 }
 
-export { Dialog, DialogContent, DialogHeader, DialogTitle };
+export { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle };

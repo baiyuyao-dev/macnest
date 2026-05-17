@@ -182,7 +182,7 @@ export async function updateSettings(data: {
 // ===== SSH 管理 =====
 
 export async function createSshConnection(
-  data: Omit<SshConnection, "id" | "created_at" | "updated_at"
+  data: Omit<SshConnection, "id" | "created_at" | "updated_at">
 ): Promise<number> {
   return invoke("create_ssh_connection", { req: data });
 }

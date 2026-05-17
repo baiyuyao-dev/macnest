@@ -5,6 +5,7 @@ import {
   Container,
   Bookmark,
   Activity,
+  Terminal as TerminalIcon,
   Settings,
   Moon,
   Sun,
@@ -16,6 +17,7 @@ const navItems = [
   { to: "/services", icon: Server, label: "服务" },
   { to: "/docker", icon: Container, label: "Docker" },
   { to: "/bookmarks", icon: Bookmark, label: "导航" },
+  { to: "/terminal", icon: TerminalIcon, label: "终端" },
   { to: "/system", icon: Activity, label: "系统" },
 ];
 

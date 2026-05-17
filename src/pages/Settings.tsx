@@ -162,14 +162,14 @@ export default function SettingsPage() {
               <Label>主题</Label>
               <p className="text-sm text-muted-foreground">选择深色或浅色主题</p>
             </div>
-            <Select
+            <select
               value={settings.theme}
               onChange={(e) => handleThemeChange(e.target.value)}
-              className="w-32"
+              className="w-32 flex h-9 rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
             >
               <option value="dark">深色</option>
               <option value="light">浅色</option>
-            </Select>
+            </select>
           </div>
           <Separator />
           <div className="flex items-center justify-between">
@@ -203,7 +203,7 @@ export default function SettingsPage() {
                 仪表盘和系统监控数据的刷新频率
               </p>
             </div>
-            <Select
+            <select
               value={String(settings.auto_refresh_interval)}
               onChange={(e) =>
                 setSettings((prev) => ({
@@ -211,14 +211,14 @@ export default function SettingsPage() {
                   auto_refresh_interval: Number(e.target.value),
                 }))
               }
-              className="w-32"
+              className="w-32 flex h-9 rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
             >
               <option value="1">1 秒</option>
               <option value="3">3 秒</option>
               <option value="5">5 秒</option>
               <option value="10">10 秒</option>
               <option value="30">30 秒</option>
-            </Select>
+            </select>
           </div>
         </CardContent>
       </Card>
