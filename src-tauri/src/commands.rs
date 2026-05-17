@@ -3,6 +3,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::database;
 use crate::docker;
+use crate::ssh::types::SshAuthType;
 use crate::system;
 use crate::AppState;
 
@@ -549,5 +550,110 @@ pub fn update_settings(
     state
         .db
         .update_settings(&req.theme, req.auto_refresh_interval, req.show_menu_bar)
+        .map_err(|e| e.to_string())
+}
+
+// === SSH Commands ===
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSshConnectionRequest {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: SshAuthType,
+    pub group_name: String,
+}
+
+#[tauri::command]
+pub fn create_ssh_connection(
+    state: State<AppState>,
+    req: CreateSshConnectionRequest,
+) -> Result<i64, String> {
+    let auth_type_str = match &req.auth_type {
+        SshAuthType::Password { .. } => "password",
+        SshAuthType::PublicKey { .. } => "publickey",
+    };
+    let auth_data = serde_json::to_string(&req.auth_type).map_err(|e| e.to_string())?;
+
+    state
+        .db
+        .create_ssh_connection(
+            &req.name,
+            &req.host,
+            req.port,
+            &req.username,
+            auth_type_str,
+            &auth_data,
+            &req.group_name,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_ssh_connections(
+    state: State<AppState>,
+) -> Result<Vec<database::SshConnection>, String> {
+    state.db.list_ssh_connections().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_ssh_connection(
+    state: State<AppState>,
+    id: i64,
+) -> Result<(), String> {
+    state.db.delete_ssh_connection(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ssh_connect(
+    state: State<'_, AppState>,
+    connection_id: i64,
+) -> Result<String, String> {
+    let db_connection = state
+        .db
+        .get_ssh_connection(connection_id)
+        .map_err(|e| e.to_string())?;
+
+    // Deserialize auth_data
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_connection.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_connection.id,
+        name: db_connection.name,
+        host: db_connection.host,
+        port: db_connection.port,
+        username: db_connection.username,
+        auth_type,
+        group_name: db_connection.group_name,
+        created_at: db_connection.created_at,
+        updated_at: db_connection.updated_at,
+    };
+
+    let session_id = state
+        .ssh_session_manager
+        .create_session(&connection)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let websocket_port = state
+        .ssh_session_manager
+        .open_pty(&session_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(format!("ws://127.0.0.1:{}", websocket_port))
+}
+
+#[tauri::command]
+pub async fn ssh_disconnect(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state
+        .ssh_session_manager
+        .disconnect(&session_id)
+        .await
         .map_err(|e| e.to_string())
 }
