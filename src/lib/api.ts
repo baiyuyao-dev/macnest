@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo } from "@/types";
+import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection } from "@/types";
 
 // ===== 服务管理 =====
 
@@ -177,4 +177,28 @@ export async function updateSettings(data: {
   show_menu_bar: boolean;
 }): Promise<void> {
   return invoke("update_settings", { req: data });
+}
+
+// ===== SSH 管理 =====
+
+export async function createSshConnection(
+  data: Omit<SshConnection, "id" | "created_at" | "updated_at"
+): Promise<number> {
+  return invoke("create_ssh_connection", { req: data });
+}
+
+export async function listSshConnections(): Promise<SshConnection[]> {
+  return invoke("list_ssh_connections");
+}
+
+export async function deleteSshConnection(id: number): Promise<void> {
+  return invoke("delete_ssh_connection", { id });
+}
+
+export async function sshConnect(connectionId: number): Promise<string> {
+  return invoke("ssh_connect", { connectionId });
+}
+
+export async function sshDisconnect(sessionId: string): Promise<void> {
+  return invoke("ssh_disconnect", { sessionId });
 }
