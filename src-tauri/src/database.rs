@@ -71,6 +71,20 @@ pub struct Group {
     pub updated_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SshConnection {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: String,
+    pub auth_data: String,
+    pub group_name: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 impl Database {
     pub fn new(path: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
@@ -173,6 +187,19 @@ impl Database {
             );
 
             CREATE INDEX IF NOT EXISTS idx_resource_snapshots_timestamp ON resource_snapshots(timestamp);
+
+            CREATE TABLE IF NOT EXISTS ssh_connections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER DEFAULT 22,
+                username TEXT NOT NULL,
+                auth_type TEXT NOT NULL,
+                auth_data TEXT NOT NULL,
+                group_name TEXT DEFAULT '默认',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
             "
         )?;
 
@@ -605,6 +632,82 @@ impl Database {
             "UPDATE settings SET theme = ?1, auto_refresh_interval = ?2, show_menu_bar = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
             params![theme, auto_refresh_interval, show_menu_bar],
         )?;
+        Ok(())
+    }
+
+    // === SSH Connection CRUD ===
+
+    pub fn create_ssh_connection(
+        &self,
+        name: &str,
+        host: &str,
+        port: u16,
+        username: &str,
+        auth_type: &str,
+        auth_data: &str,
+        group_name: &str,
+    ) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO ssh_connections (name, host, port, username, auth_type, auth_data, group_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![name, host, port, username, auth_type, auth_data, group_name],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_ssh_connections(&self) -> Result<Vec<SshConnection>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, host, port, username, auth_type, auth_data, group_name, created_at, updated_at
+             FROM ssh_connections ORDER BY created_at DESC"
+        )?;
+        let connections = stmt
+            .query_map([], |row| {
+                Ok(SshConnection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    auth_type: row.get(5)?,
+                    auth_data: row.get(6)?,
+                    group_name: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(connections)
+    }
+
+    pub fn get_ssh_connection(&self, id: i64) -> Result<SshConnection> {
+        let conn = self.conn.lock().unwrap();
+        let connection = conn.query_row(
+            "SELECT id, name, host, port, username, auth_type, auth_data, group_name, created_at, updated_at
+             FROM ssh_connections WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(SshConnection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    auth_type: row.get(5)?,
+                    auth_data: row.get(6)?,
+                    group_name: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
+            },
+        )?;
+        Ok(connection)
+    }
+
+    pub fn delete_ssh_connection(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM ssh_connections WHERE id = ?1", params![id])?;
         Ok(())
     }
 }
