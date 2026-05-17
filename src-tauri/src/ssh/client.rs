@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use russh::keys::*;
+use russh::keys::key::PrivateKeyWithHashAlg;
+use russh::keys::{load_secret_key, ssh_key};
 use russh::*;
 use std::sync::Arc;
 use std::time::Duration;

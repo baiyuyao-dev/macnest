@@ -25,7 +25,7 @@ pub async fn start_pty_server(
             match msg {
                 Some(ChannelMsg::Data { ref data }) => {
                     if ws_write
-                        .send(Message::Binary(data.to_vec()))
+                        .send(Message::Binary(data.to_vec().into()))
                         .await
                         .is_err()
                     {
@@ -34,7 +34,7 @@ pub async fn start_pty_server(
                 }
                 Some(ChannelMsg::ExtendedData { ref data, .. }) => {
                     if ws_write
-                        .send(Message::Binary(data.to_vec()))
+                        .send(Message::Binary(data.to_vec().into()))
                         .await
                         .is_err()
                     {

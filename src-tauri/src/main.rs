@@ -5,15 +5,18 @@ mod database;
 mod docker;
 mod process;
 mod system;
+mod ssh;
 
 use database::Database;
 use process::ProcessManager;
+use ssh::session::SshSessionManager;
 use std::sync::Mutex;
 use tauri::Manager;
 
 pub struct AppState {
     db: Database,
     process_manager: Mutex<ProcessManager>,
+    ssh_session_manager: SshSessionManager,
 }
 
 fn main() {
@@ -38,6 +41,7 @@ fn main() {
             let state = AppState {
                 db,
                 process_manager: Mutex::new(ProcessManager::new()),
+                ssh_session_manager: SshSessionManager::new(),
             };
             app.manage(state);
 
@@ -87,6 +91,12 @@ fn main() {
             // Settings commands
             commands::get_settings,
             commands::update_settings,
+            // SSH commands
+            commands::create_ssh_connection,
+            commands::list_ssh_connections,
+            commands::delete_ssh_connection,
+            commands::ssh_connect,
+            commands::ssh_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
