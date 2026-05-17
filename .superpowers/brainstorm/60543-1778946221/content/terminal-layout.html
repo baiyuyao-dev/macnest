@@ -1,0 +1,38 @@
+<h2>终端页面布局 - 最小可用版（方案 A）</h2>
+<p class="subtitle">第一期目标：能保存连接配置、能连上 SSH、能在终端里打字交互</p>
+
+<div class="mockup">
+  <div class="mockup-header">MacOps 终端页面</div>
+  <div class="mockup-body">
+    <!-- Top bar -->
+    <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1a1a2e; border-bottom:1px solid #333;">
+      <button class="mock-button" style="font-size:12px; padding:4px 10px;">+ 新建连接</button>
+      <div style="display:flex; gap:4px;">
+        <div style="padding:4px 12px; background:#264f78; border-radius:4px; font-size:12px; color:#fff;">root@192.168.1.1 ×</div>
+      </div>
+      <div style="margin-left:auto; font-size:11px; color:#666;">
+        <span style="color:#0dbc79;">●</span> 已连接 | root@192.168.1.1
+      </div>
+    </div>
+    <!-- Terminal area -->
+    <div style="background:#1a1a2e; padding:12px; font-family:monospace; font-size:14px; color:#e0e0e0; min-height:300px;">
+      <div style="color:#0dbc79;">Connected to SSH session</div>
+      <div></div>
+      <div>root@ubuntu:~# <span style="animation:blink 1s infinite;">_</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>第一期（Phase 1）功能范围</h3>
+  <ul>
+    <li>✅ 侧边栏新增「终端」入口</li>
+    <li>✅ SSH 连接配置 CRUD（SQLite 存储）</li>
+    <li>✅ 新建连接对话框（主机/端口/用户名/密码或密钥）</li>
+    <li>✅ 单标签终端页面（xterm.js）</li>
+    <li>✅ WebSocket PTY 数据通道</li>
+    <li>✅ 连接状态指示（已连接/断开）</li>
+    <li>❌ 多标签（Phase 2）</li>
+    <li>❌ SFTP（Phase 3）</li>
+  </ul>
+</div>

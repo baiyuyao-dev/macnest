@@ -1,0 +1,28 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for MacOps",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "shell:allow-spawn",
+    "shell:allow-kill",
+    "shell:allow-open",
+    "store:default",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load",
+    "store:allow-clear",
+    "store:allow-keys",
+    "store:allow-values",
+    "store:allow-length",
+    "store:allow-delete",
+    "positioner:default",
+    "positioner:allow-move-window",
+    "autostart:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
+  ]
+}
