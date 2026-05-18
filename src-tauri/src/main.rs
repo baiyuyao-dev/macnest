@@ -38,9 +38,29 @@ fn main() {
             let db = Database::new(db_path.to_str().unwrap()).unwrap();
             db.init().unwrap();
 
+            let process_manager = Mutex::new(ProcessManager::new());
+
+            // Recover running services after app restart
+            if let Ok(services) = db.list_services() {
+                for svc in services {
+                    if svc.status == "running" {
+                        if let Some(pid) = svc.pid {
+                            if let Ok(pm) = process_manager.lock() {
+                                if pm.recover_service(svc.id, pid as u32) {
+                                    eprintln!("[macops] Recovered service '{}' (id={}, pid={})", svc.name, svc.id, pid);
+                                } else {
+                                    eprintln!("[macops] Stale service '{}' (id={}, pid={}) — process no longer alive, marking stopped", svc.name, svc.id, pid);
+                                    let _ = db.update_service_status(svc.id, "stopped", None, "");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let state = AppState {
                 db,
-                process_manager: Mutex::new(ProcessManager::new()),
+                process_manager,
                 ssh_session_manager: SshSessionManager::new(),
             };
             app.manage(state);
@@ -97,6 +117,14 @@ fn main() {
             commands::delete_ssh_connection,
             commands::ssh_connect,
             commands::ssh_disconnect,
+            // SFTP commands
+            commands::sftp_list_dir,
+            commands::sftp_delete,
+            commands::sftp_mkdir,
+            commands::sftp_rename,
+            commands::sftp_get_file_info,
+            commands::sftp_upload,
+            commands::sftp_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
