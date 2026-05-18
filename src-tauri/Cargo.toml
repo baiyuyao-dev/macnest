@@ -35,6 +35,9 @@ futures = "0.3"
 # === SSH Handler trait 需要 ===
 async-trait = "0.1"
 
+# === SFTP 文件传输 ===
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
