@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import BaseTerminal from "./BaseTerminal";
-import { tmuxAttachPty, tmuxPtyClose, tmuxPtyWrite } from "@/lib/api";
+import { tmuxAttachPty, tmuxPtyClose, tmuxPtyResize, tmuxPtyWrite } from "@/lib/api";
 
 interface TmuxTerminalProps {
   sessionName: string;
@@ -15,6 +15,10 @@ export default function TmuxTerminal({ sessionName, onDetach }: TmuxTerminalProp
 
   useEffect(() => {
     ptyIdRef.current = ptyId;
+    // 补发 resize：ptyId 设置时，用 term 当前尺寸同步一次
+    if (ptyId && termRef.current) {
+      tmuxPtyResize(ptyId, termRef.current.cols, termRef.current.rows).catch(() => {});
+    }
   }, [ptyId]);
 
   const handleReady = useCallback(
@@ -31,7 +35,7 @@ export default function TmuxTerminal({ sessionName, onDetach }: TmuxTerminalProp
       });
 
       try {
-        const id = await tmuxAttachPty(sessionName, channel);
+        const id = await tmuxAttachPty(sessionName, channel, term.cols, term.rows);
         setPtyId(id);
       } catch (e) {
         term.writeln(`\r\n\x1b[31m[Failed to attach: ${e}]\x1b[0m`);
@@ -47,6 +51,13 @@ export default function TmuxTerminal({ sessionName, onDetach }: TmuxTerminalProp
     }
   }, []);
 
+  const handleResize = useCallback((cols: number, rows: number) => {
+    const id = ptyIdRef.current;
+    if (id) {
+      tmuxPtyResize(id, cols, rows).catch(() => {});
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       const id = ptyIdRef.current;
@@ -56,5 +67,12 @@ export default function TmuxTerminal({ sessionName, onDetach }: TmuxTerminalProp
     };
   }, []);
 
-  return <BaseTerminal onData={handleData} onReady={handleReady} className="h-full w-full" />;
+  return (
+    <BaseTerminal
+      onData={handleData}
+      onReady={handleReady}
+      onResize={handleResize}
+      className="h-full w-full"
+    />
+  );
 }

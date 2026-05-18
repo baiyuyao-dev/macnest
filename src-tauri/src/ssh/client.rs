@@ -14,6 +14,9 @@ pub struct SshClientHandler;
 impl client::Handler for SshClientHandler {
     type Error = russh::Error;
 
+    /// TODO: Implement proper host key verification (known_hosts file)
+    /// Currently accepts all host keys for ease of use in MVP.
+    /// This is a security risk and should be addressed before production use.
     async fn check_server_key(
         &mut self,
         _server_public_key: &ssh_key::PublicKey,
@@ -87,7 +90,9 @@ impl SshConnectionManager {
     pub async fn open_pty(
         &mut self,
     ) -> anyhow::Result<Channel<client::Msg>> {
-        let mut channel = self.session.channel_open_session().await?;
+        eprintln!("[ssh] Opening SSH channel...");
+        let channel = self.session.channel_open_session().await?;
+        eprintln!("[ssh] SSH channel opened, requesting PTY...");
         channel
             .request_pty(
                 true,
@@ -99,8 +104,20 @@ impl SshConnectionManager {
                 &[],
             )
             .await?;
+        eprintln!("[ssh] PTY requested, requesting shell...");
         channel.request_shell(true).await?;
+        eprintln!("[ssh] Shell request accepted");
         Ok(channel)
+    }
+
+    pub async fn window_change(
+        &mut self,
+        _cols: u32,
+        _rows: u32,
+    ) -> anyhow::Result<()> {
+        // This requires access to the channel, which is owned by the session manager.
+        // The caller should use the channel directly.
+        Ok(())
     }
 
     pub async fn disconnect(

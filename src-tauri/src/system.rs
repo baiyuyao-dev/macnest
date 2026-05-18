@@ -9,6 +9,7 @@ pub struct SystemInfo {
     pub cpu_cores: i32,
     pub memory_total_mb: u64,
     pub uptime_seconds: u64,
+    pub local_ip: String,
 }
 
 pub fn get_system_info() -> Result<SystemInfo, String> {
@@ -59,6 +60,8 @@ pub fn get_system_info() -> Result<SystemInfo, String> {
     // Parse boot time to calculate uptime
     let uptime_seconds = parse_uptime(&uptime_str);
 
+    let local_ip = get_local_ip();
+
     Ok(SystemInfo {
         hostname,
         os_version: format!("macOS {}", os_version),
@@ -66,7 +69,34 @@ pub fn get_system_info() -> Result<SystemInfo, String> {
         cpu_cores,
         memory_total_mb: mem_bytes / 1024 / 1024,
         uptime_seconds,
+        local_ip,
     })
+}
+
+fn get_local_ip() -> String {
+    // Try common macOS interfaces
+    for iface in &["en0", "en1", "en2", "en3"] {
+        if let Ok(output) = Command::new("ipconfig").args(["getifaddr", iface]).output() {
+            let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !ip.is_empty() {
+                return ip;
+            }
+        }
+    }
+    // Fallback: parse ifconfig
+    if let Ok(output) = Command::new("sh")
+        .args([
+            "-c",
+            "ifconfig | grep 'inet ' | grep -v 127.0.0.1 | head -1 | awk '{print $2}'",
+        ])
+        .output()
+    {
+        let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !ip.is_empty() {
+            return ip;
+        }
+    }
+    "Unknown".to_string()
 }
 
 fn parse_uptime(uptime_str: &str) -> u64 {
@@ -109,12 +139,16 @@ pub fn get_resource_usage() -> Result<ResourceUsage, String> {
     let cpu_str = String::from_utf8_lossy(&cpu_output.stdout);
     let cpu_percent = parse_cpu_usage(&cpu_str);
 
-    // Memory via vm_stat
-    let mem_output = Command::new("vm_stat")
+    // Memory via top's PhysMem line (most accurate on macOS)
+    let mem_output = Command::new("sh")
+        .args([
+            "-c",
+            "top -l 1 -s 0 | grep 'PhysMem' | head -1",
+        ])
         .output()
         .map_err(|e| e.to_string())?;
     let mem_str = String::from_utf8_lossy(&mem_output.stdout);
-    let (memory_used_mb, memory_total_mb, memory_percent) = parse_memory(&mem_str)?;
+    let (memory_used_mb, memory_total_mb, memory_percent) = parse_memory_top(&mem_str)?;
 
     Ok(ResourceUsage {
         cpu_percent,
@@ -144,94 +178,64 @@ fn parse_cpu_usage(cpu_str: &str) -> f64 {
     0.0
 }
 
-fn parse_memory(mem_str: &str) -> Result<(u64, u64, f64), String> {
-    let page_size = 4096u64;
-    let mut pages_free = 0u64;
-    let mut pages_active = 0u64;
-    let mut pages_inactive = 0u64;
-    let mut pages_wired = 0u64;
-    let mut pages_compressed = 0u64;
+fn parse_memory_top(mem_str: &str) -> Result<(u64, u64, f64), String> {
+    // Parse "PhysMem: 24G used (6789M wired, 4567M compressor, 1234M shared), 8G unused."
+    // or "PhysMem: 23148M used (6155M wired, 3566M compressor, 1194M shared), 1428M unused."
+    let mut used_mb: u64 = 0;
+    let mut unused_mb: u64 = 0;
 
     for line in mem_str.lines() {
-        if line.contains("Pages free:") {
-            pages_free = line
-                .split(":")
-                .nth(1)
-                .and_then(|s| {
-                    s.trim()
-                        .trim_end_matches(".")
-                        .parse::<u64>()
-                        .ok()
-                })
-                .unwrap_or(0);
-        } else if line.contains("Pages active:") {
-            pages_active = line
-                .split(":")
-                .nth(1)
-                .and_then(|s| {
-                    s.trim()
-                        .trim_end_matches(".")
-                        .parse::<u64>()
-                        .ok()
-                })
-                .unwrap_or(0);
-        } else if line.contains("Pages inactive:") {
-            pages_inactive = line
-                .split(":")
-                .nth(1)
-                .and_then(|s| {
-                    s.trim()
-                        .trim_end_matches(".")
-                        .parse::<u64>()
-                        .ok()
-                })
-                .unwrap_or(0);
-        } else if line.contains("Pages wired down:") {
-            pages_wired = line
-                .split(":")
-                .nth(1)
-                .and_then(|s| {
-                    s.trim()
-                        .trim_end_matches(".")
-                        .parse::<u64>()
-                        .ok()
-                })
-                .unwrap_or(0);
-        } else if line.contains("Pages occupied by compressor:") {
-            pages_compressed = line
-                .split(":")
-                .nth(1)
-                .and_then(|s| {
-                    s.trim()
-                        .trim_end_matches(".")
-                        .parse::<u64>()
-                        .ok()
-                })
-                .unwrap_or(0);
+        if let Some(used_part) = line.split("used").next() {
+            if let Some(val_str) = used_part.trim().rsplit(' ').next() {
+                used_mb = parse_mem_value(val_str);
+            }
+        }
+        if let Some(unused_part) = line.split("unused").next() {
+            if let Some(val_str) = unused_part.trim().rsplit(' ').next() {
+                unused_mb = parse_mem_value(val_str);
+            }
         }
     }
 
-    let memory_total_mb = Command::new("sysctl")
-        .args(["-n", "hw.memsize"])
-        .output()
-        .map_err(|e| e.to_string())
-        .and_then(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim()
-                .parse::<u64>()
-                .map_err(|e| e.to_string())
-        })? / 1024 / 1024;
+    let memory_total_mb = if used_mb + unused_mb > 0 {
+        used_mb + unused_mb
+    } else {
+        // fallback to sysctl
+        Command::new("sysctl")
+            .args(["-n", "hw.memsize"])
+            .output()
+            .map_err(|e| e.to_string())
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u64>()
+                    .map_err(|e| e.to_string())
+            })? / 1024 / 1024
+    };
 
-    let memory_used_mb =
-        ((pages_active + pages_inactive + pages_wired + pages_compressed) * page_size) / 1024
-            / 1024;
     let memory_percent = if memory_total_mb > 0 {
-        (memory_used_mb as f64 / memory_total_mb as f64) * 100.0
+        (used_mb as f64 / memory_total_mb as f64) * 100.0
     } else {
         0.0
     };
 
-    Ok((memory_used_mb, memory_total_mb, memory_percent))
+    Ok((used_mb, memory_total_mb, memory_percent))
+}
+
+fn parse_mem_value(s: &str) -> u64 {
+    let s = s.trim().trim_end_matches(",").trim_end_matches("(").trim();
+    if s.is_empty() {
+        return 0;
+    }
+    let (num_part, unit) = s.split_at(s.len() - 1);
+    let num = num_part.parse::<f64>().unwrap_or(0.0);
+    match unit.to_ascii_uppercase().as_str() {
+        "G" => (num * 1024.0) as u64,
+        "M" => num as u64,
+        "K" => (num / 1024.0) as u64,
+        "T" => (num * 1024.0 * 1024.0) as u64,
+        _ => 0,
+    }
 }
 
 fn parse_disk_usage(disk_str: &str) -> f64 {

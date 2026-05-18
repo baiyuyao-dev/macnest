@@ -5,7 +5,9 @@ use tauri::ipc::Channel;
 
 pub struct TmuxPtySession {
     pub session_name: String,
-    pub master: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
+    pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub child: Option<Box<dyn portable_pty::Child + Send>>,
     pub _reader_thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -13,13 +15,15 @@ pub struct TmuxPtySession {
 pub fn attach_session_pty(
     session_name: &str,
     channel: Channel<Vec<u8>>,
+    cols: u16,
+    rows: u16,
 ) -> Result<TmuxPtySession, String> {
     let pty_system = NativePtySystem::default();
 
     let pair = pty_system
         .openpty(PtySize {
-            rows: 30,
-            cols: 100,
+            rows,
+            cols,
             pixel_width: 0,
             pixel_height: 0,
         })
@@ -31,12 +35,13 @@ pub fn attach_session_pty(
     cmd.arg(session_name);
     cmd.env("TERM", "xterm-256color");
 
-    let _child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
 
     let mut master_reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let master_writer = Arc::new(Mutex::new(
         pair.master.take_writer().map_err(|e| e.to_string())?,
     ));
+    let master = Arc::new(Mutex::new(pair.master));
 
     // 后台线程：PTY 输出 → Tauri Channel → 前端 xterm.js
     let reader_thread = std::thread::spawn(move || {
@@ -54,14 +59,29 @@ pub fn attach_session_pty(
 
     Ok(TmuxPtySession {
         session_name: session_name.to_string(),
-        master: master_writer,
+        master,
+        writer: master_writer,
+        child: Some(child),
         _reader_thread: Some(reader_thread),
     })
 }
 
 /// 向 PTY 写入数据（用户键盘输入）
 pub fn write_to_pty(session: &TmuxPtySession, data: &[u8]) -> Result<(), String> {
-    let mut writer = session.master.lock().map_err(|e| e.to_string())?;
+    let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
     writer.write_all(data).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 调整 PTY 尺寸
+pub fn resize_pty(session: &TmuxPtySession, cols: u16, rows: u16) -> Result<(), String> {
+    let master = session.master.lock().map_err(|e| e.to_string())?;
+    master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| e.to_string())
 }

@@ -191,6 +191,14 @@ export async function listSshConnections(): Promise<SshConnection[]> {
   return invoke("list_ssh_connections");
 }
 
+export async function updateSshConnection(
+  data: SshConnection
+): Promise<void> {
+  return invoke("update_ssh_connection", {
+    req: { ...data, group_id: data.group_id ?? null },
+  });
+}
+
 export async function deleteSshConnection(id: number): Promise<void> {
   return invoke("delete_ssh_connection", { id });
 }
@@ -201,6 +209,10 @@ export async function sshConnect(connectionId: number): Promise<{ session_id: st
 
 export async function sshDisconnect(sessionId: string): Promise<void> {
   return invoke("ssh_disconnect", { sessionId });
+}
+
+export async function getActiveSshSessionsCount(): Promise<number> {
+  return invoke("ssh_active_sessions_count");
 }
 
 // ===== SFTP 文件管理 =====
@@ -317,12 +329,21 @@ export async function tmuxIsAvailable(): Promise<boolean> {
   return invoke("tmux_is_available");
 }
 
-export async function tmuxAttachPty(sessionName: string, channel: unknown): Promise<string> {
-  return invoke("tmux_attach_pty", { sessionName, channel });
+export async function tmuxAttachPty(
+  sessionName: string,
+  channel: unknown,
+  cols: number,
+  rows: number
+): Promise<string> {
+  return invoke("tmux_attach_pty", { sessionName, channel, cols, rows });
 }
 
 export async function tmuxPtyWrite(ptyId: string, data: Uint8Array): Promise<void> {
   return invoke("tmux_pty_write", { ptyId, data: Array.from(data) });
+}
+
+export async function tmuxPtyResize(ptyId: string, cols: number, rows: number): Promise<void> {
+  return invoke("tmux_pty_resize", { ptyId, cols, rows });
 }
 
 export async function tmuxPtyClose(ptyId: string): Promise<void> {

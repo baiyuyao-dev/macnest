@@ -24,6 +24,8 @@ import {
   Terminal,
   Cpu,
   MemoryStick,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import type { Service, ServiceLog } from "@/types";
 import {
@@ -85,6 +87,13 @@ export default function Services() {
   const [isListening, setIsListening] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
+
+  // Delete confirm state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState<Service | null>(null);
+
+  // Pending action states for visual feedback
+  const [pendingActions, setPendingActions] = useState<Record<number, "starting" | "stopping" | "restarting">>({});
 
   // ─── Load services ────────────────────────────────────────
   const loadServices = useCallback(async (showSpinner = false) => {
@@ -224,36 +233,64 @@ export default function Services() {
   };
 
   const handleStart = async (id: number) => {
+    setPendingActions((prev) => ({ ...prev, [id]: "starting" }));
     try {
       await startService(id);
-      loadServices();
+      await loadServices();
     } catch (error) {
       console.error("Failed to start service:", error);
+    } finally {
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
   const handleStop = async (id: number) => {
+    setPendingActions((prev) => ({ ...prev, [id]: "stopping" }));
     try {
       await stopService(id);
-      loadServices();
+      await loadServices();
     } catch (error) {
       console.error("Failed to stop service:", error);
+    } finally {
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
   const handleRestart = async (id: number) => {
+    setPendingActions((prev) => ({ ...prev, [id]: "restarting" }));
     try {
       await restartService(id);
-      loadServices();
+      await loadServices();
     } catch (error) {
       console.error("Failed to restart service:", error);
+    } finally {
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("确定要删除这个服务吗？此操作不可撤销。")) return;
+  const openDeleteConfirm = (service: Service) => {
+    setServiceToDelete(service);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!serviceToDelete) return;
     try {
-      await deleteService(id);
+      await deleteService(serviceToDelete.id);
+      setDeleteConfirmOpen(false);
+      setServiceToDelete(null);
       loadServices();
     } catch (error) {
       console.error("Failed to delete service:", error);
@@ -456,9 +493,14 @@ export default function Services() {
                       size="icon"
                       className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
                       title="停止"
+                      disabled={!!pendingActions[service.id]}
                       onClick={() => handleStop(service.id)}
                     >
-                      <Square className="h-4 w-4" />
+                      {pendingActions[service.id] === "stopping" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
                     </Button>
                   ) : (
                     <Button
@@ -466,9 +508,14 @@ export default function Services() {
                       size="icon"
                       className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
                       title="启动"
+                      disabled={!!pendingActions[service.id]}
                       onClick={() => handleStart(service.id)}
                     >
-                      <Play className="h-4 w-4" />
+                      {pendingActions[service.id] === "starting" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
                     </Button>
                   )}
                   <Button
@@ -476,15 +523,21 @@ export default function Services() {
                     size="icon"
                     className="h-8 w-8"
                     title="重启"
+                    disabled={!!pendingActions[service.id]}
                     onClick={() => handleRestart(service.id)}
                   >
-                    <RefreshCw className="h-4 w-4" />
+                    {pendingActions[service.id] === "restarting" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8"
                     title="查看日志"
+                    disabled={!!pendingActions[service.id]}
                     onClick={() => openLogs(service)}
                   >
                     <FileText className="h-4 w-4" />
@@ -494,6 +547,7 @@ export default function Services() {
                     size="icon"
                     className="h-8 w-8"
                     title="编辑"
+                    disabled={!!pendingActions[service.id]}
                     onClick={() => openEditDialog(service)}
                   >
                     <Pencil className="h-4 w-4" />
@@ -503,7 +557,8 @@ export default function Services() {
                     size="icon"
                     className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                     title="删除"
-                    onClick={() => handleDelete(service.id)}
+                    disabled={!!pendingActions[service.id]}
+                    onClick={() => openDeleteConfirm(service)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -683,101 +738,134 @@ export default function Services() {
 
       {/* ─── Logs Dialog ────────────────────────────────────── */}
       <Dialog open={logDialogOpen} onOpenChange={setLogDialogOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2">
-              <Terminal className="h-5 w-5" />
+              <Terminal className="h-5 w-5 text-primary" />
               服务日志 — {logService?.name}
+              {isListening && (
+                <span className="ml-2 inline-flex items-center gap-1.5 text-xs font-normal text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                  实时监听中
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
-          <Tabs value={logTab} onValueChange={setLogTab}>
-            <TabsList>
-              <TabsTrigger value="realtime">
-                实时日志 {isListening && "●"}
-              </TabsTrigger>
-              <TabsTrigger value="history">历史日志</TabsTrigger>
-            </TabsList>
+          <Tabs value={logTab} onValueChange={setLogTab} className="flex-1 flex flex-col min-h-0">
+            <div className="px-6 pt-3 flex items-center justify-between">
+              <TabsList>
+                <TabsTrigger value="realtime">实时日志</TabsTrigger>
+                <TabsTrigger value="history">历史日志</TabsTrigger>
+              </TabsList>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={clearLogs}
+              >
+                <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                清空日志
+              </Button>
+            </div>
 
-            <TabsContent value="realtime">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-muted-foreground">
-                  {isListening ? (
-                    <span className="flex items-center gap-1">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                      监听中
-                    </span>
-                  ) : (
-                    "未连接"
-                  )}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={clearLogs}
-                >
-                  <XCircle className="mr-1 h-3 w-3" />
-                  清空日志
-                </Button>
-              </div>
-              <div className="h-[400px] overflow-y-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed">
+            <TabsContent value="realtime" className="flex-1 min-h-0 mt-0 px-6 pb-6 pt-3">
+              <div className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6">
                 {logs.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-20">
-                    等待日志输出...
-                  </p>
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+                    <Terminal className="h-8 w-8 opacity-40" />
+                    <p>等待日志输出...</p>
+                  </div>
                 ) : (
-                  logs.map((log, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="shrink-0 text-muted-foreground select-none">
-                        {formatTime(log.created_at)}
-                      </span>
-                      <span
-                        className={
-                          log.level === "error"
-                            ? "text-red-400"
-                            : log.level === "warn"
-                            ? "text-yellow-400"
-                            : "text-green-400"
-                        }
-                      >
-                        {log.content}
-                      </span>
-                    </div>
-                  ))
+                  <div className="space-y-0.5">
+                    {logs.map((log, i) => (
+                      <div key={i} className="flex gap-3 hover:bg-white/5 rounded px-1 -mx-1">
+                        <span className="shrink-0 text-[#666] select-none w-[72px] text-right">
+                          {formatTime(log.created_at)}
+                        </span>
+                        <span
+                          className={
+                            log.level === "error"
+                              ? "text-red-400"
+                              : log.level === "warn"
+                              ? "text-yellow-400"
+                              : log.level === "stdout"
+                              ? "text-blue-300"
+                              : "text-green-400"
+                          }
+                        >
+                          {log.content}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
                 <div ref={logEndRef} />
               </div>
             </TabsContent>
 
-            <TabsContent value="history">
-              <div className="h-[400px] overflow-y-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed">
+            <TabsContent value="history" className="flex-1 min-h-0 mt-0 px-6 pb-6 pt-3">
+              <div className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6">
                 {logs.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-20">
-                    没有历史日志
-                  </p>
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+                    <RotateCcw className="h-8 w-8 opacity-40" />
+                    <p>没有历史日志</p>
+                  </div>
                 ) : (
-                  logs.map((log, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="shrink-0 text-muted-foreground select-none">
-                        {formatTime(log.created_at)}
-                      </span>
-                      <span
-                        className={
-                          log.level === "error"
-                            ? "text-red-400"
-                            : log.level === "warn"
-                            ? "text-yellow-400"
-                            : "text-green-400"
-                        }
-                      >
-                        {log.content}
-                      </span>
-                    </div>
-                  ))
+                  <div className="space-y-0.5">
+                    {logs.map((log, i) => (
+                      <div key={i} className="flex gap-3 hover:bg-white/5 rounded px-1 -mx-1">
+                        <span className="shrink-0 text-[#666] select-none w-[72px] text-right">
+                          {formatTime(log.created_at)}
+                        </span>
+                        <span
+                          className={
+                            log.level === "error"
+                              ? "text-red-400"
+                              : log.level === "warn"
+                              ? "text-yellow-400"
+                              : log.level === "stdout"
+                              ? "text-blue-300"
+                              : "text-green-400"
+                          }
+                        >
+                          {log.content}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Delete Confirm Dialog ─────────────────────────── */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              确认删除服务
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              确定要删除服务 <span className="font-medium text-foreground">{serviceToDelete?.name}</span> 吗？
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              此操作将永久删除该服务及其所有配置，不可撤销。
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              确认删除
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

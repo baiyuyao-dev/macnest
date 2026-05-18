@@ -3,9 +3,10 @@ import type { SftpFile, SftpTransfer } from "@/types";
 interface SftpFileDetailProps {
   file: SftpFile | null;
   transfers: SftpTransfer[];
+  onCancelTransfer?: (id: string) => void;
 }
 
-export default function SftpFileDetail({ file, transfers }: SftpFileDetailProps) {
+export default function SftpFileDetail({ file, transfers, onCancelTransfer }: SftpFileDetailProps) {
   return (
     <div className="flex h-full w-[160px] flex-col border-l border-[#333] bg-[#1a1a2e] shrink-0">
       {/* 文件详情 */}
@@ -35,30 +36,50 @@ export default function SftpFileDetail({ file, transfers }: SftpFileDetailProps)
         {transfers.length === 0 ? (
           <p className="p-2 text-[10px] text-[#666]">暂无传输</p>
         ) : (
-          transfers.map((t) => (
-            <div key={t.id} className="px-2 py-1.5 text-[9px] border-b border-[#222]">
-              <div className={t.status === "completed" ? "text-[#0dbc79]" : "text-[#e5e510]"}>
-                {t.direction === "upload" ? "⬆" : "⬇"} {t.file_name}
+          transfers.map((t) => {
+            const percent = t.total_bytes > 0
+              ? Math.min(100, Math.round((t.transferred_bytes / t.total_bytes) * 100))
+              : 0;
+            const isDone = t.status === "completed";
+            const isFailed = t.status === "failed" || t.status === "cancelled";
+            const isActive = t.status === "in_progress";
+
+            return (
+              <div key={t.id} className="px-2 py-1.5 text-[9px] border-b border-[#222]">
+                <div className={isDone ? "text-[#0dbc79]" : isFailed ? "text-[#f14c4c]" : "text-[#e5e510]"}>
+                  {t.direction === "upload" ? "⬆" : "⬇"} {t.file_name}
+                </div>
+                <div className="h-[3px] bg-[#333] rounded mt-1 overflow-hidden">
+                  <div
+                    className={`h-full rounded transition-all duration-200 ${
+                      isDone ? "bg-[#0dbc79]" : isFailed ? "bg-[#f14c4c]" : "bg-[#e5e510]"
+                    }`}
+                    style={{ width: isActive ? `${percent}%` : "100%" }}
+                  />
+                </div>
+                <div className="mt-0.5 flex items-center justify-between">
+                  <span className={isDone ? "text-[#0dbc79]" : isFailed ? "text-[#f14c4c]" : "text-[#888]"}>
+                    {isDone
+                      ? `${formatSize(t.total_bytes)} | 已完成`
+                      : isFailed
+                      ? t.status === "cancelled" ? "已取消" : "失败"
+                      : t.total_bytes > 0
+                      ? `${formatSize(t.transferred_bytes)} / ${formatSize(t.total_bytes)} (${percent}%)`
+                      : "传输中..."}
+                  </span>
+                  {isActive && onCancelTransfer && (
+                    <button
+                      onClick={() => onCancelTransfer(t.id)}
+                      className="text-[#f14c4c] hover:text-[#ff6b6b] ml-1 cursor-pointer"
+                      title="取消"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
-              {t.status === "in_progress" ? (
-                <>
-                  <div className="h-[3px] bg-[#333] rounded mt-1 overflow-hidden">
-                    <div className="h-full bg-[#e5e510] rounded animate-progress-indeterminate" />
-                  </div>
-                  <div className="mt-0.5 text-[#888]">传输中...</div>
-                </>
-              ) : (
-                <>
-                  <div className="h-[3px] bg-[#333] rounded mt-1">
-                    <div className="h-full bg-[#0dbc79] rounded" style={{ width: "100%" }} />
-                  </div>
-                  <div className="mt-0.5 text-[#0dbc79]">
-                    {t.total_bytes > 0 ? `${formatSize(t.total_bytes)} | ` : ""}已完成
-                  </div>
-                </>
-              )}
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

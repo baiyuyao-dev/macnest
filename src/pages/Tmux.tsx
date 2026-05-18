@@ -39,6 +39,8 @@ export default function Tmux() {
   const [hasTmux, setHasTmux] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState("");
   const [newName, setNewName] = useState("");
   const [renameTarget, setRenameTarget] = useState("");
   const [activeSession, setActiveSession] = useState<string | null>(null);
@@ -68,33 +70,50 @@ export default function Tmux() {
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    await tmuxCreateSession({ name: newName.trim() });
-    setNewName("");
-    setCreateOpen(false);
-    loadSessions();
+    try {
+      await tmuxCreateSession({ name: newName.trim() });
+      setNewName("");
+      setCreateOpen(false);
+      loadSessions();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`创建失败: ${msg}`);
+    }
   };
 
-  const handleKill = async (name: string) => {
-    if (!confirm(`确定要删除 tmux 会话 "${name}" 吗？`)) return;
-    await tmuxKillSession(name);
-    if (activeSession === name) {
-      setActiveSession(null);
+  const handleKill = async () => {
+    if (!deleteTarget) return;
+    try {
+      await tmuxKillSession(deleteTarget);
+      if (activeSession === deleteTarget) {
+        setActiveSession(null);
+      }
+      setDeleteOpen(false);
+      setDeleteTarget("");
+      loadSessions();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`删除失败: ${msg}`);
     }
-    loadSessions();
   };
 
   const handleRename = async () => {
     if (!newName.trim() || !renameTarget) return;
-    await tmuxRenameSession({
-      old_name: renameTarget,
-      new_name: newName.trim(),
-    });
-    setNewName("");
-    setRenameOpen(false);
-    if (activeSession === renameTarget) {
-      setActiveSession(newName.trim());
+    try {
+      await tmuxRenameSession({
+        old_name: renameTarget,
+        new_name: newName.trim(),
+      });
+      setNewName("");
+      setRenameOpen(false);
+      if (activeSession === renameTarget) {
+        setActiveSession(newName.trim());
+      }
+      loadSessions();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`重命名失败: ${msg}`);
     }
-    loadSessions();
   };
 
   const handleAttach = (name: string) => {
@@ -106,7 +125,12 @@ export default function Tmux() {
   };
 
   const handleGhostty = async (name: string) => {
-    await tmuxOpenInGhostty(name);
+    try {
+      await tmuxOpenInGhostty(name);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Ghostty 打开失败: ${msg}`);
+    }
   };
 
   if (!hasTmux) {
@@ -181,16 +205,11 @@ export default function Tmux() {
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div
-                          className={`h-3 w-3 rounded-full ${
-                            s.attached ? "bg-green-500" : "bg-gray-400"
-                          }`}
-                        />
+                        <div className="h-3 w-3 rounded-full bg-primary" />
                         <div>
                           <p className="font-semibold">{s.name}</p>
                           <p className="text-xs text-muted-foreground">
                             {s.windows} 个窗口 · {s.created_at}
-                            {s.attached && " · 已连接"}
                           </p>
                         </div>
                       </div>
@@ -240,7 +259,8 @@ export default function Tmux() {
                               className="h-8 w-8 text-destructive hover:text-destructive"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleKill(s.name);
+                                setDeleteTarget(s.name);
+                                setDeleteOpen(true);
                               }}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -349,6 +369,26 @@ export default function Tmux() {
                 重命名
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除会话</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            确定要销毁 tmux 会话 <strong>"{deleteTarget}"</strong> 吗？此操作不可恢复。
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleKill}>
+              删除
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

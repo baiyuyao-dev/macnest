@@ -122,9 +122,11 @@ fn main() {
             // SSH commands
             commands::create_ssh_connection,
             commands::list_ssh_connections,
+            commands::update_ssh_connection,
             commands::delete_ssh_connection,
             commands::ssh_connect,
             commands::ssh_disconnect,
+            commands::ssh_active_sessions_count,
             // SFTP commands
             commands::sftp_list_dir,
             commands::sftp_delete,
@@ -144,6 +146,7 @@ fn main() {
             commands::tmux_is_available,
             commands::tmux_attach_pty,
             commands::tmux_pty_write,
+            commands::tmux_pty_resize,
             commands::tmux_pty_close,
             commands::tmux_open_in_ghostty,
             commands::tmux_generate_config,

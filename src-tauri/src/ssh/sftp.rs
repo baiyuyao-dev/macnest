@@ -151,4 +151,12 @@ impl SftpManager {
         std::fs::write(local_path, &data)?;
         Ok(())
     }
+
+    pub fn create_file(&self, path: &Path) -> anyhow::Result<ssh2::File> {
+        self.sftp.create(path).map_err(|e| e.into())
+    }
+
+    pub fn open_file(&self, path: &Path) -> anyhow::Result<ssh2::File> {
+        self.sftp.open(path).map_err(|e| e.into())
+    }
 }

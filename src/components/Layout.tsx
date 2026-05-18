@@ -1,4 +1,5 @@
-import { Outlet, NavLink } from "react-router-dom";
+import { useOutlet, useLocation, NavLink } from "react-router-dom";
+import { useRef } from "react";
 import {
   LayoutDashboard,
   Server,
@@ -24,6 +25,15 @@ const navItems = [
 ];
 
 export default function Layout() {
+  const location = useLocation();
+  const outlet = useOutlet();
+  const cacheRef = useRef<Map<string, React.ReactNode>>(new Map());
+
+  const currentPath = location.pathname;
+  if (outlet && !cacheRef.current.has(currentPath)) {
+    cacheRef.current.set(currentPath, outlet);
+  }
+
   const { isDark, toggleTheme } = useThemeStore();
 
   return (
@@ -76,9 +86,26 @@ export default function Layout() {
           </NavLink>
         </div>
       </aside>
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
+      {/* Main Content — keep-alive: cache all visited routes */}
+      <main className="flex-1 overflow-hidden relative">
+        {Array.from(cacheRef.current.entries()).map(([path, element]) => {
+          const isActive = currentPath === path;
+          return (
+            <div
+              key={path}
+              className="h-full w-full overflow-auto"
+              style={{
+                position: "absolute",
+                inset: 0,
+                visibility: isActive ? "visible" : "hidden",
+                pointerEvents: isActive ? "auto" : "none",
+                zIndex: isActive ? 1 : 0,
+              }}
+            >
+              {element}
+            </div>
+          );
+        })}
       </main>
     </div>
   );

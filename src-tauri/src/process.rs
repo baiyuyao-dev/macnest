@@ -8,11 +8,63 @@ pub struct ProcessManager {
     running_processes: Mutex<HashMap<i64, u32>>, // service_id -> child_pid
 }
 
+/// Check if a process with the given PID is currently alive (kill -0)
+fn is_process_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+/// Collect all PIDs in a process tree starting from `pid` (parent → children recursively)
+/// Uses `ps` instead of `pgrep` because `pgrep -P` is not reliably available on macOS.
+pub fn collect_pids(pid: u32) -> Vec<u32> {
+    let mut pids = vec![pid];
+    let mut changed = true;
+
+    while changed {
+        changed = false;
+        let output = std::process::Command::new("ps")
+            .args(["-ax", "-o", "pid=", "-o", "ppid="])
+            .output();
+
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let snapshot = pids.clone();
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() == 2 {
+                    if let (Ok(child_pid), Ok(ppid)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                        if snapshot.contains(&ppid) && !pids.contains(&child_pid) {
+                            pids.push(child_pid);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pids
+}
+
 impl ProcessManager {
     pub fn new() -> Self {
         ProcessManager {
             running_processes: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Try to recover a running service after app restart.
+    /// Returns true if the PID is alive and has been re-registered.
+    pub fn recover_service(&self, service_id: i64, pid: u32) -> bool {
+        if !is_process_alive(pid) {
+            return false;
+        }
+        let mut processes = self.running_processes.lock().unwrap();
+        processes.insert(service_id, pid);
+        true
     }
 
     pub fn start_service(
@@ -81,31 +133,43 @@ impl ProcessManager {
         };
 
         if let Some(pid) = pid {
-            // Try graceful kill first (SIGTERM), then force kill (SIGKILL)
+            self.stop_service_by_pid(service_id, pid)?;
+        }
+
+        Ok(())
+    }
+
+    /// Stop a service by a specific PID and clean up the in-memory tracker.
+    /// Kills the entire process tree (parent + all descendants).
+    pub fn stop_service_by_pid(&self, service_id: i64, pid: u32) -> Result<(), String> {
+        // Collect the entire process tree rooted at this PID
+        let pids = collect_pids(pid);
+        eprintln!("[macops] Stopping service {} — killing PID tree: {:?}", service_id, pids);
+
+        // Phase 1: graceful termination (SIGTERM) for all processes
+        for &p in &pids {
             let _ = std::process::Command::new("kill")
-                .args([&pid.to_string()])
+                .args([&p.to_string()])
                 .output();
+        }
 
-            // Give it a moment to terminate gracefully
-            std::thread::sleep(std::time::Duration::from_millis(500));
+        // Give them a moment to terminate gracefully
+        std::thread::sleep(std::time::Duration::from_millis(500));
 
-            // Force kill if still running
-            let check = std::process::Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .output();
-
-            if check.is_ok() && check.unwrap().status.success() {
+        // Phase 2: force kill (SIGKILL) any survivors
+        for &p in &pids {
+            if is_process_alive(p) {
                 let _ = std::process::Command::new("kill")
-                    .args(["-9", &pid.to_string()])
+                    .args(["-9", &p.to_string()])
                     .output();
             }
-
-            let mut processes = self
-                .running_processes
-                .lock()
-                .map_err(|e| e.to_string())?;
-            processes.remove(&service_id);
         }
+
+        let mut processes = self
+            .running_processes
+            .lock()
+            .map_err(|e| e.to_string())?;
+        processes.remove(&service_id);
 
         Ok(())
     }

@@ -80,7 +80,7 @@ pub struct SshConnection {
     pub username: String,
     pub auth_type: String,
     pub auth_data: String,
-    pub group_name: String,
+    pub group_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -211,6 +211,48 @@ impl Database {
         // Migration: add group_id to bookmarks
         let _ = conn.execute("ALTER TABLE bookmarks ADD COLUMN group_id INTEGER", []);
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_bookmarks_group_id ON bookmarks(group_id)", []);
+
+        // Migration: add group_id to ssh_connections
+        let _ = conn.execute("ALTER TABLE ssh_connections ADD COLUMN group_id INTEGER", []);
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_ssh_connections_group_id ON ssh_connections(group_id)", []);
+
+        // Migration: migrate ssh_connections group_name to group_id
+        {
+            let mut stmt = match conn.prepare("SELECT DISTINCT group_name FROM ssh_connections WHERE group_name IS NOT NULL AND group_name != ''") {
+                Ok(s) => s,
+                Err(_) => return Ok(()),
+            };
+            let group_names = match stmt.query_map([], |row| {
+                let name: String = row.get(0)?;
+                Ok(name)
+            }) {
+                Ok(iter) => iter.collect::<Result<Vec<_>>>().unwrap_or_default(),
+                Err(_) => vec![],
+            };
+            drop(stmt);
+
+            for name in group_names {
+                let exists: Result<i64> = conn.query_row(
+                    "SELECT id FROM groups WHERE name = ?1",
+                    params![&name],
+                    |row| row.get(0),
+                );
+                let group_id = match exists {
+                    Ok(id) => id,
+                    Err(_) => {
+                        let _ = conn.execute(
+                            "INSERT INTO groups (name, sort_order) VALUES (?1, 0)",
+                            params![&name],
+                        );
+                        conn.last_insert_rowid()
+                    }
+                };
+                let _ = conn.execute(
+                    "UPDATE ssh_connections SET group_id = ?1 WHERE group_name = ?2 AND (group_id IS NULL OR group_id = 0)",
+                    params![group_id, &name],
+                );
+            }
+        }
 
         // Migration: migrate categories to groups
         let mut stmt = match conn.prepare("SELECT DISTINCT category FROM bookmarks WHERE category IS NOT NULL AND category != '' AND category != 'default'") {
@@ -457,6 +499,11 @@ impl Database {
             "UPDATE bookmarks SET group_id = NULL WHERE group_id = ?1",
             params![id],
         )?;
+        // Set group_id to NULL for ssh_connections in this group
+        conn.execute(
+            "UPDATE ssh_connections SET group_id = NULL WHERE group_id = ?1",
+            params![id],
+        )?;
         conn.execute(
             "DELETE FROM groups WHERE id = ?1",
             params![id],
@@ -645,13 +692,13 @@ impl Database {
         username: &str,
         auth_type: &str,
         auth_data: &str,
-        group_name: &str,
+        group_id: Option<i64>,
     ) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO ssh_connections (name, host, port, username, auth_type, auth_data, group_name)
+            "INSERT INTO ssh_connections (name, host, port, username, auth_type, auth_data, group_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![name, host, port, username, auth_type, auth_data, group_name],
+            params![name, host, port, username, auth_type, auth_data, group_id],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -659,7 +706,7 @@ impl Database {
     pub fn list_ssh_connections(&self) -> Result<Vec<SshConnection>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, host, port, username, auth_type, auth_data, group_name, created_at, updated_at
+            "SELECT id, name, host, port, username, auth_type, auth_data, group_id, created_at, updated_at
              FROM ssh_connections ORDER BY created_at DESC"
         )?;
         let connections = stmt
@@ -672,7 +719,7 @@ impl Database {
                     username: row.get(4)?,
                     auth_type: row.get(5)?,
                     auth_data: row.get(6)?,
-                    group_name: row.get(7)?,
+                    group_id: row.get(7)?,
                     created_at: row.get(8)?,
                     updated_at: row.get(9)?,
                 })
@@ -684,7 +731,7 @@ impl Database {
     pub fn get_ssh_connection(&self, id: i64) -> Result<SshConnection> {
         let conn = self.conn.lock().unwrap();
         let connection = conn.query_row(
-            "SELECT id, name, host, port, username, auth_type, auth_data, group_name, created_at, updated_at
+            "SELECT id, name, host, port, username, auth_type, auth_data, group_id, created_at, updated_at
              FROM ssh_connections WHERE id = ?1",
             params![id],
             |row| {
@@ -696,13 +743,35 @@ impl Database {
                     username: row.get(4)?,
                     auth_type: row.get(5)?,
                     auth_data: row.get(6)?,
-                    group_name: row.get(7)?,
+                    group_id: row.get(7)?,
                     created_at: row.get(8)?,
                     updated_at: row.get(9)?,
                 })
             },
         )?;
         Ok(connection)
+    }
+
+    pub fn update_ssh_connection(
+        &self,
+        id: i64,
+        name: &str,
+        host: &str,
+        port: u16,
+        username: &str,
+        auth_type: &str,
+        auth_data: &str,
+        group_id: Option<i64>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE ssh_connections
+             SET name = ?1, host = ?2, port = ?3, username = ?4,
+                 auth_type = ?5, auth_data = ?6, group_id = ?7, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?8",
+            params![name, host, port, username, auth_type, auth_data, group_id, id],
+        )?;
+        Ok(())
     }
 
     pub fn delete_ssh_connection(&self, id: i64) -> Result<()> {

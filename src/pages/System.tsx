@@ -335,7 +335,7 @@ export default function System() {
           {/* 表头 */}
           <div className="flex items-center gap-4 border-b px-3 pb-2 text-xs font-medium text-muted-foreground">
             <span className="w-16 shrink-0">PID</span>
-            <span className="flex-1">进程名</span>
+            <span className="flex-1 min-w-0">进程名</span>
             <span className="w-20 text-right">CPU%</span>
             <span className="w-24 text-right">内存</span>
             <span className="w-20 text-center">状态</span>
@@ -343,7 +343,7 @@ export default function System() {
           </div>
 
           {/* 进程行 */}
-          <div className="max-h-[480px] overflow-y-auto">
+          <div className="max-h-[720px] overflow-y-auto">
             {initialLoading && processes.length === 0 ? (
               <div className="space-y-1">
                 <ProcessRowSkeleton />
@@ -369,7 +369,7 @@ export default function System() {
                   <span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
                     {proc.pid}
                   </span>
-                  <span className="flex-1 truncate text-sm font-medium">{proc.name}</span>
+                  <div className="flex-1 min-w-0 overflow-hidden truncate text-sm font-medium" title={proc.name}>{proc.name}</div>
                   <span className="w-20 text-right text-sm text-muted-foreground">
                     {proc.cpu_percent?.toFixed(1)}%
                   </span>

@@ -44,3 +44,13 @@ pub struct SftpFile {
     pub owner: String,
     pub group: String,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TransferProgress {
+    pub id: String,
+    pub file_name: String,
+    pub direction: String,
+    pub total_bytes: u64,
+    pub transferred_bytes: u64,
+    pub status: String,
+}

@@ -601,8 +601,28 @@ pub fn create_ssh_connection(
 #[tauri::command]
 pub fn list_ssh_connections(
     state: State<AppState>,
-) -> Result<Vec<database::SshConnection>, String> {
-    state.db.list_ssh_connections().map_err(|e| e.to_string())
+) -> Result<Vec<crate::ssh::types::SshConnection>, String> {
+    let db_connections = state.db.list_ssh_connections().map_err(|e| e.to_string())?;
+
+    let mut connections = Vec::new();
+    for db_conn in db_connections {
+        let auth_type: SshAuthType =
+            serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+        connections.push(crate::ssh::types::SshConnection {
+            id: db_conn.id,
+            name: db_conn.name,
+            host: db_conn.host,
+            port: db_conn.port,
+            username: db_conn.username,
+            auth_type,
+            group_id: db_conn.group_id,
+            created_at: db_conn.created_at,
+            updated_at: db_conn.updated_at,
+        });
+    }
+
+    Ok(connections)
 }
 
 #[tauri::command]
@@ -611,6 +631,43 @@ pub fn delete_ssh_connection(
     id: i64,
 ) -> Result<(), String> {
     state.db.delete_ssh_connection(id).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateSshConnectionRequest {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: SshAuthType,
+    pub group_id: Option<i64>,
+}
+
+#[tauri::command]
+pub fn update_ssh_connection(
+    state: State<AppState>,
+    req: UpdateSshConnectionRequest,
+) -> Result<(), String> {
+    let auth_type_str = match &req.auth_type {
+        SshAuthType::Password { .. } => "password",
+        SshAuthType::PublicKey { .. } => "publickey",
+    };
+    let auth_data = serde_json::to_string(&req.auth_type).map_err(|e| e.to_string())?;
+
+    state
+        .db
+        .update_ssh_connection(
+            req.id,
+            &req.name,
+            &req.host,
+            req.port,
+            &req.username,
+            auth_type_str,
+            &auth_data,
+            req.group_id,
+        )
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Serialize)]
@@ -673,6 +730,12 @@ pub async fn ssh_disconnect(
         .disconnect(&session_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ssh_active_sessions_count(state: State<'_, AppState>) -> Result<usize, String> {
+    let count = state.ssh_session_manager.get_active_sessions_count().await;
+    Ok(count)
 }
 
 // === SFTP Commands ===
@@ -1226,9 +1289,11 @@ pub fn tmux_is_available() -> bool {
 pub fn tmux_attach_pty(
     session_name: String,
     channel: Channel<Vec<u8>>,
+    cols: u16,
+    rows: u16,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let pty_session = crate::tmux::pty::attach_session_pty(&session_name, channel)?;
+    let pty_session = crate::tmux::pty::attach_session_pty(&session_name, channel, cols, rows)?;
     let pty_id = uuid::Uuid::new_v4().to_string();
 
     state
@@ -1254,25 +1319,96 @@ pub fn tmux_pty_write(
 }
 
 #[tauri::command]
+pub fn tmux_pty_resize(
+    pty_id: String,
+    cols: u16,
+    rows: u16,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let sessions = state.tmux_pty_sessions.lock().unwrap();
+    let session = sessions
+        .get(&pty_id)
+        .ok_or("PTY session not found")?;
+    crate::tmux::pty::resize_pty(session, cols, rows)
+}
+
+#[tauri::command]
 pub fn tmux_pty_close(pty_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    state.tmux_pty_sessions.lock().unwrap().remove(&pty_id);
+    let session = {
+        let mut sessions = state.tmux_pty_sessions.lock().unwrap();
+        sessions.remove(&pty_id)
+    };
+
+    if let Some(session) = session {
+        std::thread::spawn(move || {
+            // 先发送 tmux prefix (Ctrl+B) + d，让客户端优雅 detach
+            let _ = crate::tmux::pty::write_to_pty(&session, b"\x02d");
+            // 给 tmux 一点时间处理 detach 命令
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            // session 在这里被 drop，关闭 PTY 和子进程
+        });
+    }
     Ok(())
 }
 
 #[tauri::command]
 pub fn tmux_open_in_ghostty(session_name: String) -> Result<(), String> {
+    // 方案1: 直接通过 ghostty CLI 启动（最可靠）
+    let ghostty_in_path = std::process::Command::new("which")
+        .arg("ghostty")
+        .output()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false);
+
+    if ghostty_in_path {
+        let result = std::process::Command::new("ghostty")
+            .args(["-e", &format!("tmux attach -t {}", session_name)])
+            .spawn();
+        if result.is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 方案2: 通过 open 启动 Ghostty app 并传参
+    let open_result = std::process::Command::new("open")
+        .args([
+            "-na",
+            "Ghostty",
+            "--args",
+            "-e",
+            &format!("tmux attach -t {}", session_name),
+        ])
+        .output();
+
+    if open_result.is_ok() {
+        return Ok(());
+    }
+
+    // 方案3: AppleScript 回退（兼容模式）
     let script = format!(
-        r#"tell application "Ghostty" to activate
-tell application "Ghostty" to tell front window to create tab with default profile
-tell application "System Events" to keystroke "tmux attach -t {}" & return"#,
+        r#"tell application "Ghostty"
+    activate
+    delay 0.5
+end tell
+tell application "System Events" to tell process "Ghostty"
+    keystroke "n" using command down
+    delay 0.3
+    keystroke "tmux attach -t {}"
+    keystroke return
+end tell"#,
         session_name
     );
 
-    std::process::Command::new("osascript")
+    let output = std::process::Command::new("osascript")
         .arg("-e")
         .arg(&script)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("无法启动 Ghostty: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("AppleScript 执行失败: {}", stderr));
+    }
 
     Ok(())
 }

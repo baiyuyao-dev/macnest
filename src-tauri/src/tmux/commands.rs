@@ -53,6 +53,11 @@ pub fn create_session(req: &CreateTmuxSessionRequest) -> Result<(), String> {
 
     if let Some(ref command) = req.command {
         cmd.arg(command);
+    } else {
+        // 默认启动登录 shell，确保会话持久运行
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        cmd.arg(&shell);
+        cmd.arg("-l");
     }
 
     let output = cmd.output().map_err(|e| e.to_string())?;
@@ -70,7 +75,12 @@ pub fn kill_session(name: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // 如果 tmux server 已退出，会话自然也不存在了，当作成功处理
+        if stderr.contains("no server running") || stderr.contains("no sessions") {
+            return Ok(());
+        }
+        return Err(stderr.to_string());
     }
     Ok(())
 }

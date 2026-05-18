@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,9 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Terminal as TerminalIcon,
   Plus,
-  Unplug,
+  X,
   Server,
   Folder,
   ChevronRight,
@@ -26,12 +25,15 @@ import {
   Search,
   Trash2,
   Edit,
+  Terminal as TerminalIcon,
+  Play,
 } from "lucide-react";
 import XTerm from "@/components/terminal/XTerm";
 import SftpPanel from "@/components/terminal/SftpPanel";
 import {
   createSshConnection,
   listSshConnections,
+  updateSshConnection,
   deleteSshConnection,
   sshConnect,
   sshDisconnect,
@@ -40,20 +42,30 @@ import {
   updateGroup,
   deleteGroup,
 } from "@/lib/api";
+import { useTerminalStore } from "@/stores/terminal";
 import type { SshConnection, Group } from "@/types";
 
-/* ── Tree utilities ── */
+/* ── Types ── */
 
 interface GroupNode extends Group {
   children: GroupNode[];
+  connections: SshConnection[];
 }
 
-function buildGroupTree(groups: Group[]): GroupNode[] {
+/* ── Tree utilities ── */
+
+function buildGroupTree(groups: Group[], connections: SshConnection[]): GroupNode[] {
   const map = new Map<number, GroupNode>();
   const roots: GroupNode[] = [];
 
   for (const g of groups) {
-    map.set(g.id, { ...g, children: [] });
+    map.set(g.id, { ...g, children: [], connections: [] });
+  }
+
+  for (const c of connections) {
+    if (c.group_id != null && map.has(c.group_id)) {
+      map.get(c.group_id)!.connections.push(c);
+    }
   }
 
   for (const g of groups) {
@@ -68,83 +80,51 @@ function buildGroupTree(groups: Group[]): GroupNode[] {
   return roots;
 }
 
-function collectDescendantIds(node: GroupNode): number[] {
-  const ids = [node.id];
-  for (const child of node.children) {
-    ids.push(...collectDescendantIds(child));
-  }
-  return ids;
-}
-
-function filterGroupTree(nodes: GroupNode[], query: string): GroupNode[] {
-  const q = query.toLowerCase();
-  const result: GroupNode[] = [];
-  for (const node of nodes) {
-    const matchSelf = node.name.toLowerCase().includes(q);
-    const filteredChildren = filterGroupTree(node.children, query);
-    if (matchSelf || filteredChildren.length > 0) {
-      result.push({
-        ...node,
-        children: matchSelf ? node.children : filteredChildren,
-      });
-    }
+function flattenGroups(nodes: GroupNode[], depth = 0): { id: number; name: string; depth: number }[] {
+  const result: { id: number; name: string; depth: number }[] = [];
+  for (const n of nodes) {
+    result.push({ id: n.id, name: n.name, depth });
+    result.push(...flattenGroups(n.children, depth + 1));
   }
   return result;
 }
 
-/* ── TreeNode component ── */
+/* ── Sidebar Tree Node ── */
 
-function TreeNode({
+function SidebarTreeNode({
   node,
   depth,
-  activeGroupId,
-  setActiveGroupId,
   expandedIds,
   toggleExpand,
-  groupCounts,
-  editingGroupId,
-  setEditingGroupId,
-  editingGroupName,
-  setEditingGroupName,
-  handleUpdateGroup,
-  handleDeleteGroup,
+  onConnect,
+  onEditConnection,
+  onDeleteConnection,
+  onNewConnection,
+  onEditGroup,
+  onDeleteGroup,
+  activeConnectionId,
 }: {
   node: GroupNode;
   depth: number;
-  activeGroupId: number | null;
-  setActiveGroupId: (id: number | null) => void;
   expandedIds: Set<number>;
   toggleExpand: (id: number) => void;
-  groupCounts: Record<number, number>;
-  editingGroupId: number | null;
-  setEditingGroupId: (id: number | null) => void;
-  editingGroupName: string;
-  setEditingGroupName: (name: string) => void;
-  handleUpdateGroup: (id: number) => void;
-  handleDeleteGroup: (id: number) => void;
+  onConnect: (conn: SshConnection) => void;
+  onEditConnection: (conn: SshConnection) => void;
+  onDeleteConnection: (id: number) => void;
+  onNewConnection: (groupId: number | null) => void;
+  onEditGroup: (group: Group) => void;
+  onDeleteGroup: (id: number) => void;
+  activeConnectionId: number | null;
 }) {
-  const hasChildren = node.children.length > 0;
   const isExpanded = expandedIds.has(node.id);
-  const isActive = activeGroupId === node.id;
-
-  const count = useMemo(() => {
-    const descendantIds = collectDescendantIds(node);
-    return descendantIds.reduce(
-      (sum, id) => sum + (groupCounts[id] || 0),
-      0
-    );
-  }, [node, groupCounts]);
+  const hasChildren = node.children.length > 0 || node.connections.length > 0;
 
   return (
     <div>
+      {/* Group row */}
       <div
-        onClick={() => setActiveGroupId(node.id)}
-        className={`group flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-          isActive
-            ? "bg-primary text-primary-foreground"
-            : "hover:bg-accent text-foreground"
-        }`}
-        style={{ paddingLeft: `${12 + depth * 16}px` }}
+        className="group flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors cursor-pointer hover:bg-[#2a2a40]"
+        style={{ paddingLeft: `${8 + depth * 14}px` }}
       >
         <div className="flex items-center gap-1 flex-1 min-w-0">
           {hasChildren ? (
@@ -153,96 +133,125 @@ function TreeNode({
                 e.stopPropagation();
                 toggleExpand(node.id);
               }}
-              className="shrink-0 p-0.5 rounded hover:bg-black/10"
+              className="shrink-0 p-0.5 rounded hover:bg-[#333]"
             >
               {isExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5" />
+                <ChevronDown className="h-3 w-3 text-[#888]" />
               ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
+                <ChevronRight className="h-3 w-3 text-[#888]" />
               )}
             </button>
           ) : (
-            <span className="w-5 shrink-0" />
+            <span className="w-4 shrink-0" />
           )}
-          <Folder className="h-4 w-4 shrink-0" />
-          <span className="truncate">{node.name}</span>
+          <Folder className="h-3.5 w-3.5 shrink-0 text-[#e5a000]" />
+          <span className="truncate text-[#ccc]">{node.name}</span>
+          <span className="text-[10px] text-[#666] ml-0.5">
+            ({node.connections.length + node.children.reduce((sum, c) => sum + c.connections.length, 0)})
+          </span>
         </div>
-        <div className="flex items-center gap-1 shrink-0 ml-1">
-          <span className="text-xs opacity-70">{count}</span>
-          {editingGroupId === node.id ? (
-            <div
-              className="flex items-center gap-0.5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Input
-                value={editingGroupName}
-                onChange={(e) => setEditingGroupName(e.target.value)}
-                className="h-6 text-xs w-24"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleUpdateGroup(node.id);
-                  if (e.key === "Escape") {
-                    setEditingGroupId(null);
-                    setEditingGroupName("");
-                  }
-                }}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={() => handleUpdateGroup(node.id)}
-              >
-                <Edit className="h-3 w-3" />
-              </Button>
-            </div>
-          ) : (
-            <div
-              className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={() => {
-                  setEditingGroupId(node.id);
-                  setEditingGroupName(node.name);
-                }}
-              >
-                <Edit className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 hover:text-destructive"
-                onClick={() => handleDeleteGroup(node.id)}
-              >
-                <Trash2 className="h-3 w-3 text-destructive" />
-              </Button>
-            </div>
-          )}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onNewConnection(node.id);
+            }}
+            className="p-0.5 rounded hover:bg-[#333] text-[#0dbc79]"
+            title="新建连接"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditGroup(node);
+            }}
+            className="p-0.5 rounded hover:bg-[#333] text-[#888]"
+            title="编辑分组"
+          >
+            <Edit className="h-3 w-3" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteGroup(node.id);
+            }}
+            className="p-0.5 rounded hover:bg-[#333] text-[#f14c4c]"
+            title="删除分组"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
         </div>
       </div>
-      {hasChildren && isExpanded && (
+
+      {/* Expanded content: sub-groups + connections */}
+      {isExpanded && (
         <div>
+          {/* Sub-groups */}
           {node.children.map((child) => (
-            <TreeNode
+            <SidebarTreeNode
               key={child.id}
               node={child}
               depth={depth + 1}
-              activeGroupId={activeGroupId}
-              setActiveGroupId={setActiveGroupId}
               expandedIds={expandedIds}
               toggleExpand={toggleExpand}
-              groupCounts={groupCounts}
-              editingGroupId={editingGroupId}
-              setEditingGroupId={setEditingGroupId}
-              editingGroupName={editingGroupName}
-              setEditingGroupName={setEditingGroupName}
-              handleUpdateGroup={handleUpdateGroup}
-              handleDeleteGroup={handleDeleteGroup}
+              onConnect={onConnect}
+              onEditConnection={onEditConnection}
+              onDeleteConnection={onDeleteConnection}
+              onNewConnection={onNewConnection}
+              onEditGroup={onEditGroup}
+              onDeleteGroup={onDeleteGroup}
+              activeConnectionId={activeConnectionId}
             />
+          ))}
+          {/* Connections in this group */}
+          {node.connections.map((conn) => (
+            <div
+              key={conn.id}
+              onDoubleClick={() => onConnect(conn)}
+              className={`group flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors ${
+                activeConnectionId === conn.id
+                  ? "bg-[#0dbc79]/20 text-[#0dbc79]"
+                  : "hover:bg-[#252540] text-[#999]"
+              }`}
+              style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
+            >
+              <TerminalIcon className="h-3 w-3 shrink-0" />
+              <span className="truncate flex-1 cursor-default">{conn.name}</span>
+              <span className="text-[10px] text-[#666] shrink-0">{conn.host}</span>
+              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onConnect(conn);
+                  }}
+                  className="p-0.5 rounded hover:bg-[#333] text-[#0dbc79]"
+                  title="连接"
+                >
+                  <Play className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditConnection(conn);
+                  }}
+                  className="p-0.5 rounded hover:bg-[#333] text-[#888]"
+                  title="编辑"
+                >
+                  <Edit className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteConnection(conn.id);
+                  }}
+                  className="p-0.5 rounded hover:bg-[#333] text-[#f14c4c]"
+                  title="删除"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -250,53 +259,105 @@ function TreeNode({
   );
 }
 
-/* ── Main component ── */
+/* ── Main Component ── */
 
 export default function Terminal() {
+  const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore();
+
   const [connections, setConnections] = useState<SshConnection[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [websocketUrl, setWebsocketUrl] = useState<string>("");
-  const [sessionId, setSessionId] = useState<string>("");
-  const [connecting, setConnecting] = useState(false);
-  const [showNewDialog, setShowNewDialog] = useState(false);
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [connectingId, setConnectingId] = useState<number | null>(null);
 
-  // Group tree state
+  // Resizable state
+  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [terminalHeight, setTerminalHeight] = useState(60);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const termPanelRef = useRef<HTMLDivElement>(null);
+  const sftpPanelRef = useRef<HTMLDivElement>(null);
+  const tabContentRef = useRef<HTMLDivElement>(null);
+  const isDraggingH = useRef(false);
+  const isDraggingV = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(220);
+  const startYRef = useRef(0);
+  const startPctRef = useRef(45);
+
+  // Drag handlers — direct DOM manipulation, no React state during drag
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      e.preventDefault();
+      if (isDraggingH.current && sidebarRef.current) {
+        const delta = e.clientX - startXRef.current;
+        const w = Math.max(160, Math.min(400, startWidthRef.current + delta));
+        sidebarRef.current.style.width = w + "px";
+      }
+      if (isDraggingV.current && termPanelRef.current && sftpPanelRef.current) {
+        const parent = sftpPanelRef.current.parentElement;
+        if (parent) {
+          const rect = parent.getBoundingClientRect();
+          const delta = e.clientY - startYRef.current;
+          const deltaPct = (delta / rect.height) * 100;
+          const pct = Math.max(20, Math.min(80, startPctRef.current + deltaPct));
+          termPanelRef.current.style.flex = String(pct);
+          sftpPanelRef.current.style.flex = String(100 - pct);
+        }
+      }
+    };
+    const handleUp = () => {
+      if (isDraggingH.current) {
+        isDraggingH.current = false;
+        const w = sidebarRef.current?.offsetWidth ?? 220;
+        setSidebarWidth(w);
+      }
+      if (isDraggingV.current) {
+        isDraggingV.current = false;
+        const pct = Number(termPanelRef.current?.style.flex ?? 45);
+        setTerminalHeight(pct);
+      }
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.body.style.pointerEvents = "";
+    };
+    window.addEventListener("mousemove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, []);
+
+  // Sidebar state
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [groupSearchInput, setGroupSearchInput] = useState("");
-  const [groupSearchQuery, setGroupSearchQuery] = useState("");
-  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
-  const [editingGroupName, setEditingGroupName] = useState("");
+  const [sidebarSearch, setSidebarSearch] = useState("");
 
-  // Group dialog
+  // Dialogs
+  const [showNewDialog, setShowNewDialog] = useState(false);
+  const [newConnGroupId, setNewConnGroupId] = useState<number | null>(null);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
-  const [groupDialogMode, setGroupDialogMode] = useState<"create" | "edit" | null>(null);
-  const [groupForm, setGroupForm] = useState({
-    name: "",
-    parent_id: null as number | null,
-  });
-
-  // Group delete confirmation
+  const [editGroupDialogOpen, setEditGroupDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
-
-  // Connection delete confirmation
   const [connDeleteConfirmOpen, setConnDeleteConfirmOpen] = useState(false);
   const [connDeleteTargetId, setConnDeleteTargetId] = useState<number | null>(null);
 
-  // Form state
+  // Connection edit dialog
+  const [editConnDialogOpen, setEditConnDialogOpen] = useState(false);
+  const [editingConnection, setEditingConnection] = useState<SshConnection | null>(null);
+
+  // Form state (shared for new + edit)
   const [formName, setFormName] = useState("");
   const [formHost, setFormHost] = useState("");
   const [formPort, setFormPort] = useState("22");
   const [formUsername, setFormUsername] = useState("");
-  const [formAuthType, setFormAuthType] = useState<"password" | "publickey">(
-    "password"
-  );
+  const [formAuthType, setFormAuthType] = useState<"password" | "publickey">("password");
   const [formPassword, setFormPassword] = useState("");
   const [formKeyPath, setFormKeyPath] = useState("");
   const [formKeyPassphrase, setFormKeyPassphrase] = useState("");
   const [formGroupId, setFormGroupId] = useState<number | null>(null);
+
+  // Group form
+  const [groupForm, setGroupForm] = useState({ name: "", parent_id: null as number | null });
+  const [editGroupForm, setEditGroupForm] = useState({ id: 0, name: "", parent_id: null as number | null });
 
   const loadConnections = useCallback(async () => {
     try {
@@ -321,54 +382,14 @@ export default function Terminal() {
     loadGroups();
   }, [loadConnections, loadGroups]);
 
-  const filteredConnections = useMemo(() => {
-    let result = connections;
-    // Filter by group (include descendants)
-    if (activeGroupId != null) {
-      const allowedIds: number[] = [];
-      function collectDescendants(pid: number) {
-        allowedIds.push(pid);
-        for (const g of groups) {
-          if (g.parent_id === pid) collectDescendants(g.id);
-        }
-      }
-      collectDescendants(activeGroupId);
-      const allowedSet = new Set(allowedIds);
-      result = result.filter(
-        (c) => c.group_id != null && allowedSet.has(c.group_id)
-      );
-    }
-    // Filter by search
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.host.toLowerCase().includes(q) ||
-          c.username.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [connections, activeGroupId, searchQuery, groups]);
+  const groupTree = useMemo(() => buildGroupTree(groups, connections), [groups, connections]);
 
-  const groupCounts = useMemo(() => {
-    const counts: Record<number, number> = {};
-    connections.forEach((c) => {
-      if (c.group_id != null) {
-        counts[c.group_id] = (counts[c.group_id] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [connections]);
+  const flatGroups = useMemo(() => flattenGroups(groupTree), [groupTree]);
 
-  const totalCount = connections.length;
-
-  const groupTree = useMemo(() => buildGroupTree(groups), [groups]);
-
-  const displayedTree = useMemo(() => {
-    if (!groupSearchQuery.trim()) return groupTree;
-    return filterGroupTree(groupTree, groupSearchQuery);
-  }, [groupTree, groupSearchQuery]);
+  const activeConnectionId = useMemo(() => {
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    return activeTab?.connectionId ?? null;
+  }, [tabs, activeTabId]);
 
   const toggleExpand = (id: number) => {
     setExpandedIds((prev) => {
@@ -379,126 +400,41 @@ export default function Terminal() {
     });
   };
 
-  const handleGroupSearch = () => {
-    setGroupSearchQuery(groupSearchInput);
-  };
+  const handleConnect = async (conn: SshConnection) => {
+    const existing = tabs.find((t) => t.connectionId === conn.id);
+    if (existing) {
+      setActiveTab(existing.id);
+      return;
+    }
 
-  const handleCreateGroup = async () => {
-    if (!groupForm.name.trim()) return;
+    setConnectingId(conn.id);
     try {
-      await createGroup({
-        name: groupForm.name.trim(),
-        parent_id: groupForm.parent_id,
-        sort_order: groups.length,
+      const result = await sshConnect(conn.id);
+      addTab({
+        id: crypto.randomUUID(),
+        name: conn.name,
+        connectionId: conn.id,
+        sessionId: result.session_id,
+        websocketUrl: result.websocket_url,
       });
-      setGroupForm({ name: "", parent_id: null });
-      setGroupDialogOpen(false);
-      setGroupDialogMode(null);
-      loadGroups();
-    } catch (error) {
-      console.error("Failed to create group:", error);
-    }
-  };
-
-  const handleUpdateGroup = async (id: number) => {
-    if (!editingGroupName.trim()) return;
-    try {
-      const group = groups.find((g) => g.id === id);
-      if (!group) return;
-      await updateGroup({ ...group, name: editingGroupName.trim() });
-      setEditingGroupId(null);
-      setEditingGroupName("");
-      loadGroups();
-    } catch (error) {
-      console.error("Failed to update group:", error);
-    }
-  };
-
-  const handleDeleteGroup = (id: number) => {
-    setDeleteTargetId(id);
-    setDeleteConfirmOpen(true);
-  };
-
-  const confirmDeleteGroup = async () => {
-    if (deleteTargetId == null) return;
-    try {
-      await deleteGroup(deleteTargetId);
-      if (activeGroupId === deleteTargetId) setActiveGroupId(null);
-      loadGroups();
-      loadConnections();
-    } catch (error) {
-      console.error("Failed to delete group:", error);
-    }
-    setDeleteConfirmOpen(false);
-    setDeleteTargetId(null);
-  };
-
-  const resetForm = () => {
-    setFormName("");
-    setFormHost("");
-    setFormPort("22");
-    setFormUsername("");
-    setFormAuthType("password");
-    setFormPassword("");
-    setFormKeyPath("");
-    setFormKeyPassphrase("");
-    setFormGroupId(activeGroupId);
-  };
-
-  const handleCreateConnection = async () => {
-    try {
-      const authType =
-        formAuthType === "password"
-          ? { type: "Password" as const, password: formPassword }
-          : {
-              type: "PublicKey" as const,
-              key_path: formKeyPath,
-              passphrase: formKeyPassphrase || undefined,
-            };
-
-      await createSshConnection({
-        name: formName,
-        host: formHost,
-        port: parseInt(formPort, 10) || 22,
-        username: formUsername,
-        auth_type: authType,
-        group_id: formGroupId,
-      });
-
-      setShowNewDialog(false);
-      resetForm();
-      loadConnections();
-    } catch (err) {
-      console.error("Failed to create connection:", err);
-      alert("保存连接失败: " + String(err));
-    }
-  };
-
-  const handleConnect = async (connectionId: number) => {
-    if (connecting) return;
-    setConnecting(true);
-    try {
-      const result = await sshConnect(connectionId);
-      setWebsocketUrl(result.websocket_url);
-      setSessionId(result.session_id);
     } catch (err) {
       console.error("Failed to connect:", err);
       alert("连接失败: " + String(err));
     } finally {
-      setConnecting(false);
+      setConnectingId(null);
     }
   };
 
-  const handleDisconnect = async () => {
-    if (sessionId) {
+  const handleCloseTab = async (tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    if (tab) {
       try {
-        await sshDisconnect(sessionId);
+        await sshDisconnect(tab.sessionId);
       } catch (err) {
         console.error("Failed to disconnect:", err);
       }
     }
-    setWebsocketUrl("");
-    setSessionId("");
+    removeTab(tabId);
   };
 
   const handleDeleteConnection = (id: number) => {
@@ -519,429 +455,637 @@ export default function Terminal() {
     setConnDeleteTargetId(null);
   };
 
-  // Flat groups for select
-  const flatGroupsForSelect = useMemo(() => {
-    const result: { id: number; name: string; depth: number }[] = [];
-    function walk(nodes: GroupNode[], depth: number) {
-      for (const n of nodes) {
-        result.push({ id: n.id, name: n.name, depth });
-        walk(n.children, depth + 1);
-      }
+  const resetForm = () => {
+    setFormName("");
+    setFormHost("");
+    setFormPort("22");
+    setFormUsername("");
+    setFormAuthType("password");
+    setFormPassword("");
+    setFormKeyPath("");
+    setFormKeyPassphrase("");
+    setFormGroupId(null);
+  };
+
+  const handleNewConnection = (groupId: number | null) => {
+    resetForm();
+    setFormGroupId(groupId);
+    setNewConnGroupId(groupId);
+    setShowNewDialog(true);
+  };
+
+  const handleEditConnection = (conn: SshConnection) => {
+    setEditingConnection(conn);
+    setFormName(conn.name);
+    setFormHost(conn.host);
+    setFormPort(conn.port.toString());
+    setFormUsername(conn.username);
+    setFormGroupId(conn.group_id);
+
+    if (conn.auth_type.type === "Password") {
+      setFormAuthType("password");
+      setFormPassword(conn.auth_type.password);
+      setFormKeyPath("");
+      setFormKeyPassphrase("");
+    } else {
+      setFormAuthType("publickey");
+      setFormPassword("");
+      setFormKeyPath(conn.auth_type.key_path);
+      setFormKeyPassphrase(conn.auth_type.passphrase || "");
     }
-    walk(groupTree, 0);
-    return result;
-  }, [groupTree]);
+
+    setEditConnDialogOpen(true);
+  };
+
+  const handleSaveConnection = async () => {
+    const authType =
+      formAuthType === "password"
+        ? { type: "Password" as const, password: formPassword }
+        : {
+            type: "PublicKey" as const,
+            key_path: formKeyPath,
+            passphrase: formKeyPassphrase || undefined,
+          };
+
+    try {
+      if (editingConnection) {
+        await updateSshConnection({
+          ...editingConnection,
+          name: formName,
+          host: formHost,
+          port: parseInt(formPort, 10) || 22,
+          username: formUsername,
+          auth_type: authType,
+          group_id: formGroupId,
+        });
+        setEditConnDialogOpen(false);
+        setEditingConnection(null);
+      } else {
+        await createSshConnection({
+          name: formName,
+          host: formHost,
+          port: parseInt(formPort, 10) || 22,
+          username: formUsername,
+          auth_type: authType,
+          group_id: formGroupId,
+        });
+        setShowNewDialog(false);
+      }
+      resetForm();
+      loadConnections();
+    } catch (err) {
+      console.error("Failed to save connection:", err);
+      alert("保存失败: " + String(err));
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (!groupForm.name.trim()) return;
+    try {
+      await createGroup({
+        name: groupForm.name.trim(),
+        parent_id: groupForm.parent_id,
+        sort_order: groups.length,
+      });
+      setGroupForm({ name: "", parent_id: null });
+      setGroupDialogOpen(false);
+      loadGroups();
+    } catch (error) {
+      console.error("Failed to create group:", error);
+    }
+  };
+
+  const handleEditGroup = (group: Group) => {
+    setEditGroupForm({ id: group.id, name: group.name, parent_id: group.parent_id });
+    setEditGroupDialogOpen(true);
+  };
+
+  const handleSaveGroup = async () => {
+    if (!editGroupForm.name.trim()) return;
+    try {
+      const group = groups.find((g) => g.id === editGroupForm.id);
+      if (!group) return;
+      await updateGroup({ ...group, name: editGroupForm.name.trim(), parent_id: editGroupForm.parent_id });
+      setEditGroupDialogOpen(false);
+      loadGroups();
+    } catch (error) {
+      console.error("Failed to update group:", error);
+    }
+  };
+
+  const handleDeleteGroup = (id: number) => {
+    setDeleteTargetId(id);
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDeleteGroup = async () => {
+    if (deleteTargetId == null) return;
+    try {
+      await deleteGroup(deleteTargetId);
+      loadGroups();
+      loadConnections();
+    } catch (error) {
+      console.error("Failed to delete group:", error);
+    }
+    setDeleteConfirmOpen(false);
+    setDeleteTargetId(null);
+  };
+
+  // Filter tree by search
+  const filteredTree = useMemo(() => {
+    if (!sidebarSearch.trim()) return groupTree;
+    const q = sidebarSearch.toLowerCase();
+
+    function filterNodes(nodes: GroupNode[]): GroupNode[] {
+      const result: GroupNode[] = [];
+      for (const node of nodes) {
+        const matchName = node.name.toLowerCase().includes(q);
+        const filteredChildren = filterNodes(node.children);
+        const filteredConns = node.connections.filter(
+          (c) =>
+            c.name.toLowerCase().includes(q) ||
+            c.host.toLowerCase().includes(q)
+        );
+        if (matchName || filteredChildren.length > 0 || filteredConns.length > 0) {
+          result.push({
+            ...node,
+            children: matchName ? node.children : filteredChildren,
+            connections: matchName ? node.connections : filteredConns,
+          });
+        }
+      }
+      return result;
+    }
+
+    return filterNodes(groupTree);
+  }, [groupTree, sidebarSearch]);
+
+  // Expand all when searching
+  useEffect(() => {
+    if (sidebarSearch.trim()) {
+      const allIds = new Set<number>();
+      function collect(nodes: GroupNode[]) {
+        for (const n of nodes) {
+          allIds.add(n.id);
+          collect(n.children);
+        }
+      }
+      collect(filteredTree);
+      setExpandedIds(allIds);
+    }
+  }, [sidebarSearch, filteredTree]);
+
+  // Connection form dialog content (shared between new + edit)
+  const connectionFormContent = (
+    <div className="space-y-3 py-2">
+      <div className="space-y-1">
+        <Label className="text-[#aaa] text-xs">名称</Label>
+        <Input
+          placeholder="例如：生产服务器"
+          value={formName}
+          onChange={(e) => setFormName(e.target.value)}
+          className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="col-span-2 space-y-1">
+          <Label className="text-[#aaa] text-xs">主机</Label>
+          <Input
+            placeholder="192.168.1.1"
+            value={formHost}
+            onChange={(e) => setFormHost(e.target.value)}
+            className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[#aaa] text-xs">端口</Label>
+          <Input
+            placeholder="22"
+            value={formPort}
+            onChange={(e) => setFormPort(e.target.value)}
+            className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[#aaa] text-xs">用户名</Label>
+        <Input
+          placeholder="root"
+          value={formUsername}
+          onChange={(e) => setFormUsername(e.target.value)}
+          className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[#aaa] text-xs">分组</Label>
+        <select
+          value={formGroupId?.toString() || ""}
+          onChange={(e) => setFormGroupId(e.target.value ? Number(e.target.value) : null)}
+          className="flex h-9 w-full rounded-md border border-[#333] bg-[#1a1a2e] px-3 py-1 text-sm text-[#ccc]"
+        >
+          <option value="">未分组</option>
+          {flatGroups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {"\u00A0".repeat(g.depth * 2)}
+              {g.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[#aaa] text-xs">认证方式</Label>
+        <Select value={formAuthType} onValueChange={(v) => setFormAuthType(v as "password" | "publickey")}>
+          <SelectTrigger className="bg-[#1a1a2e] border-[#333] text-[#ccc]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[#1e1e2e] border-[#333]">
+            <SelectItem value="password">密码</SelectItem>
+            <SelectItem value="publickey">公钥</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {formAuthType === "password" ? (
+        <div className="space-y-1">
+          <Label className="text-[#aaa] text-xs">密码</Label>
+          <Input
+            type="password"
+            value={formPassword}
+            onChange={(e) => setFormPassword(e.target.value)}
+            className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+          />
+        </div>
+      ) : (
+        <>
+          <div className="space-y-1">
+            <Label className="text-[#aaa] text-xs">密钥路径</Label>
+            <Input
+              placeholder="~/.ssh/id_rsa"
+              value={formKeyPath}
+              onChange={(e) => setFormKeyPath(e.target.value)}
+              className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[#aaa] text-xs">密钥密码（可选）</Label>
+            <Input
+              type="password"
+              value={formKeyPassphrase}
+              onChange={(e) => setFormKeyPassphrase(e.target.value)}
+              className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+            />
+          </div>
+        </>
+      )}
+      <div className="flex justify-end gap-2 pt-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-[#444] text-[#ccc] hover:bg-[#333]"
+          onClick={() => {
+            if (editingConnection) {
+              setEditConnDialogOpen(false);
+              setEditingConnection(null);
+            } else {
+              setShowNewDialog(false);
+            }
+            resetForm();
+          }}
+        >
+          取消
+        </Button>
+        <Button
+          size="sm"
+          className="bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
+          onClick={handleSaveConnection}
+          disabled={!formName || !formHost || !formUsername}
+        >
+          {editingConnection ? "保存修改" : "保存连接"}
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="flex h-full">
-      {/* Sidebar - Group Navigation */}
-      <div className="w-64 border-r bg-muted/30 flex flex-col shrink-0">
-        <div className="p-4 border-b">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            分组
-          </h2>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          <button
-            onClick={() => setActiveGroupId(null)}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
-              activeGroupId === null
-                ? "bg-primary text-primary-foreground"
-                : "hover:bg-accent text-foreground"
-            }`}
+    <div className="flex h-full bg-[#1e1e2e]">
+      {/* ── Sidebar ── */}
+      <div
+        className="border-r border-[#333] flex flex-col shrink-0 bg-[#161622]"
+        style={{ width: sidebarWidth }}
+        ref={sidebarRef}
+      >
+        <div className="px-3 py-2 border-b border-[#333] flex items-center justify-between">
+          <span className="text-[11px] font-bold text-[#888] uppercase tracking-wider">连接管理</span>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6 text-[#0dbc79] hover:bg-[#252540]"
+            onClick={() => handleNewConnection(null)}
           >
-            <span className="flex items-center gap-2">
-              <Folder className="h-4 w-4" />
-              全部
-            </span>
-            <span className="text-xs opacity-70">{totalCount}</span>
-          </button>
-          {displayedTree.map((node) => (
-            <TreeNode
-              key={node.id}
-              node={node}
-              depth={0}
-              activeGroupId={activeGroupId}
-              setActiveGroupId={setActiveGroupId}
-              expandedIds={expandedIds}
-              toggleExpand={toggleExpand}
-              groupCounts={groupCounts}
-              editingGroupId={editingGroupId}
-              setEditingGroupId={setEditingGroupId}
-              editingGroupName={editingGroupName}
-              setEditingGroupName={setEditingGroupName}
-              handleUpdateGroup={handleUpdateGroup}
-              handleDeleteGroup={handleDeleteGroup}
-            />
-          ))}
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
         </div>
-        <div className="p-3 border-t space-y-2">
-          <div className="flex items-center gap-2">
+
+        {/* Search */}
+        <div className="px-2 py-1.5 border-b border-[#333]">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[#666]" />
             <Input
-              placeholder="搜索分组"
-              value={groupSearchInput}
-              onChange={(e) => setGroupSearchInput(e.target.value)}
-              className="h-8 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleGroupSearch();
-              }}
+              placeholder="搜索分组或连接..."
+              value={sidebarSearch}
+              onChange={(e) => setSidebarSearch(e.target.value)}
+              className="h-7 text-xs pl-7 bg-[#1a1a2e] border-[#333] text-[#ccc] placeholder:text-[#555]"
             />
-            <Button
-              size="icon"
-              variant="outline"
-              className="h-8 w-8 shrink-0"
-              onClick={handleGroupSearch}
-            >
-              <Search className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => {
-                setGroupForm({ name: "", parent_id: activeGroupId });
-                setGroupDialogMode("create");
-                setGroupDialogOpen(true);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
           </div>
+        </div>
+
+        {/* Tree */}
+        <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
+          {filteredTree.length === 0 && connections.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 px-4">
+              <Server className="h-8 w-8 text-[#444] mb-2" />
+              <p className="text-[11px] text-[#666] text-center">暂无连接</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2 text-[10px] text-[#0dbc79] hover:bg-[#252540]"
+                onClick={() => handleNewConnection(null)}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                添加连接
+              </Button>
+            </div>
+          ) : (
+            <>
+              {/* Ungrouped connections */}
+              {connections.filter((c) => c.group_id == null).length > 0 && (
+                <div className="mb-1">
+                  <div className="px-2 py-1 text-[10px] text-[#666] font-medium">未分组</div>
+                  {connections
+                    .filter((c) => c.group_id == null)
+                    .map((conn) => (
+                      <div
+                        key={conn.id}
+                        onDoubleClick={() => handleConnect(conn)}
+                        className={`group flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors ${
+                          activeConnectionId === conn.id
+                            ? "bg-[#0dbc79]/20 text-[#0dbc79]"
+                            : "hover:bg-[#252540] text-[#999]"
+                        }`}
+                      >
+                        <TerminalIcon className="h-3 w-3 shrink-0" />
+                        <span className="truncate flex-1 cursor-default">{conn.name}</span>
+                        <span className="text-[10px] text-[#666] shrink-0">{conn.host}</span>
+                        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConnect(conn);
+                            }}
+                            className="p-0.5 rounded hover:bg-[#333] text-[#0dbc79]"
+                            title="连接"
+                          >
+                            <Play className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditConnection(conn);
+                            }}
+                            className="p-0.5 rounded hover:bg-[#333] text-[#888]"
+                            title="编辑"
+                          >
+                            <Edit className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteConnection(conn.id);
+                            }}
+                            className="p-0.5 rounded hover:bg-[#333] text-[#f14c4c]"
+                            title="删除"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+              {/* Group tree */}
+              {filteredTree.map((node) => (
+                <SidebarTreeNode
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  expandedIds={expandedIds}
+                  toggleExpand={toggleExpand}
+                  onConnect={handleConnect}
+                  onEditConnection={handleEditConnection}
+                  onDeleteConnection={handleDeleteConnection}
+                  onNewConnection={handleNewConnection}
+                  onEditGroup={handleEditGroup}
+                  onDeleteGroup={handleDeleteGroup}
+                  activeConnectionId={activeConnectionId}
+                />
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Bottom: add group */}
+        <div className="px-2 py-1.5 border-t border-[#333]">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full h-7 text-[10px] text-[#888] hover:bg-[#252540] hover:text-[#ccc] justify-start"
+            onClick={() => {
+              setGroupForm({ name: "", parent_id: null });
+              setGroupDialogOpen(true);
+            }}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            新建分组
+          </Button>
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Horizontal splitter */}
+      <div
+        className="w-[5px] bg-[#222] hover:bg-[#0dbc79] cursor-col-resize shrink-0 z-20 transition-colors"
+        onMouseDown={(e) => {
+          isDraggingH.current = true;
+          startXRef.current = e.clientX;
+          startWidthRef.current = sidebarRef.current?.offsetWidth ?? 220;
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+          document.body.style.pointerEvents = "none";
+        }}
+      />
+
+      {/* ── Main Content ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {websocketUrl ? (
-          <>
-            {/* Terminal toolbar */}
-            <div className="flex items-center gap-2 border-b p-3">
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={handleDisconnect}
+        {/* Tab bar */}
+        {tabs.length > 0 && (
+          <div className="flex items-center border-b border-[#333] bg-[#1a1a2e] overflow-x-auto">
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`group flex items-center gap-1.5 px-3 py-2 text-xs cursor-pointer border-r border-[#333] shrink-0 transition-colors min-w-0 ${
+                  activeTabId === tab.id
+                    ? "bg-[#1e1e2e] text-[#0dbc79] border-t-2 border-t-[#0dbc79]"
+                    : "bg-[#161622] text-[#888] hover:bg-[#1e1e2e] hover:text-[#ccc]"
+                }`}
               >
-                <Unplug className="mr-1 h-3 w-3" />
-                断开
-              </Button>
-              <span className="ml-auto text-xs text-emerald-500 flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                已连接
-              </span>
-            </div>
-            {/* 上下分栏：SSH 终端 + SFTP */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* SSH 终端 - 上部 45% */}
-              <div className="h-[45%] border-b border-[#333] overflow-hidden bg-[#1a1a2e]">
-                <XTerm websocketUrl={websocketUrl} />
+                <TerminalIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate max-w-[120px]">{tab.name}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCloseTab(tab.id);
+                  }}
+                  className={`p-0.5 rounded hover:bg-[#333] shrink-0 ${
+                    activeTabId === tab.id ? "text-[#888]" : "text-[#555]"
+                  }`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
-              {/* SFTP 文件管理器 - 下部 55% */}
-              <div className="h-[55%] overflow-hidden">
-                <SftpPanel sessionId={sessionId} />
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Connection list toolbar */}
-            <div className="flex items-center justify-between p-4 border-b">
-              <h1 className="text-xl font-bold">SSH 连接</h1>
+            ))}
+          </div>
+        )}
+
+        {/* Content area */}
+        <div className="flex-1 relative overflow-hidden">
+          {tabs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full">
+              <Server className="h-16 w-16 text-[#333] mb-4" />
+              <h3 className="text-lg font-semibold text-[#666]">未打开任何会话</h3>
+              <p className="mt-2 text-sm text-[#555]">双击左侧连接或点击连接按钮，或新建一个连接</p>
               <Button
-                onClick={() => {
-                  resetForm();
-                  setFormGroupId(activeGroupId);
-                  setShowNewDialog(true);
-                }}
+                className="mt-6 bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
+                onClick={() => handleNewConnection(null)}
               >
-                <Plus className="mr-1 h-4 w-4" />
+                <Plus className="mr-2 h-4 w-4" />
                 新建连接
               </Button>
             </div>
-
-            {/* Search */}
-            <div className="p-4 pb-0">
-              <div className="relative max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="搜索连接名称、主机、用户名..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            {/* Connection list */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {connections.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-                    <Server className="h-10 w-10 text-muted-foreground" />
+          ) : (
+            tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className="absolute inset-0 flex flex-col"
+                style={{
+                  display: activeTabId === tab.id ? "flex" : "none",
+                }}
+              >
+                {/* Status bar */}
+                <div className="flex items-center justify-between px-3 py-1 border-b border-[#333] bg-[#1a1a2e] shrink-0">
+                  <span className="text-[10px] text-[#0dbc79] flex items-center gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#0dbc79] animate-pulse" />
+                    {tab.name} — {tab.websocketUrl}
+                  </span>
+                </div>
+                {/* Terminal + SFTP */}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="overflow-hidden bg-[#1a1a2e]" ref={termPanelRef} style={{ flex: terminalHeight }}>
+                    <XTerm websocketUrl={tab.websocketUrl} />
                   </div>
-                  <h3 className="mt-6 text-lg font-semibold">还没有连接</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    添加你的第一个 SSH 连接
-                  </p>
-                  <Button
-                    className="mt-6"
-                    onClick={() => {
-                      resetForm();
-                      setFormGroupId(activeGroupId);
-                      setShowNewDialog(true);
+                  {/* Vertical splitter */}
+                  <div
+                    className="h-[5px] bg-[#222] hover:bg-[#0dbc79] cursor-row-resize shrink-0 z-10 transition-colors"
+                    onMouseDown={(e) => {
+                      isDraggingV.current = true;
+                      startYRef.current = e.clientY;
+                      const parent = sftpPanelRef.current?.parentElement;
+                      if (parent) {
+                        const rect = parent.getBoundingClientRect();
+                        const top = termPanelRef.current?.getBoundingClientRect().top ?? rect.top;
+                        startPctRef.current = ((e.clientY - top) / rect.height) * 100;
+                      }
+                      document.body.style.cursor = "row-resize";
+                      document.body.style.userSelect = "none";
+                      document.body.style.pointerEvents = "none";
                     }}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    添加第一个连接
-                  </Button>
+                  />
+                  <div className="overflow-hidden" ref={sftpPanelRef} style={{ flex: 100 - terminalHeight }}>
+                    <SftpPanel sessionId={tab.sessionId} />
+                  </div>
                 </div>
-              ) : filteredConnections.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16">
-                  <Search className="h-10 w-10 text-muted-foreground" />
-                  <p className="mt-4 text-muted-foreground">
-                    没有找到匹配的连接
-                  </p>
-                  <Button
-                    variant="outline"
-                    className="mt-4"
-                    onClick={() => setSearchQuery("")}
-                  >
-                    清除搜索
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {filteredConnections.map((conn) => (
-                    <div
-                      key={conn.id}
-                      className="flex items-center gap-4 rounded-md border p-3 hover:bg-accent/50 transition-colors"
-                    >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        <Server className="h-4.5 w-4.5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{conn.name}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {conn.host}:{conn.port}
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {conn.username}@{conn.host}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Button
-                          size="sm"
-                          onClick={() => handleConnect(conn.id)}
-                          disabled={connecting}
-                        >
-                          {connecting ? "连接中..." : "连接"}
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 hover:text-destructive"
-                          onClick={() => handleDeleteConnection(conn.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
-      {/* New Connection Dialog */}
+      {/* ── New Connection Dialog ── */}
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-md">
           <DialogHeader>
-            <DialogTitle>新建 SSH 连接</DialogTitle>
+            <DialogTitle className="text-[#eee]">新建 SSH 连接</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="name">名称</Label>
-              <Input
-                id="name"
-                placeholder="例如：生产服务器"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="host">主机</Label>
-                <Input
-                  id="host"
-                  placeholder="192.168.1.1"
-                  value={formHost}
-                  onChange={(e) => setFormHost(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="port">端口</Label>
-                <Input
-                  id="port"
-                  placeholder="22"
-                  value={formPort}
-                  onChange={(e) => setFormPort(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="username">用户名</Label>
-              <Input
-                id="username"
-                placeholder="root"
-                value={formUsername}
-                onChange={(e) => setFormUsername(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>分组</Label>
-              <select
-                value={formGroupId?.toString() || ""}
-                onChange={(e) =>
-                  setFormGroupId(
-                    e.target.value ? Number(e.target.value) : null
-                  )
-                }
-                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
-              >
-                <option value="">未分组</option>
-                {flatGroupsForSelect.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {"\u00A0".repeat(g.depth * 2)}
-                    {g.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>认证方式</Label>
-              <Select
-                value={formAuthType}
-                onValueChange={(v) =>
-                  setFormAuthType(v as "password" | "publickey")
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="password">密码</SelectItem>
-                  <SelectItem value="publickey">公钥</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {formAuthType === "password" ? (
-              <div className="space-y-2">
-                <Label htmlFor="password">密码</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={formPassword}
-                  onChange={(e) => setFormPassword(e.target.value)}
-                />
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="keyPath">密钥路径</Label>
-                  <Input
-                    id="keyPath"
-                    placeholder="~/.ssh/id_rsa"
-                    value={formKeyPath}
-                    onChange={(e) => setFormKeyPath(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="keyPassphrase">密钥密码（可选）</Label>
-                  <Input
-                    id="keyPassphrase"
-                    type="password"
-                    value={formKeyPassphrase}
-                    onChange={(e) => setFormKeyPassphrase(e.target.value)}
-                  />
-                </div>
-              </>
-            )}
-            <Button
-              className="w-full"
-              onClick={handleCreateConnection}
-              disabled={!formName || !formHost || !formUsername}
-            >
-              保存连接
-            </Button>
-          </div>
+          {connectionFormContent}
         </DialogContent>
       </Dialog>
 
-      {/* Group Create/Edit Dialog */}
-      <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
-        <DialogContent>
+      {/* ── Edit Connection Dialog ── */}
+      <Dialog open={editConnDialogOpen} onOpenChange={setEditConnDialogOpen}>
+        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {groupDialogMode === "edit" ? "编辑分组" : "新建分组"}
-            </DialogTitle>
+            <DialogTitle className="text-[#eee]">编辑 SSH 连接</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>
-                分组名称 <span className="text-destructive">*</span>
-              </Label>
+          {connectionFormContent}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── New Group Dialog ── */}
+      <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-[#eee]">新建分组</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-[#aaa] text-xs">分组名称</Label>
               <Input
                 value={groupForm.name}
-                onChange={(e) =>
-                  setGroupForm({ ...groupForm, name: e.target.value })
-                }
+                onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })}
                 placeholder="输入分组名称"
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && groupForm.name.trim())
-                    handleCreateGroup();
+                  if (e.key === "Enter" && groupForm.name.trim()) handleCreateGroup();
                 }}
+                className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
               />
             </div>
-            <div className="space-y-2">
-              <Label>上级分组</Label>
+            <div className="space-y-1">
+              <Label className="text-[#aaa] text-xs">上级分组</Label>
               <select
                 value={groupForm.parent_id?.toString() || ""}
-                onChange={(e) =>
-                  setGroupForm({
-                    ...groupForm,
-                    parent_id: e.target.value
-                      ? Number(e.target.value)
-                      : null,
-                  })
-                }
-                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
+                onChange={(e) => setGroupForm({ ...groupForm, parent_id: e.target.value ? Number(e.target.value) : null })}
+                className="flex h-9 w-full rounded-md border border-[#333] bg-[#1a1a2e] px-3 py-1 text-sm text-[#ccc]"
               >
                 <option value="">一级分组</option>
-                {flatGroupsForSelect.map((g) => (
+                {flatGroups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {"\u00A0".repeat(g.depth * 2)}
                     {g.name}
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-muted-foreground">
-                选择上级分组可将该分组作为子分组，留空则为一级分组
-              </p>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setGroupDialogOpen(false);
-                  setGroupDialogMode(null);
-                }}
+                size="sm"
+                className="border-[#444] text-[#ccc] hover:bg-[#333]"
+                onClick={() => setGroupDialogOpen(false)}
               >
                 取消
               </Button>
               <Button
+                size="sm"
+                className="bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
                 onClick={handleCreateGroup}
                 disabled={!groupForm.name.trim()}
               >
@@ -952,20 +1096,80 @@ export default function Terminal() {
         </DialogContent>
       </Dialog>
 
-      {/* Group Delete Confirmation Dialog */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent>
+      {/* ── Edit Group Dialog ── */}
+      <Dialog open={editGroupDialogOpen} onOpenChange={setEditGroupDialogOpen}>
+        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
           <DialogHeader>
-            <DialogTitle>确认删除分组</DialogTitle>
+            <DialogTitle className="text-[#eee]">编辑分组</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              确定要删除该分组吗？该分组下的连接将变为未分组，子分组将提升为一级分组。
-            </p>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-[#aaa] text-xs">分组名称</Label>
+              <Input
+                value={editGroupForm.name}
+                onChange={(e) => setEditGroupForm({ ...editGroupForm, name: e.target.value })}
+                placeholder="输入分组名称"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && editGroupForm.name.trim()) handleSaveGroup();
+                }}
+                className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[#aaa] text-xs">上级分组</Label>
+              <select
+                value={editGroupForm.parent_id?.toString() || ""}
+                onChange={(e) => setEditGroupForm({ ...editGroupForm, parent_id: e.target.value ? Number(e.target.value) : null })}
+                className="flex h-9 w-full rounded-md border border-[#333] bg-[#1a1a2e] px-3 py-1 text-sm text-[#ccc]"
+              >
+                <option value="">一级分组</option>
+                {flatGroups
+                  .filter((g) => g.id !== editGroupForm.id)
+                  .map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {"\u00A0".repeat(g.depth * 2)}
+                      {g.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-[#444] text-[#ccc] hover:bg-[#333]"
+                onClick={() => setEditGroupDialogOpen(false)}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                className="bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
+                onClick={handleSaveGroup}
+                disabled={!editGroupForm.name.trim()}
+              >
+                保存
+              </Button>
+            </div>
           </div>
-          <div className="flex justify-end gap-2">
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Group Delete Confirmation ── */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-[#eee]">确认删除分组</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-[#999] py-2">
+            确定要删除该分组吗？该分组下的连接将变为未分组，子分组将提升为一级分组。
+          </p>
+          <div className="flex justify-end gap-2 mt-4">
             <Button
               variant="outline"
+              size="sm"
+              className="border-[#444] text-[#ccc] hover:bg-[#333]"
               onClick={() => {
                 setDeleteConfirmOpen(false);
                 setDeleteTargetId(null);
@@ -973,27 +1177,30 @@ export default function Terminal() {
             >
               取消
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteGroup}>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="bg-[#c0392b] hover:bg-[#e74c3c]"
+              onClick={confirmDeleteGroup}
+            >
               删除
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Connection Delete Confirmation Dialog */}
+      {/* ── Connection Delete Confirmation ── */}
       <Dialog open={connDeleteConfirmOpen} onOpenChange={setConnDeleteConfirmOpen}>
-        <DialogContent>
+        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
           <DialogHeader>
-            <DialogTitle>确认删除连接</DialogTitle>
+            <DialogTitle className="text-[#eee]">确认删除连接</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              确定要删除该 SSH 连接吗？此操作不可撤销。
-            </p>
-          </div>
-          <div className="flex justify-end gap-2">
+          <p className="text-sm text-[#999] py-2">确定要删除该 SSH 连接吗？此操作不可撤销。</p>
+          <div className="flex justify-end gap-2 mt-4">
             <Button
               variant="outline"
+              size="sm"
+              className="border-[#444] text-[#ccc] hover:bg-[#333]"
               onClick={() => {
                 setConnDeleteConfirmOpen(false);
                 setConnDeleteTargetId(null);
@@ -1001,7 +1208,12 @@ export default function Terminal() {
             >
               取消
             </Button>
-            <Button variant="destructive" onClick={confirmDeleteConnection}>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="bg-[#c0392b] hover:bg-[#e74c3c]"
+              onClick={confirmDeleteConnection}
+            >
               删除
             </Button>
           </div>

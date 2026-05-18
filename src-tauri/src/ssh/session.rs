@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::client::SshConnectionManager;
-use super::types::{SshAuthType, SshConnection, SshSessionInfo};
+use super::types::{SshConnection, SshSessionInfo};
 
 pub struct SshSessionManager {
     sessions: Mutex<HashMap<String, SshSession>>,
@@ -71,8 +71,14 @@ impl SshSessionManager {
             .get_mut(session_id)
             .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
 
+        eprintln!("[ssh] Opening PTY for session {}", session_id);
         let channel = session.connection_manager.open_pty().await?;
-        let websocket_port = find_available_port().await?;
+        eprintln!("[ssh] PTY opened successfully");
+
+        // Bind to an ephemeral port — keep the listener open so no one steals the port.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let websocket_port = listener.local_addr()?.port();
+        eprintln!("[ssh] WebSocket listener bound to port {}", websocket_port);
 
         let channel_arc = Arc::new(Mutex::new(channel));
         session.channel = Some(channel_arc.clone());
@@ -80,7 +86,11 @@ impl SshSessionManager {
 
         // 启动 WebSocket 服务器
         tokio::spawn(async move {
-            let _ = super::websocket::start_pty_server(websocket_port, channel_arc).await;
+            eprintln!("[ssh] Starting WebSocket server on port {}", websocket_port);
+            if let Err(e) = super::websocket::start_pty_server(listener, channel_arc).await {
+                eprintln!("[ssh] WebSocket server error: {}", e);
+            }
+            eprintln!("[ssh] WebSocket server task ended");
         });
 
         Ok(websocket_port)
@@ -104,11 +114,10 @@ impl SshSessionManager {
         let sessions = self.sessions.lock().await;
         sessions.get(session_id).map(|s| s.info.clone())
     }
+
+    pub async fn get_active_sessions_count(&self) -> usize {
+        let sessions = self.sessions.lock().await;
+        sessions.len()
+    }
 }
 
-async fn find_available_port() -> anyhow::Result<u16> {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
-    Ok(port)
-}
