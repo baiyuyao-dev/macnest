@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection } from "@/types";
+import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection, SftpFile } from "@/types";
 
 // ===== 服务管理 =====
 
@@ -184,7 +184,7 @@ export async function updateSettings(data: {
 export async function createSshConnection(
   data: Omit<SshConnection, "id" | "created_at" | "updated_at">
 ): Promise<number> {
-  return invoke("create_ssh_connection", { req: data });
+  return invoke("create_ssh_connection", { req: { ...data, group_id: data.group_id ?? null } });
 }
 
 export async function listSshConnections(): Promise<SshConnection[]> {
@@ -195,10 +195,65 @@ export async function deleteSshConnection(id: number): Promise<void> {
   return invoke("delete_ssh_connection", { id });
 }
 
-export async function sshConnect(connectionId: number): Promise<string> {
+export async function sshConnect(connectionId: number): Promise<{ session_id: string; websocket_url: string }> {
   return invoke("ssh_connect", { connectionId });
 }
 
 export async function sshDisconnect(sessionId: string): Promise<void> {
   return invoke("ssh_disconnect", { sessionId });
+}
+
+// ===== SFTP 文件管理 =====
+
+export async function sftpListDir(
+  sessionId: string,
+  path: string
+): Promise<SftpFile[]> {
+  return invoke("sftp_list_dir", { sessionId, path });
+}
+
+export async function sftpDelete(
+  sessionId: string,
+  path: string,
+  isDir: boolean
+): Promise<void> {
+  return invoke("sftp_delete", { sessionId, path, isDir });
+}
+
+export async function sftpMkdir(
+  sessionId: string,
+  path: string
+): Promise<void> {
+  return invoke("sftp_mkdir", { sessionId, path });
+}
+
+export async function sftpRename(
+  sessionId: string,
+  oldPath: string,
+  newPath: string
+): Promise<void> {
+  return invoke("sftp_rename", { sessionId, oldPath, newPath });
+}
+
+export async function sftpGetFileInfo(
+  sessionId: string,
+  path: string
+): Promise<SftpFile> {
+  return invoke("sftp_get_file_info", { sessionId, path });
+}
+
+export async function sftpUpload(
+  sessionId: string,
+  localPath: string,
+  remotePath: string
+): Promise<void> {
+  return invoke("sftp_upload", { sessionId, localPath, remotePath });
+}
+
+export async function sftpDownload(
+  sessionId: string,
+  remotePath: string,
+  localPath: string
+): Promise<void> {
+  return invoke("sftp_download", { sessionId, remotePath, localPath });
 }
