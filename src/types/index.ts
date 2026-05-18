@@ -74,6 +74,7 @@ export interface SystemInfo {
   cpu_cores: number;
   memory_total_mb: number;
   uptime_seconds: number;
+  local_ip: string;
 }
 
 export interface ServiceLog {
@@ -112,7 +113,7 @@ export interface SshConnection {
   auth_type:
     | { type: "Password"; password: string }
     | { type: "PublicKey"; key_path: string; passphrase?: string };
-  group_name: string;
+  group_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -125,4 +126,29 @@ export interface SshSessionInfo {
   connected: boolean;
   connected_at: string;
   websocket_port: number;
+}
+
+export interface SshConnectResponse {
+  session_id: string;
+  websocket_url: string;
+}
+
+export interface SftpFile {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  modified_time: string;
+  permissions: string;
+  owner: string;
+  group: string;
+}
+
+export interface SftpTransfer {
+  id: string;
+  file_name: string;
+  direction: "upload" | "download";
+  total_bytes: number;
+  transferred_bytes: number;
+  status: "pending" | "in_progress" | "completed" | "failed";
 }

@@ -9,7 +9,7 @@ pub struct SshConnection {
     pub port: u16,
     pub username: String,
     pub auth_type: SshAuthType,
-    pub group_name: String,
+    pub group_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -31,4 +31,16 @@ pub struct SshSessionInfo {
     pub connected: bool,
     pub connected_at: String,
     pub websocket_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SftpFile {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub modified_time: String,
+    pub permissions: String,
+    pub owner: String,
+    pub group: String,
 }
