@@ -96,6 +96,21 @@
   animation: skeletonShimmer 1.5s ease-in-out infinite;
 }
 
+/* ── SFTP transfer indeterminate progress ── */
+@keyframes progressIndeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.animate-progress-indeterminate {
+  animation: progressIndeterminate 1.5s ease-in-out infinite;
+  width: 50%;
+}
+
 /* xterm.js styles */
 .xterm {
   height: 100% !important;

@@ -36,19 +36,27 @@ export default function SftpFileDetail({ file, transfers }: SftpFileDetailProps)
           <p className="p-2 text-[10px] text-[#666]">暂无传输</p>
         ) : (
           transfers.map((t) => (
-            <div key={t.id} className="px-2 py-1.5 text-[9px] text-[#0dbc79] border-b border-[#222]">
-              {t.direction === "upload" ? "⬆" : "⬇"} {t.file_name}
-              <div className="h-[3px] bg-[#333] rounded mt-1">
-                <div
-                  className="h-full bg-[#0dbc79] rounded"
-                  style={{
-                    width: `${t.total_bytes > 0 ? (t.transferred_bytes / t.total_bytes) * 100 : 0}%`,
-                  }}
-                />
+            <div key={t.id} className="px-2 py-1.5 text-[9px] border-b border-[#222]">
+              <div className={t.status === "completed" ? "text-[#0dbc79]" : "text-[#e5e510]"}>
+                {t.direction === "upload" ? "⬆" : "⬇"} {t.file_name}
               </div>
-              <div className="mt-0.5 text-[#888]">
-                {formatSize(t.transferred_bytes)} / {formatSize(t.total_bytes)}
-              </div>
+              {t.status === "in_progress" ? (
+                <>
+                  <div className="h-[3px] bg-[#333] rounded mt-1 overflow-hidden">
+                    <div className="h-full bg-[#e5e510] rounded animate-progress-indeterminate" />
+                  </div>
+                  <div className="mt-0.5 text-[#888]">传输中...</div>
+                </>
+              ) : (
+                <>
+                  <div className="h-[3px] bg-[#333] rounded mt-1">
+                    <div className="h-full bg-[#0dbc79] rounded" style={{ width: "100%" }} />
+                  </div>
+                  <div className="mt-0.5 text-[#0dbc79]">
+                    {t.total_bytes > 0 ? `${formatSize(t.total_bytes)} | ` : ""}已完成
+                  </div>
+                </>
+              )}
             </div>
           ))
         )}
