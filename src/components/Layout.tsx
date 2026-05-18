@@ -6,6 +6,7 @@ import {
   Bookmark,
   Activity,
   Terminal as TerminalIcon,
+  Monitor,
   Settings,
   Moon,
   Sun,
@@ -18,6 +19,7 @@ const navItems = [
   { to: "/docker", icon: Container, label: "Docker" },
   { to: "/bookmarks", icon: Bookmark, label: "导航" },
   { to: "/terminal", icon: TerminalIcon, label: "终端" },
+  { to: "/tmux", icon: Monitor, label: "Tmux" },
   { to: "/system", icon: Activity, label: "系统" },
 ];
 

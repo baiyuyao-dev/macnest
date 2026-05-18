@@ -150,5 +150,35 @@ export interface SftpTransfer {
   direction: "upload" | "download";
   total_bytes: number;
   transferred_bytes: number;
-  status: "pending" | "in_progress" | "completed" | "failed";
+  status: "pending" | "in_progress" | "completed" | "failed" | "cancelled";
+}
+
+export interface TransferProgress {
+  id: string;
+  file_name: string;
+  direction: string;
+  total_bytes: number;
+  transferred_bytes: number;
+  status: string;
+}
+
+// ===== Tmux 管理 =====
+
+export interface TmuxSession {
+  name: string;
+  windows: number;
+  attached: boolean;
+  created_at: string;
+  pid: number;
+}
+
+export interface CreateTmuxSessionRequest {
+  name: string;
+  start_directory?: string;
+  command?: string;
+}
+
+export interface RenameTmuxSessionRequest {
+  old_name: string;
+  new_name: string;
 }

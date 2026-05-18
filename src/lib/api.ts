@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection, SftpFile } from "@/types";
+import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection, SftpFile, TransferProgress } from "@/types";
 
 // ===== 服务管理 =====
 
@@ -244,16 +244,95 @@ export async function sftpGetFileInfo(
 
 export async function sftpUpload(
   sessionId: string,
+  transferId: string,
   localPath: string,
   remotePath: string
 ): Promise<void> {
-  return invoke("sftp_upload", { sessionId, localPath, remotePath });
+  return invoke("sftp_upload", { sessionId, transferId, localPath, remotePath });
 }
 
 export async function sftpDownload(
   sessionId: string,
+  transferId: string,
   remotePath: string,
   localPath: string
 ): Promise<void> {
-  return invoke("sftp_download", { sessionId, remotePath, localPath });
+  return invoke("sftp_download", { sessionId, transferId, remotePath, localPath });
+}
+
+export async function sftpGetProgress(
+  transferId: string
+): Promise<TransferProgress | null> {
+  return invoke("sftp_get_progress", { transferId });
+}
+
+export async function sftpCancelTransfer(
+  transferId: string
+): Promise<void> {
+  return invoke("sftp_cancel_transfer", { transferId });
+}
+
+export async function sftpClearCompleted(): Promise<void> {
+  return invoke("sftp_clear_completed");
+}
+
+// ===== Tmux 管理 =====
+
+export interface TmuxSession {
+  name: string;
+  windows: number;
+  attached: boolean;
+  created_at: string;
+  pid: number;
+}
+
+export interface CreateTmuxSessionRequest {
+  name: string;
+  start_directory?: string;
+  command?: string;
+}
+
+export interface RenameTmuxSessionRequest {
+  old_name: string;
+  new_name: string;
+}
+
+export async function tmuxListSessions(): Promise<TmuxSession[]> {
+  return invoke("tmux_list_sessions");
+}
+
+export async function tmuxCreateSession(req: CreateTmuxSessionRequest): Promise<void> {
+  return invoke("tmux_create_session", { req });
+}
+
+export async function tmuxKillSession(name: string): Promise<void> {
+  return invoke("tmux_kill_session", { name });
+}
+
+export async function tmuxRenameSession(req: RenameTmuxSessionRequest): Promise<void> {
+  return invoke("tmux_rename_session", { req });
+}
+
+export async function tmuxIsAvailable(): Promise<boolean> {
+  return invoke("tmux_is_available");
+}
+
+export async function tmuxAttachPty(sessionName: string, channel: unknown): Promise<string> {
+  return invoke("tmux_attach_pty", { sessionName, channel });
+}
+
+export async function tmuxPtyWrite(ptyId: string, data: Uint8Array): Promise<void> {
+  return invoke("tmux_pty_write", { ptyId, data: Array.from(data) });
+}
+
+export async function tmuxPtyClose(ptyId: string): Promise<void> {
+  return invoke("tmux_pty_close", { ptyId });
+}
+
+export async function tmuxOpenInGhostty(sessionName: string): Promise<void> {
+  return invoke("tmux_open_in_ghostty", { sessionName });
+}
+
+export async function tmuxGenerateConfig(): Promise<string> {
+  return invoke("tmux_generate_config");
 }
