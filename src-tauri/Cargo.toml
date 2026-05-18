@@ -39,6 +39,9 @@ async-trait = "0.1"
 # === SFTP 文件传输 ===
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 
+# === PTY 支持（tmux 内嵌终端）===
+portable-pty = "0.9"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
