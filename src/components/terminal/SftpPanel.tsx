@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import SftpTree from "./SftpTree";
 import SftpFileList from "./SftpFileList";
 import SftpFileDetail from "./SftpFileDetail";
@@ -34,6 +35,30 @@ export default function SftpPanel({ sessionId }: SftpPanelProps) {
   useEffect(() => {
     loadFiles("/");
   }, [sessionId, loadFiles]);
+
+  // Tauri 原生拖拽上传
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      try {
+        const win = getCurrentWebviewWindow();
+        unlisten = await win.onDragDropEvent((event) => {
+          if (event.payload.type === "drop") {
+            for (const path of event.payload.paths) {
+              handleDropUpload(path);
+            }
+          }
+        });
+      } catch (e) {
+        console.error("Failed to setup drag-drop listener:", e);
+      }
+    };
+    setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, currentPath]);
 
   const handleDelete = async (file: SftpFile) => {
     if (!confirm(`确定要删除 "${file.name}" 吗？`)) return;
