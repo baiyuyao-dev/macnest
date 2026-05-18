@@ -20,6 +20,9 @@ interface SftpFileListProps {
   onDelete: (file: SftpFile) => void;
   onMkdir: (name: string) => void;
   onRename: (oldPath: string, newName: string) => void;
+  onUpload: () => void;
+  onDownload: () => void;
+  onDropUpload: (localPath: string) => void;
 }
 
 export default function SftpFileList({
@@ -32,11 +35,15 @@ export default function SftpFileList({
   onDelete,
   onMkdir,
   onRename,
+  onUpload,
+  onDownload,
+  onDropUpload,
 }: SftpFileListProps) {
   const [showMkdirDialog, setShowMkdirDialog] = useState(false);
   const [mkdirName, setMkdirName] = useState("");
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
   const breadcrumbs = currentPath === "/"
     ? [{ name: "根目录", path: "/" }]
@@ -101,10 +108,10 @@ export default function SftpFileList({
 
       {/* 工具栏 */}
       <div className="flex gap-1 px-2 py-1 bg-[#1e1e2e] border-b border-[#333]">
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={() => {}}>
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={onUpload}>
           <ArrowUp className="h-3 w-3 mr-1" />上传
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={() => {}}>
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={onDownload}>
           <ArrowDown className="h-3 w-3 mr-1" />下载
         </Button>
         <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={handleDelete}>
@@ -130,7 +137,38 @@ export default function SftpFileList({
       </div>
 
       {/* 文件列表 */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className={`flex-1 overflow-y-auto ${isDragging ? "bg-[#1e3a5f]/30" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragging(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragging(false);
+          const items = e.dataTransfer.items;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.kind === "file") {
+              const file = item.getAsFile();
+              if (file) {
+                // @ts-expect-error Tauri webview exposes file path
+                const path = file.path as string | undefined;
+                if (path) {
+                  onDropUpload(path);
+                }
+              }
+            }
+          }
+        }}
+      >
         {/* 返回上级 */}
         {currentPath !== "/" && (
           <div

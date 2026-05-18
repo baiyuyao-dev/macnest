@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import SftpTree from "./SftpTree";
 import SftpFileList from "./SftpFileList";
 import SftpFileDetail from "./SftpFileDetail";
-import { sftpListDir, sftpDelete, sftpMkdir, sftpRename } from "@/lib/api";
+import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload } from "@/lib/api";
 import type { SftpFile, SftpTransfer } from "@/types";
 
 interface SftpPanelProps {
@@ -66,6 +67,104 @@ export default function SftpPanel({ sessionId }: SftpPanelProps) {
     }
   };
 
+  const handleUpload = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+      });
+      if (!selected) return;
+      const localPath = selected as string;
+      const fileName = localPath.split(/[/\\]/).pop() || "uploaded_file";
+      const remotePath = currentPath === "/" ? "/" + fileName : currentPath + "/" + fileName;
+
+      const transferId = crypto.randomUUID();
+      setTransfers(prev => [...prev, {
+        id: transferId,
+        file_name: fileName,
+        direction: "upload",
+        total_bytes: 0,
+        transferred_bytes: 0,
+        status: "in_progress",
+      }]);
+
+      await sftpUpload(sessionId, localPath, remotePath);
+
+      setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: "completed" } : t));
+      loadFiles(currentPath);
+
+      setTimeout(() => {
+        setTransfers(prev => prev.filter(t => t.id !== transferId));
+      }, 3000);
+    } catch (err) {
+      console.error("Failed to upload:", err);
+      alert("上传失败: " + String(err));
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!selectedFile || selectedFile.is_dir) {
+      alert("请先选择一个文件");
+      return;
+    }
+    try {
+      const savePath = await save({
+        defaultPath: selectedFile.name,
+      });
+      if (!savePath) return;
+
+      const transferId = crypto.randomUUID();
+      setTransfers(prev => [...prev, {
+        id: transferId,
+        file_name: selectedFile.name,
+        direction: "download",
+        total_bytes: selectedFile.size,
+        transferred_bytes: 0,
+        status: "in_progress",
+      }]);
+
+      await sftpDownload(sessionId, selectedFile.path, savePath);
+
+      setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: "completed", transferred_bytes: selectedFile.size } : t));
+
+      setTimeout(() => {
+        setTransfers(prev => prev.filter(t => t.id !== transferId));
+      }, 3000);
+    } catch (err) {
+      console.error("Failed to download:", err);
+      alert("下载失败: " + String(err));
+    }
+  };
+
+  const handleDropUpload = async (localPath: string) => {
+    try {
+      const fileName = localPath.split(/[/\\]/).pop() || "uploaded_file";
+      const remotePath = currentPath === "/" ? "/" + fileName : currentPath + "/" + fileName;
+
+      const transferId = crypto.randomUUID();
+      setTransfers(prev => [...prev, {
+        id: transferId,
+        file_name: fileName,
+        direction: "upload",
+        total_bytes: 0,
+        transferred_bytes: 0,
+        status: "in_progress",
+      }]);
+
+      await sftpUpload(sessionId, localPath, remotePath);
+
+      setTransfers(prev => prev.map(t => t.id === transferId ? { ...t, status: "completed" } : t));
+      loadFiles(currentPath);
+
+      setTimeout(() => {
+        setTransfers(prev => prev.filter(t => t.id !== transferId));
+      }, 3000);
+    } catch (err) {
+      console.error("Failed to upload:", err);
+      alert("上传失败: " + String(err));
+    }
+  };
+
   return (
     <div className="flex h-full bg-[#1e1e2e] relative">
       {loading && (
@@ -87,6 +186,9 @@ export default function SftpPanel({ sessionId }: SftpPanelProps) {
         onDelete={handleDelete}
         onMkdir={handleMkdir}
         onRename={handleRename}
+        onUpload={handleUpload}
+        onDownload={handleDownload}
+        onDropUpload={handleDropUpload}
       />
       <SftpFileDetail
         file={selectedFile}
