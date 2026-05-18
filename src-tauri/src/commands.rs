@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
 use tauri::{AppHandle, State};
 
 use crate::database;
@@ -897,6 +898,7 @@ pub async fn sftp_get_file_info(
 pub async fn sftp_upload(
     state: State<'_, AppState>,
     session_id: String,
+    transfer_id: String,
     local_path: String,
     remote_path: String,
 ) -> Result<(), String> {
@@ -913,6 +915,29 @@ pub async fn sftp_upload(
 
     let auth_type: SshAuthType =
         serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let total = std::fs::metadata(&local_path).map(|m| m.len()).unwrap_or(0);
+    let file_name = std::path::Path::new(&local_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string();
+
+    // 初始化进度
+    {
+        let mut map = state.transfer_progress.lock().unwrap();
+        map.insert(
+            transfer_id.clone(),
+            crate::ssh::types::TransferProgress {
+                id: transfer_id.clone(),
+                file_name,
+                direction: "upload".to_string(),
+                total_bytes: total,
+                transferred_bytes: 0,
+                status: "in_progress".to_string(),
+            },
+        );
+    }
 
     let connection = crate::ssh::types::SshConnection {
         id: db_conn.id,
@@ -934,14 +959,78 @@ pub async fn sftp_upload(
     )
     .map_err(|e| e.to_string())?;
 
-    sftp.upload_file(&local_path, &remote_path)
-        .map_err(|e| e.to_string())
+    // 分块传输
+    let mut local_file = std::fs::File::open(&local_path).map_err(|e| e.to_string())?;
+    let mut remote_file = sftp
+        .create_file(std::path::Path::new(&remote_path))
+        .map_err(|e| e.to_string())?;
+    let mut buffer = vec![0u8; 65536];
+    let mut transferred = 0u64;
+    let mut chunk_count = 0usize;
+
+    let result = loop {
+        // 检查取消
+        {
+            let map = state.transfer_progress.lock().unwrap();
+            if let Some(p) = map.get(&transfer_id) {
+                if p.status == "cancelled" {
+                    let _ = sftp.delete(&remote_path, false);
+                    break Err("传输已取消".to_string());
+                }
+            }
+        }
+
+        let n = match local_file.read(&mut buffer) {
+            Ok(n) => n,
+            Err(e) => break Err(format!("读取本地文件失败: {}", e)),
+        };
+
+        if n == 0 {
+            break Ok(());
+        }
+
+        if let Err(e) = remote_file.write_all(&buffer[..n]) {
+            break Err(format!("写入远程文件失败: {}", e));
+        }
+
+        transferred += n as u64;
+        chunk_count += 1;
+
+        // 更新进度
+        {
+            let mut map = state.transfer_progress.lock().unwrap();
+            if let Some(p) = map.get_mut(&transfer_id) {
+                p.transferred_bytes = transferred;
+            }
+        }
+
+        // 每 16 个 chunk（约 1MB）yield 一次，让 tokio 调度其他任务
+        if chunk_count % 16 == 0 {
+            tokio::task::yield_now().await;
+        }
+    };
+
+    // 更新最终状态
+    {
+        let mut map = state.transfer_progress.lock().unwrap();
+        if let Some(p) = map.get_mut(&transfer_id) {
+            if result.is_ok() {
+                p.transferred_bytes = total;
+                p.status = "completed".to_string();
+            } else {
+                p.status = "failed".to_string();
+            }
+        }
+    }
+
+    result
 }
 
 #[tauri::command]
 pub async fn sftp_download(
     state: State<'_, AppState>,
     session_id: String,
+    transfer_id: String,
     remote_path: String,
     local_path: String,
 ) -> Result<(), String> {
@@ -979,6 +1068,216 @@ pub async fn sftp_download(
     )
     .map_err(|e| e.to_string())?;
 
-    sftp.download_file(&remote_path, &local_path)
-        .map_err(|e| e.to_string())
+    // 获取远程文件大小
+    let total = sftp
+        .get_file_info(&remote_path)
+        .map(|f| f.size)
+        .unwrap_or(0);
+    let file_name = std::path::Path::new(&remote_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string();
+
+    // 初始化进度
+    {
+        let mut map = state.transfer_progress.lock().unwrap();
+        map.insert(
+            transfer_id.clone(),
+            crate::ssh::types::TransferProgress {
+                id: transfer_id.clone(),
+                file_name,
+                direction: "download".to_string(),
+                total_bytes: total,
+                transferred_bytes: 0,
+                status: "in_progress".to_string(),
+            },
+        );
+    }
+
+    // 分块传输
+    let mut remote_file = sftp
+        .open_file(std::path::Path::new(&remote_path))
+        .map_err(|e| e.to_string())?;
+    let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
+    let mut buffer = vec![0u8; 65536];
+    let mut transferred = 0u64;
+    let mut chunk_count = 0usize;
+
+    let result = loop {
+        // 检查取消
+        {
+            let map = state.transfer_progress.lock().unwrap();
+            if let Some(p) = map.get(&transfer_id) {
+                if p.status == "cancelled" {
+                    let _ = std::fs::remove_file(&local_path);
+                    break Err("传输已取消".to_string());
+                }
+            }
+        }
+
+        let n = match remote_file.read(&mut buffer) {
+            Ok(n) => n,
+            Err(e) => break Err(format!("读取远程文件失败: {}", e)),
+        };
+
+        if n == 0 {
+            break Ok(());
+        }
+
+        if let Err(e) = local_file.write_all(&buffer[..n]) {
+            break Err(format!("写入本地文件失败: {}", e));
+        }
+
+        transferred += n as u64;
+        chunk_count += 1;
+
+        // 更新进度
+        {
+            let mut map = state.transfer_progress.lock().unwrap();
+            if let Some(p) = map.get_mut(&transfer_id) {
+                p.transferred_bytes = transferred;
+            }
+        }
+
+        // 每 16 个 chunk yield 一次
+        if chunk_count % 16 == 0 {
+            tokio::task::yield_now().await;
+        }
+    };
+
+    // 更新最终状态
+    {
+        let mut map = state.transfer_progress.lock().unwrap();
+        if let Some(p) = map.get_mut(&transfer_id) {
+            if result.is_ok() {
+                p.transferred_bytes = total;
+                p.status = "completed".to_string();
+            } else {
+                p.status = "failed".to_string();
+            }
+        }
+    }
+
+    result
+}
+
+#[tauri::command]
+pub fn sftp_get_progress(
+    state: State<AppState>,
+    transfer_id: String,
+) -> Result<Option<crate::ssh::types::TransferProgress>, String> {
+    let map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
+    Ok(map.get(&transfer_id).cloned())
+}
+
+#[tauri::command]
+pub fn sftp_cancel_transfer(
+    state: State<AppState>,
+    transfer_id: String,
+) -> Result<(), String> {
+    let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
+    if let Some(p) = map.get_mut(&transfer_id) {
+        p.status = "cancelled".to_string();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sftp_clear_completed(state: State<AppState>) -> Result<(), String> {
+    let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
+    map.retain(|_, p| p.status == "in_progress");
+    Ok(())
+}
+
+// === Tmux 管理 ===
+
+use crate::tmux::types::{
+    CreateTmuxSessionRequest, RenameTmuxSessionRequest, TmuxSession,
+};
+use tauri::ipc::Channel;
+
+#[tauri::command]
+pub fn tmux_list_sessions() -> Result<Vec<TmuxSession>, String> {
+    crate::tmux::commands::list_sessions()
+}
+
+#[tauri::command]
+pub fn tmux_create_session(req: CreateTmuxSessionRequest) -> Result<(), String> {
+    crate::tmux::commands::create_session(&req)
+}
+
+#[tauri::command]
+pub fn tmux_kill_session(name: String) -> Result<(), String> {
+    crate::tmux::commands::kill_session(&name)
+}
+
+#[tauri::command]
+pub fn tmux_rename_session(req: RenameTmuxSessionRequest) -> Result<(), String> {
+    crate::tmux::commands::rename_session(&req)
+}
+
+#[tauri::command]
+pub fn tmux_is_available() -> bool {
+    crate::tmux::commands::is_tmux_available()
+}
+
+#[tauri::command]
+pub fn tmux_attach_pty(
+    session_name: String,
+    channel: Channel<Vec<u8>>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let pty_session = crate::tmux::pty::attach_session_pty(&session_name, channel)?;
+    let pty_id = uuid::Uuid::new_v4().to_string();
+
+    state
+        .tmux_pty_sessions
+        .lock()
+        .unwrap()
+        .insert(pty_id.clone(), pty_session);
+
+    Ok(pty_id)
+}
+
+#[tauri::command]
+pub fn tmux_pty_write(
+    pty_id: String,
+    data: Vec<u8>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let sessions = state.tmux_pty_sessions.lock().unwrap();
+    let session = sessions
+        .get(&pty_id)
+        .ok_or("PTY session not found")?;
+    crate::tmux::pty::write_to_pty(session, &data)
+}
+
+#[tauri::command]
+pub fn tmux_pty_close(pty_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.tmux_pty_sessions.lock().unwrap().remove(&pty_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn tmux_open_in_ghostty(session_name: String) -> Result<(), String> {
+    let script = format!(
+        r#"tell application "Ghostty" to activate
+tell application "Ghostty" to tell front window to create tab with default profile
+tell application "System Events" to keystroke "tmux attach -t {}" & return"#,
+        session_name
+    );
+
+    std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn tmux_generate_config() -> Result<String, String> {
+    crate::tmux::commands::generate_config()
 }

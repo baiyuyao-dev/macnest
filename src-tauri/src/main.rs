@@ -6,17 +6,22 @@ mod docker;
 mod process;
 mod system;
 mod ssh;
+mod tmux;
 
 use database::Database;
 use process::ProcessManager;
 use ssh::session::SshSessionManager;
-use std::sync::Mutex;
+use ssh::types::TransferProgress;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub struct AppState {
     db: Database,
     process_manager: Mutex<ProcessManager>,
     ssh_session_manager: SshSessionManager,
+    pub transfer_progress: Arc<Mutex<HashMap<String, TransferProgress>>>,
+    pub tmux_pty_sessions: Mutex<HashMap<String, crate::tmux::pty::TmuxPtySession>>,
 }
 
 fn main() {
@@ -63,6 +68,8 @@ fn main() {
                 db,
                 process_manager,
                 ssh_session_manager: SshSessionManager::new(),
+                transfer_progress: Arc::new(Mutex::new(HashMap::new())),
+                tmux_pty_sessions: Mutex::new(HashMap::new()),
             };
             app.manage(state);
 
@@ -126,6 +133,20 @@ fn main() {
             commands::sftp_get_file_info,
             commands::sftp_upload,
             commands::sftp_download,
+            commands::sftp_get_progress,
+            commands::sftp_cancel_transfer,
+            commands::sftp_clear_completed,
+            // Tmux 命令
+            commands::tmux_list_sessions,
+            commands::tmux_create_session,
+            commands::tmux_kill_session,
+            commands::tmux_rename_session,
+            commands::tmux_is_available,
+            commands::tmux_attach_pty,
+            commands::tmux_pty_write,
+            commands::tmux_pty_close,
+            commands::tmux_open_in_ghostty,
+            commands::tmux_generate_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
