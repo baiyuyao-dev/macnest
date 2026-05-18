@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 use crate::database;
 use crate::docker;
@@ -24,7 +24,7 @@ fn get_process_metrics(pid: i64) -> Option<(f64, f64)> {
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() >= 3 {
         let cpu = parts[0].parse::<f64>().ok()?;
-        let mem_percent = parts[1].parse::<f64>().ok()?;
+        let _mem_percent = parts[1].parse::<f64>().ok()?;
         let rss_kb = parts[2].parse::<u64>().ok()?;
         let mem_mb = rss_kb as f64 / 1024.0;
         Some((cpu, mem_mb))
@@ -39,6 +39,23 @@ pub fn list_services(state: State<AppState>) -> Result<Vec<database::Service>, S
 
     for svc in &mut services {
         if svc.status == "running" {
+            // Validate that the recorded PID is still alive.
+            // If the process died while MacOps was closed, clean up the stale DB state.
+            let pid_alive = svc.pid.map_or(false, |p| {
+                std::process::Command::new("kill")
+                    .args(["-0", &p.to_string()])
+                    .output()
+                    .map(|out| out.status.success())
+                    .unwrap_or(false)
+            });
+            if !pid_alive {
+                let _ = state.db.update_service_status(svc.id, "stopped", None, "");
+                svc.status = "stopped".to_string();
+                svc.pid = None;
+                svc.ports = "".to_string();
+                continue;
+            }
+
             if let Some(pid) = svc.pid {
                 if let Some((cpu, mem_mb)) = get_process_metrics(pid) {
                     svc.cpu_percent = cpu;
@@ -46,7 +63,6 @@ pub fn list_services(state: State<AppState>) -> Result<Vec<database::Service>, S
                     // Also persist to DB so Dashboard shows current values
                     let _ = state.db.update_service_metrics(svc.id, cpu, mem_mb);
                 }
-
             }
         }
     }
@@ -177,18 +193,47 @@ pub async fn start_service(
     Ok(pid)
 }
 
-#[tauri::command]
-pub fn stop_service(state: State<AppState>, id: i64) -> Result<(), String> {
-    state
+/// Internal helper to stop a service, with fallback to DB pid when not in memory.
+fn stop_service_internal(state: &State<'_, AppState>, id: i64) -> Result<(), String> {
+    let pm = state
         .process_manager
         .lock()
-        .map_err(|e| e.to_string())?
-        .stop_service(id)?;
+        .map_err(|e| e.to_string())?;
+
+    let in_memory_pid = pm.get_pid(id);
+    drop(pm);
+
+    if let Some(pid) = in_memory_pid {
+        // Normal case: service was started in this session
+        let pm = state
+            .process_manager
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let _ = pm.stop_service_by_pid(id, pid);
+    } else {
+        // Fallback: service was started before MacOps restarted.
+        // PID is only in the DB, not in memory.
+        if let Ok(service) = state.db.get_service(id) {
+            if let Some(pid) = service.pid {
+                let pm = state
+                    .process_manager
+                    .lock()
+                    .map_err(|e| e.to_string())?;
+                let _ = pm.stop_service_by_pid(id, pid as u32);
+            }
+        }
+    }
+
     state
         .db
         .update_service_status(id, "stopped", None, "")
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn stop_service(state: State<AppState>, id: i64) -> Result<(), String> {
+    stop_service_internal(&state, id)
 }
 
 #[tauri::command]
@@ -199,14 +244,8 @@ pub async fn restart_service(
 ) -> Result<u32, String> {
     let service = state.db.get_service(id).map_err(|e| e.to_string())?;
 
-    // Stop the service if running
-    {
-        let pm = state
-            .process_manager
-            .lock()
-            .map_err(|e| e.to_string())?;
-        let _ = pm.stop_service(id);
-    }
+    // Stop the service if running (with DB fallback for recovered PIDs)
+    let _ = stop_service_internal(&state, id);
 
     // Update status to restarting
     state
@@ -263,38 +302,6 @@ pub fn get_service_ports(pid: i64) -> Result<Vec<String>, String> {
     detect_ports(pid as u32)
 }
 
-/// Collect all PIDs in a process tree starting from `pid` (parent → children recursively)
-/// Uses `ps` instead of `pgrep` because `pgrep -P` is not reliably available on macOS.
-fn collect_pids(pid: u32) -> Vec<u32> {
-    let mut pids = vec![pid];
-    let mut changed = true;
-
-    while changed {
-        changed = false;
-        let output = std::process::Command::new("ps")
-            .args(["-ax", "-o", "pid=", "-o", "ppid="])
-            .output();
-
-        if let Ok(out) = output {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let snapshot = pids.clone();
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() == 2 {
-                    if let (Ok(child_pid), Ok(ppid)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                        if snapshot.contains(&ppid) && !pids.contains(&child_pid) {
-                            pids.push(child_pid);
-                            changed = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pids
-}
-
 /// Detect listening TCP ports for a single PID using lsof.
 fn detect_ports_for_pid(pid: u32) -> Result<Vec<String>, String> {
     let output = std::process::Command::new("lsof")
@@ -326,7 +333,7 @@ fn detect_ports_for_pid(pid: u32) -> Result<Vec<String>, String> {
 
 /// Scan all listening TCP ports and return those belonging to the process tree rooted at `pid`.
 fn detect_ports(pid: u32) -> Result<Vec<String>, String> {
-    let all_pids = collect_pids(pid);
+    let all_pids = crate::process::collect_pids(pid);
     eprintln!("[macops] detect_ports: root_pid={}, all_pids={:?}", pid, all_pids);
 
     let mut all_ports = Vec::new();
@@ -562,7 +569,7 @@ pub struct CreateSshConnectionRequest {
     pub port: u16,
     pub username: String,
     pub auth_type: SshAuthType,
-    pub group_name: String,
+    pub group_id: Option<i64>,
 }
 
 #[tauri::command]
@@ -585,7 +592,7 @@ pub fn create_ssh_connection(
             &req.username,
             auth_type_str,
             &auth_data,
-            &req.group_name,
+            req.group_id,
         )
         .map_err(|e| e.to_string())
 }
@@ -605,11 +612,17 @@ pub fn delete_ssh_connection(
     state.db.delete_ssh_connection(id).map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Serialize)]
+pub struct SshConnectResponse {
+    pub session_id: String,
+    pub websocket_url: String,
+}
+
 #[tauri::command]
 pub async fn ssh_connect(
     state: State<'_, AppState>,
     connection_id: i64,
-) -> Result<String, String> {
+) -> Result<SshConnectResponse, String> {
     let db_connection = state
         .db
         .get_ssh_connection(connection_id)
@@ -626,7 +639,7 @@ pub async fn ssh_connect(
         port: db_connection.port,
         username: db_connection.username,
         auth_type,
-        group_name: db_connection.group_name,
+        group_id: db_connection.group_id,
         created_at: db_connection.created_at,
         updated_at: db_connection.updated_at,
     };
@@ -643,7 +656,10 @@ pub async fn ssh_connect(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(format!("ws://127.0.0.1:{}", websocket_port))
+    Ok(SshConnectResponse {
+        session_id,
+        websocket_url: format!("ws://127.0.0.1:{}", websocket_port),
+    })
 }
 
 #[tauri::command]
@@ -655,5 +671,314 @@ pub async fn ssh_disconnect(
         .ssh_session_manager
         .disconnect(&session_id)
         .await
+        .map_err(|e| e.to_string())
+}
+
+// === SFTP Commands ===
+
+#[tauri::command]
+pub async fn sftp_list_dir(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<Vec<crate::ssh::types::SftpFile>, String> {
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_conn.id,
+        name: db_conn.name,
+        host: db_conn.host,
+        port: db_conn.port,
+        username: db_conn.username,
+        auth_type,
+        group_id: db_conn.group_id,
+        created_at: db_conn.created_at,
+        updated_at: db_conn.updated_at,
+    };
+
+    let sftp = crate::ssh::sftp::SftpManager::connect(
+        &connection.host,
+        connection.port,
+        &connection.username,
+        &connection.auth_type,
+    )
+    .map_err(|e| e.to_string())?;
+
+    sftp.list_dir(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sftp_delete(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_conn.id,
+        name: db_conn.name,
+        host: db_conn.host,
+        port: db_conn.port,
+        username: db_conn.username,
+        auth_type,
+        group_id: db_conn.group_id,
+        created_at: db_conn.created_at,
+        updated_at: db_conn.updated_at,
+    };
+
+    let sftp = crate::ssh::sftp::SftpManager::connect(
+        &connection.host,
+        connection.port,
+        &connection.username,
+        &connection.auth_type,
+    )
+    .map_err(|e| e.to_string())?;
+
+    sftp.delete(&path, is_dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sftp_mkdir(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<(), String> {
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_conn.id,
+        name: db_conn.name,
+        host: db_conn.host,
+        port: db_conn.port,
+        username: db_conn.username,
+        auth_type,
+        group_id: db_conn.group_id,
+        created_at: db_conn.created_at,
+        updated_at: db_conn.updated_at,
+    };
+
+    let sftp = crate::ssh::sftp::SftpManager::connect(
+        &connection.host,
+        connection.port,
+        &connection.username,
+        &connection.auth_type,
+    )
+    .map_err(|e| e.to_string())?;
+
+    sftp.mkdir(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sftp_rename(
+    state: State<'_, AppState>,
+    session_id: String,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_conn.id,
+        name: db_conn.name,
+        host: db_conn.host,
+        port: db_conn.port,
+        username: db_conn.username,
+        auth_type,
+        group_id: db_conn.group_id,
+        created_at: db_conn.created_at,
+        updated_at: db_conn.updated_at,
+    };
+
+    let sftp = crate::ssh::sftp::SftpManager::connect(
+        &connection.host,
+        connection.port,
+        &connection.username,
+        &connection.auth_type,
+    )
+    .map_err(|e| e.to_string())?;
+
+    sftp.rename(&old_path, &new_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sftp_get_file_info(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<crate::ssh::types::SftpFile, String> {
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_conn.id,
+        name: db_conn.name,
+        host: db_conn.host,
+        port: db_conn.port,
+        username: db_conn.username,
+        auth_type,
+        group_id: db_conn.group_id,
+        created_at: db_conn.created_at,
+        updated_at: db_conn.updated_at,
+    };
+
+    let sftp = crate::ssh::sftp::SftpManager::connect(
+        &connection.host,
+        connection.port,
+        &connection.username,
+        &connection.auth_type,
+    )
+    .map_err(|e| e.to_string())?;
+
+    sftp.get_file_info(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sftp_upload(
+    state: State<'_, AppState>,
+    session_id: String,
+    local_path: String,
+    remote_path: String,
+) -> Result<(), String> {
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_conn.id,
+        name: db_conn.name,
+        host: db_conn.host,
+        port: db_conn.port,
+        username: db_conn.username,
+        auth_type,
+        group_id: db_conn.group_id,
+        created_at: db_conn.created_at,
+        updated_at: db_conn.updated_at,
+    };
+
+    let sftp = crate::ssh::sftp::SftpManager::connect(
+        &connection.host,
+        connection.port,
+        &connection.username,
+        &connection.auth_type,
+    )
+    .map_err(|e| e.to_string())?;
+
+    sftp.upload_file(&local_path, &remote_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn sftp_download(
+    state: State<'_, AppState>,
+    session_id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<(), String> {
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let auth_type: SshAuthType =
+        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+
+    let connection = crate::ssh::types::SshConnection {
+        id: db_conn.id,
+        name: db_conn.name,
+        host: db_conn.host,
+        port: db_conn.port,
+        username: db_conn.username,
+        auth_type,
+        group_id: db_conn.group_id,
+        created_at: db_conn.created_at,
+        updated_at: db_conn.updated_at,
+    };
+
+    let sftp = crate::ssh::sftp::SftpManager::connect(
+        &connection.host,
+        connection.port,
+        &connection.username,
+        &connection.auth_type,
+    )
+    .map_err(|e| e.to_string())?;
+
+    sftp.download_file(&remote_path, &local_path)
         .map_err(|e| e.to_string())
 }
