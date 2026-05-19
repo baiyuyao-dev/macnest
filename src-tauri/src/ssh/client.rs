@@ -35,6 +35,7 @@ impl SshConnectionManager {
     ) -> anyhow::Result<Self> {
         let config = client::Config {
             inactivity_timeout: Some(Duration::from_secs(300)),
+            keepalive_interval: Some(Duration::from_secs(30)),
             ..<_>::default()
         };
         let config = Arc::new(config);

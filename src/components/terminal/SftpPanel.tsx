@@ -11,9 +11,10 @@ import type { SftpFile, SftpTransfer } from "@/types";
 
 interface SftpPanelProps {
   sessionId: string;
+  onSyncToTerminal?: (path: string) => void;
 }
 
-export default function SftpPanel({ sessionId }: SftpPanelProps) {
+export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProps) {
   const [currentPath, setCurrentPath] = useState("/");
   const [files, setFiles] = useState<SftpFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<SftpFile | null>(null);
@@ -48,17 +49,25 @@ export default function SftpPanel({ sessionId }: SftpPanelProps) {
         try {
           const progress = await sftpGetProgress(t.id);
           if (progress) {
-            setTransfers(prev => prev.map(pt => {
-              if (pt.id !== t.id) return pt;
-              return {
-                ...pt,
-                total_bytes: Number(progress.total_bytes),
-                transferred_bytes: Number(progress.transferred_bytes),
-                status: progress.status === "cancelled" ? "cancelled" :
-                        progress.status === "failed" ? "failed" :
-                        progress.status === "completed" ? "completed" : "in_progress",
-              };
-            }));
+            const newTransferred = Number(progress.transferred_bytes);
+            const newStatus = progress.status === "cancelled" ? "cancelled" :
+                              progress.status === "failed" ? "failed" :
+                              progress.status === "completed" ? "completed" : "in_progress";
+            setTransfers(prev => {
+              const existing = prev.find(pt => pt.id === t.id);
+              if (existing && existing.transferred_bytes === newTransferred && existing.status === newStatus) {
+                return prev;
+              }
+              return prev.map(pt => {
+                if (pt.id !== t.id) return pt;
+                return {
+                  ...pt,
+                  total_bytes: Number(progress.total_bytes),
+                  transferred_bytes: newTransferred,
+                  status: newStatus,
+                };
+              });
+            });
           }
         } catch (e) {
           // ignore polling errors
@@ -259,6 +268,7 @@ export default function SftpPanel({ sessionId }: SftpPanelProps) {
         onUpload={handleUpload}
         onDownload={handleDownload}
         onDropUpload={handleDropUpload}
+        onSyncToTerminal={onSyncToTerminal ? () => onSyncToTerminal(currentPath) : undefined}
       />
       <SftpFileDetail
         file={selectedFile}

@@ -28,7 +28,7 @@ import {
   Terminal as TerminalIcon,
   Play,
 } from "lucide-react";
-import XTerm from "@/components/terminal/XTerm";
+import XTerm, { type XTermHandle } from "@/components/terminal/XTerm";
 import SftpPanel from "@/components/terminal/SftpPanel";
 import {
   createSshConnection,
@@ -43,24 +43,29 @@ import {
   deleteGroup,
 } from "@/lib/api";
 import { useTerminalStore } from "@/stores/terminal";
+import { buildGroupTree, flattenGroups, type GroupNode } from "@/lib/tree";
 import type { SshConnection, Group } from "@/types";
 
 /* ── Types ── */
 
-interface GroupNode extends Group {
-  children: GroupNode[];
+interface TerminalGroupNode extends Omit<GroupNode, "children"> {
   connections: SshConnection[];
+  children: TerminalGroupNode[];
 }
 
-/* ── Tree utilities ── */
+const DEFAULT_SIDEBAR_WIDTH = 220;
 
-function buildGroupTree(groups: Group[], connections: SshConnection[]): GroupNode[] {
-  const map = new Map<number, GroupNode>();
-  const roots: GroupNode[] = [];
+function buildTerminalGroupTree(groups: Group[], connections: SshConnection[]): TerminalGroupNode[] {
+  const tree = buildGroupTree(groups);
+  const map = new Map<number, TerminalGroupNode>();
 
-  for (const g of groups) {
-    map.set(g.id, { ...g, children: [], connections: [] });
+  function collect(nodes: GroupNode[]) {
+    for (const n of nodes) {
+      map.set(n.id, { ...n, children: [], connections: [] });
+      collect(n.children);
+    }
   }
+  collect(tree);
 
   for (const c of connections) {
     if (c.group_id != null && map.has(c.group_id)) {
@@ -68,25 +73,16 @@ function buildGroupTree(groups: Group[], connections: SshConnection[]): GroupNod
     }
   }
 
-  for (const g of groups) {
-    const node = map.get(g.id)!;
-    if (g.parent_id != null && map.has(g.parent_id)) {
-      map.get(g.parent_id)!.children.push(node);
+  const roots: TerminalGroupNode[] = [];
+  for (const n of tree) {
+    const node = map.get(n.id)!;
+    if (n.parent_id != null && map.has(n.parent_id)) {
+      map.get(n.parent_id)!.children.push(node);
     } else {
       roots.push(node);
     }
   }
-
   return roots;
-}
-
-function flattenGroups(nodes: GroupNode[], depth = 0): { id: number; name: string; depth: number }[] {
-  const result: { id: number; name: string; depth: number }[] = [];
-  for (const n of nodes) {
-    result.push({ id: n.id, name: n.name, depth });
-    result.push(...flattenGroups(n.children, depth + 1));
-  }
-  return result;
 }
 
 /* ── Sidebar Tree Node ── */
@@ -104,7 +100,7 @@ function SidebarTreeNode({
   onDeleteGroup,
   activeConnectionId,
 }: {
-  node: GroupNode;
+  node: TerminalGroupNode;
   depth: number;
   expandedIds: Set<number>;
   toggleExpand: (id: number) => void;
@@ -269,16 +265,17 @@ export default function Terminal() {
   const [connectingId, setConnectingId] = useState<number | null>(null);
 
   // Resizable state
-  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [terminalHeight, setTerminalHeight] = useState(60);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const termPanelRef = useRef<HTMLDivElement>(null);
   const sftpPanelRef = useRef<HTMLDivElement>(null);
   const tabContentRef = useRef<HTMLDivElement>(null);
+  const xtermRefs = useRef<Map<string, XTermHandle>>(new Map());
   const isDraggingH = useRef(false);
   const isDraggingV = useRef(false);
   const startXRef = useRef(0);
-  const startWidthRef = useRef(220);
+  const startWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
   const startYRef = useRef(0);
   const startPctRef = useRef(45);
 
@@ -306,7 +303,7 @@ export default function Terminal() {
     const handleUp = () => {
       if (isDraggingH.current) {
         isDraggingH.current = false;
-        const w = sidebarRef.current?.offsetWidth ?? 220;
+        const w = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
         setSidebarWidth(w);
       }
       if (isDraggingV.current) {
@@ -382,7 +379,7 @@ export default function Terminal() {
     loadGroups();
   }, [loadConnections, loadGroups]);
 
-  const groupTree = useMemo(() => buildGroupTree(groups, connections), [groups, connections]);
+  const groupTree = useMemo(() => buildTerminalGroupTree(groups, connections), [groups, connections]);
 
   const flatGroups = useMemo(() => flattenGroups(groupTree), [groupTree]);
 
@@ -596,8 +593,8 @@ export default function Terminal() {
     if (!sidebarSearch.trim()) return groupTree;
     const q = sidebarSearch.toLowerCase();
 
-    function filterNodes(nodes: GroupNode[]): GroupNode[] {
-      const result: GroupNode[] = [];
+    function filterNodes(nodes: TerminalGroupNode[]): TerminalGroupNode[] {
+      const result: TerminalGroupNode[] = [];
       for (const node of nodes) {
         const matchName = node.name.toLowerCase().includes(q);
         const filteredChildren = filterNodes(node.children);
@@ -624,7 +621,7 @@ export default function Terminal() {
   useEffect(() => {
     if (sidebarSearch.trim()) {
       const allIds = new Set<number>();
-      function collect(nodes: GroupNode[]) {
+      function collect(nodes: TerminalGroupNode[]) {
         for (const n of nodes) {
           allIds.add(n.id);
           collect(n.children);
@@ -915,7 +912,7 @@ export default function Terminal() {
         onMouseDown={(e) => {
           isDraggingH.current = true;
           startXRef.current = e.clientX;
-          startWidthRef.current = sidebarRef.current?.offsetWidth ?? 220;
+          startWidthRef.current = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
           document.body.style.cursor = "col-resize";
           document.body.style.userSelect = "none";
           document.body.style.pointerEvents = "none";
@@ -989,7 +986,14 @@ export default function Terminal() {
                 {/* Terminal + SFTP */}
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <div className="overflow-hidden bg-[#1a1a2e]" ref={termPanelRef} style={{ flex: terminalHeight }}>
-                    <XTerm websocketUrl={tab.websocketUrl} />
+                    <XTerm
+                      ref={(el) => {
+                        if (el) xtermRefs.current.set(tab.id, el);
+                        else xtermRefs.current.delete(tab.id);
+                      }}
+                      websocketUrl={tab.websocketUrl}
+                      active={activeTabId === tab.id}
+                    />
                   </div>
                   {/* Vertical splitter */}
                   <div
@@ -1009,7 +1013,15 @@ export default function Terminal() {
                     }}
                   />
                   <div className="overflow-hidden" ref={sftpPanelRef} style={{ flex: 100 - terminalHeight }}>
-                    <SftpPanel sessionId={tab.sessionId} />
+                    <SftpPanel
+                      sessionId={tab.sessionId}
+                      onSyncToTerminal={(path) => {
+                        const xterm = xtermRefs.current.get(tab.id);
+                        if (xterm) {
+                          xterm.sendCommand(`cd ${path}`);
+                        }
+                      }}
+                    />
                   </div>
                 </div>
               </div>

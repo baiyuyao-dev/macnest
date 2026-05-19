@@ -8,6 +8,13 @@ use crate::ssh::types::SshAuthType;
 use crate::system;
 use crate::AppState;
 
+/* ── Constants ── */
+
+const PORT_DETECT_MAX_ATTEMPTS: u32 = 8;
+const PORT_DETECT_RETRY_MS: u64 = 800;
+const SFTP_CHUNK_SIZE: usize = 64 * 1024; // 64KB
+const SFTP_YIELD_INTERVAL: usize = 16;    // ~1MB per yield (64KB * 16)
+
 // === Service Commands ===
 
 #[derive(Debug, Serialize)]
@@ -175,9 +182,9 @@ pub async fn start_service(
 
     // Detect ports with retry — child process needs time to bind.
     let mut ports = Vec::new();
-    for attempt in 0..8 {
+    for attempt in 0..PORT_DETECT_MAX_ATTEMPTS {
         if attempt > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(800));
+            std::thread::sleep(std::time::Duration::from_millis(PORT_DETECT_RETRY_MS));
         }
         ports = detect_ports(pid).unwrap_or_default();
         if !ports.is_empty() {
@@ -268,9 +275,9 @@ pub async fn restart_service(
 
     // Detect ports with retry
     let mut ports = Vec::new();
-    for attempt in 0..8 {
+    for attempt in 0..PORT_DETECT_MAX_ATTEMPTS {
         if attempt > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(800));
+            std::thread::sleep(std::time::Duration::from_millis(PORT_DETECT_RETRY_MS));
         }
         ports = detect_ports(pid).unwrap_or_default();
         if !ports.is_empty() {
@@ -740,15 +747,13 @@ pub async fn ssh_active_sessions_count(state: State<'_, AppState>) -> Result<usi
 
 // === SFTP Commands ===
 
-#[tauri::command]
-pub async fn sftp_list_dir(
-    state: State<'_, AppState>,
-    session_id: String,
-    path: String,
-) -> Result<Vec<crate::ssh::types::SftpFile>, String> {
+async fn get_sftp_manager(
+    state: &State<'_, AppState>,
+    session_id: &str,
+) -> Result<crate::ssh::sftp::SftpManager, String> {
     let info = state
         .ssh_session_manager
-        .get_session_info(&session_id)
+        .get_session_info(session_id)
         .await
         .ok_or("Session not found")?;
 
@@ -760,26 +765,22 @@ pub async fn sftp_list_dir(
     let auth_type: SshAuthType =
         serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
 
-    let connection = crate::ssh::types::SshConnection {
-        id: db_conn.id,
-        name: db_conn.name,
-        host: db_conn.host,
-        port: db_conn.port,
-        username: db_conn.username,
-        auth_type,
-        group_id: db_conn.group_id,
-        created_at: db_conn.created_at,
-        updated_at: db_conn.updated_at,
-    };
-
-    let sftp = crate::ssh::sftp::SftpManager::connect(
-        &connection.host,
-        connection.port,
-        &connection.username,
-        &connection.auth_type,
+    crate::ssh::sftp::SftpManager::connect(
+        &db_conn.host,
+        db_conn.port,
+        &db_conn.username,
+        &auth_type,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())
+}
 
+#[tauri::command]
+pub async fn sftp_list_dir(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<Vec<crate::ssh::types::SftpFile>, String> {
+    let sftp = get_sftp_manager(&state, &session_id).await?;
     sftp.list_dir(&path).map_err(|e| e.to_string())
 }
 
@@ -790,40 +791,7 @@ pub async fn sftp_delete(
     path: String,
     is_dir: bool,
 ) -> Result<(), String> {
-    let info = state
-        .ssh_session_manager
-        .get_session_info(&session_id)
-        .await
-        .ok_or("Session not found")?;
-
-    let db_conn = state
-        .db
-        .get_ssh_connection(info.connection_id)
-        .map_err(|e| e.to_string())?;
-
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
-
-    let connection = crate::ssh::types::SshConnection {
-        id: db_conn.id,
-        name: db_conn.name,
-        host: db_conn.host,
-        port: db_conn.port,
-        username: db_conn.username,
-        auth_type,
-        group_id: db_conn.group_id,
-        created_at: db_conn.created_at,
-        updated_at: db_conn.updated_at,
-    };
-
-    let sftp = crate::ssh::sftp::SftpManager::connect(
-        &connection.host,
-        connection.port,
-        &connection.username,
-        &connection.auth_type,
-    )
-    .map_err(|e| e.to_string())?;
-
+    let sftp = get_sftp_manager(&state, &session_id).await?;
     sftp.delete(&path, is_dir).map_err(|e| e.to_string())
 }
 
@@ -833,40 +801,7 @@ pub async fn sftp_mkdir(
     session_id: String,
     path: String,
 ) -> Result<(), String> {
-    let info = state
-        .ssh_session_manager
-        .get_session_info(&session_id)
-        .await
-        .ok_or("Session not found")?;
-
-    let db_conn = state
-        .db
-        .get_ssh_connection(info.connection_id)
-        .map_err(|e| e.to_string())?;
-
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
-
-    let connection = crate::ssh::types::SshConnection {
-        id: db_conn.id,
-        name: db_conn.name,
-        host: db_conn.host,
-        port: db_conn.port,
-        username: db_conn.username,
-        auth_type,
-        group_id: db_conn.group_id,
-        created_at: db_conn.created_at,
-        updated_at: db_conn.updated_at,
-    };
-
-    let sftp = crate::ssh::sftp::SftpManager::connect(
-        &connection.host,
-        connection.port,
-        &connection.username,
-        &connection.auth_type,
-    )
-    .map_err(|e| e.to_string())?;
-
+    let sftp = get_sftp_manager(&state, &session_id).await?;
     sftp.mkdir(&path).map_err(|e| e.to_string())
 }
 
@@ -877,40 +812,7 @@ pub async fn sftp_rename(
     old_path: String,
     new_path: String,
 ) -> Result<(), String> {
-    let info = state
-        .ssh_session_manager
-        .get_session_info(&session_id)
-        .await
-        .ok_or("Session not found")?;
-
-    let db_conn = state
-        .db
-        .get_ssh_connection(info.connection_id)
-        .map_err(|e| e.to_string())?;
-
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
-
-    let connection = crate::ssh::types::SshConnection {
-        id: db_conn.id,
-        name: db_conn.name,
-        host: db_conn.host,
-        port: db_conn.port,
-        username: db_conn.username,
-        auth_type,
-        group_id: db_conn.group_id,
-        created_at: db_conn.created_at,
-        updated_at: db_conn.updated_at,
-    };
-
-    let sftp = crate::ssh::sftp::SftpManager::connect(
-        &connection.host,
-        connection.port,
-        &connection.username,
-        &connection.auth_type,
-    )
-    .map_err(|e| e.to_string())?;
-
+    let sftp = get_sftp_manager(&state, &session_id).await?;
     sftp.rename(&old_path, &new_path).map_err(|e| e.to_string())
 }
 
@@ -920,40 +822,7 @@ pub async fn sftp_get_file_info(
     session_id: String,
     path: String,
 ) -> Result<crate::ssh::types::SftpFile, String> {
-    let info = state
-        .ssh_session_manager
-        .get_session_info(&session_id)
-        .await
-        .ok_or("Session not found")?;
-
-    let db_conn = state
-        .db
-        .get_ssh_connection(info.connection_id)
-        .map_err(|e| e.to_string())?;
-
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
-
-    let connection = crate::ssh::types::SshConnection {
-        id: db_conn.id,
-        name: db_conn.name,
-        host: db_conn.host,
-        port: db_conn.port,
-        username: db_conn.username,
-        auth_type,
-        group_id: db_conn.group_id,
-        created_at: db_conn.created_at,
-        updated_at: db_conn.updated_at,
-    };
-
-    let sftp = crate::ssh::sftp::SftpManager::connect(
-        &connection.host,
-        connection.port,
-        &connection.username,
-        &connection.auth_type,
-    )
-    .map_err(|e| e.to_string())?;
-
+    let sftp = get_sftp_manager(&state, &session_id).await?;
     sftp.get_file_info(&path).map_err(|e| e.to_string())
 }
 
@@ -965,19 +834,7 @@ pub async fn sftp_upload(
     local_path: String,
     remote_path: String,
 ) -> Result<(), String> {
-    let info = state
-        .ssh_session_manager
-        .get_session_info(&session_id)
-        .await
-        .ok_or("Session not found")?;
-
-    let db_conn = state
-        .db
-        .get_ssh_connection(info.connection_id)
-        .map_err(|e| e.to_string())?;
-
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+    let sftp = get_sftp_manager(&state, &session_id).await?;
 
     let total = std::fs::metadata(&local_path).map(|m| m.len()).unwrap_or(0);
     let file_name = std::path::Path::new(&local_path)
@@ -988,7 +845,7 @@ pub async fn sftp_upload(
 
     // 初始化进度
     {
-        let mut map = state.transfer_progress.lock().unwrap();
+        let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
         map.insert(
             transfer_id.clone(),
             crate::ssh::types::TransferProgress {
@@ -1002,39 +859,19 @@ pub async fn sftp_upload(
         );
     }
 
-    let connection = crate::ssh::types::SshConnection {
-        id: db_conn.id,
-        name: db_conn.name,
-        host: db_conn.host,
-        port: db_conn.port,
-        username: db_conn.username,
-        auth_type,
-        group_id: db_conn.group_id,
-        created_at: db_conn.created_at,
-        updated_at: db_conn.updated_at,
-    };
-
-    let sftp = crate::ssh::sftp::SftpManager::connect(
-        &connection.host,
-        connection.port,
-        &connection.username,
-        &connection.auth_type,
-    )
-    .map_err(|e| e.to_string())?;
-
     // 分块传输
     let mut local_file = std::fs::File::open(&local_path).map_err(|e| e.to_string())?;
     let mut remote_file = sftp
         .create_file(std::path::Path::new(&remote_path))
         .map_err(|e| e.to_string())?;
-    let mut buffer = vec![0u8; 65536];
+    let mut buffer = vec![0u8; SFTP_CHUNK_SIZE];
     let mut transferred = 0u64;
     let mut chunk_count = 0usize;
 
     let result = loop {
         // 检查取消
         {
-            let map = state.transfer_progress.lock().unwrap();
+            let map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
             if let Some(p) = map.get(&transfer_id) {
                 if p.status == "cancelled" {
                     let _ = sftp.delete(&remote_path, false);
@@ -1061,21 +898,21 @@ pub async fn sftp_upload(
 
         // 更新进度
         {
-            let mut map = state.transfer_progress.lock().unwrap();
+            let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
             if let Some(p) = map.get_mut(&transfer_id) {
                 p.transferred_bytes = transferred;
             }
         }
 
         // 每 16 个 chunk（约 1MB）yield 一次，让 tokio 调度其他任务
-        if chunk_count % 16 == 0 {
+        if chunk_count % SFTP_YIELD_INTERVAL == 0 {
             tokio::task::yield_now().await;
         }
     };
 
     // 更新最终状态
     {
-        let mut map = state.transfer_progress.lock().unwrap();
+        let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
         if let Some(p) = map.get_mut(&transfer_id) {
             if result.is_ok() {
                 p.transferred_bytes = total;
@@ -1097,39 +934,7 @@ pub async fn sftp_download(
     remote_path: String,
     local_path: String,
 ) -> Result<(), String> {
-    let info = state
-        .ssh_session_manager
-        .get_session_info(&session_id)
-        .await
-        .ok_or("Session not found")?;
-
-    let db_conn = state
-        .db
-        .get_ssh_connection(info.connection_id)
-        .map_err(|e| e.to_string())?;
-
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
-
-    let connection = crate::ssh::types::SshConnection {
-        id: db_conn.id,
-        name: db_conn.name,
-        host: db_conn.host,
-        port: db_conn.port,
-        username: db_conn.username,
-        auth_type,
-        group_id: db_conn.group_id,
-        created_at: db_conn.created_at,
-        updated_at: db_conn.updated_at,
-    };
-
-    let sftp = crate::ssh::sftp::SftpManager::connect(
-        &connection.host,
-        connection.port,
-        &connection.username,
-        &connection.auth_type,
-    )
-    .map_err(|e| e.to_string())?;
+    let sftp = get_sftp_manager(&state, &session_id).await?;
 
     // 获取远程文件大小
     let total = sftp
@@ -1144,7 +949,7 @@ pub async fn sftp_download(
 
     // 初始化进度
     {
-        let mut map = state.transfer_progress.lock().unwrap();
+        let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
         map.insert(
             transfer_id.clone(),
             crate::ssh::types::TransferProgress {
@@ -1163,14 +968,14 @@ pub async fn sftp_download(
         .open_file(std::path::Path::new(&remote_path))
         .map_err(|e| e.to_string())?;
     let mut local_file = std::fs::File::create(&local_path).map_err(|e| e.to_string())?;
-    let mut buffer = vec![0u8; 65536];
+    let mut buffer = vec![0u8; SFTP_CHUNK_SIZE];
     let mut transferred = 0u64;
     let mut chunk_count = 0usize;
 
     let result = loop {
         // 检查取消
         {
-            let map = state.transfer_progress.lock().unwrap();
+            let map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
             if let Some(p) = map.get(&transfer_id) {
                 if p.status == "cancelled" {
                     let _ = std::fs::remove_file(&local_path);
@@ -1197,21 +1002,21 @@ pub async fn sftp_download(
 
         // 更新进度
         {
-            let mut map = state.transfer_progress.lock().unwrap();
+            let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
             if let Some(p) = map.get_mut(&transfer_id) {
                 p.transferred_bytes = transferred;
             }
         }
 
         // 每 16 个 chunk yield 一次
-        if chunk_count % 16 == 0 {
+        if chunk_count % SFTP_YIELD_INTERVAL == 0 {
             tokio::task::yield_now().await;
         }
     };
 
     // 更新最终状态
     {
-        let mut map = state.transfer_progress.lock().unwrap();
+        let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
         if let Some(p) = map.get_mut(&transfer_id) {
             if result.is_ok() {
                 p.transferred_bytes = total;
@@ -1311,7 +1116,7 @@ pub fn tmux_pty_write(
     data: Vec<u8>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let sessions = state.tmux_pty_sessions.lock().unwrap();
+    let sessions = state.tmux_pty_sessions.lock().map_err(|e| e.to_string())?;
     let session = sessions
         .get(&pty_id)
         .ok_or("PTY session not found")?;
@@ -1325,7 +1130,7 @@ pub fn tmux_pty_resize(
     rows: u16,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let sessions = state.tmux_pty_sessions.lock().unwrap();
+    let sessions = state.tmux_pty_sessions.lock().map_err(|e| e.to_string())?;
     let session = sessions
         .get(&pty_id)
         .ok_or("PTY session not found")?;
@@ -1335,7 +1140,7 @@ pub fn tmux_pty_resize(
 #[tauri::command]
 pub fn tmux_pty_close(pty_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let session = {
-        let mut sessions = state.tmux_pty_sessions.lock().unwrap();
+        let mut sessions = state.tmux_pty_sessions.lock().map_err(|e| e.to_string())?;
         sessions.remove(&pty_id)
     };
 

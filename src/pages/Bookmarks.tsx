@@ -22,6 +22,7 @@ import {
   listBookmarks, createBookmark, updateBookmark, deleteBookmark,
   listGroups, createGroup, updateGroup, deleteGroup,
 } from "@/lib/api";
+import { buildGroupTree, collectDescendantIds, filterGroupTree, type GroupNode } from "@/lib/tree";
 
 function StatusDot({ isOnline }: { isOnline: boolean }) {
   return (
@@ -167,59 +168,6 @@ const ICON_OPTIONS = [
 
 type ViewMode = "grid" | "list";
 type DialogMode = "create" | "edit" | null;
-
-// Build tree from flat groups
-interface GroupNode extends Group {
-  children: GroupNode[];
-}
-
-function buildGroupTree(groups: Group[]): GroupNode[] {
-  const map = new Map<number, GroupNode>();
-  const roots: GroupNode[] = [];
-
-  // First pass: create nodes
-  for (const g of groups) {
-    map.set(g.id, { ...g, children: [] });
-  }
-
-  // Second pass: build tree
-  for (const g of groups) {
-    const node = map.get(g.id)!;
-    if (g.parent_id != null && map.has(g.parent_id)) {
-      map.get(g.parent_id)!.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-
-  return roots;
-}
-
-// Collect all descendant group IDs (including self)
-function collectDescendantIds(node: GroupNode): number[] {
-  const ids = [node.id];
-  for (const child of node.children) {
-    ids.push(...collectDescendantIds(child));
-  }
-  return ids;
-}
-
-// Filter tree by search query
-function filterGroupTree(nodes: GroupNode[], query: string): GroupNode[] {
-  const q = query.toLowerCase();
-  const result: GroupNode[] = [];
-  for (const node of nodes) {
-    const matchSelf = node.name.toLowerCase().includes(q);
-    const filteredChildren = filterGroupTree(node.children, query);
-    if (matchSelf || filteredChildren.length > 0) {
-      result.push({
-        ...node,
-        children: matchSelf ? node.children : filteredChildren,
-      });
-    }
-  }
-  return result;
-}
 
 export default function BookmarksPage() {
   const [bookmarks, setBookmarks] = useState<BookmarkType[]>([]);

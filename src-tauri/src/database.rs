@@ -91,8 +91,21 @@ impl Database {
         Ok(Database { conn: Mutex::new(conn) })
     }
 
+    fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn.lock().map_err(|_| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Null,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "database connection mutex poisoned",
+                )),
+            )
+        })
+    }
+
     pub fn init(&self) -> Result<()> {
-        self.conn.lock().unwrap().execute_batch(
+        self.lock_conn()?.execute_batch(
             "CREATE TABLE IF NOT EXISTS services (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -204,7 +217,7 @@ impl Database {
         )?;
 
         // Add columns if they don't exist (ignore errors for duplicate columns)
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let _ = conn.execute("ALTER TABLE services ADD COLUMN cpu_percent REAL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE services ADD COLUMN memory_mb REAL DEFAULT 0", []);
 
@@ -311,7 +324,7 @@ impl Database {
         max_restarts: i64,
         port_auto_detect: bool,
     ) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO services (name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -331,7 +344,7 @@ impl Database {
     }
 
     pub fn list_services(&self) -> Result<Vec<Service>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, created_at, updated_at FROM services ORDER BY created_at DESC"
         )?;
@@ -362,7 +375,7 @@ impl Database {
     }
 
     pub fn get_service(&self, id: i64) -> Result<Service> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let service = conn.query_row(
             "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, created_at, updated_at FROM services WHERE id = ?1",
             params![id],
@@ -404,7 +417,7 @@ impl Database {
         max_restarts: i64,
         port_auto_detect: bool,
     ) -> Result<()> {
-        self.conn.lock().unwrap().execute(
+        self.lock_conn()?.execute(
             "UPDATE services SET name = ?1, description = ?2, command = ?3, cwd = ?4, env_vars = ?5, auto_start = ?6, restart_policy = ?7, max_restarts = ?8, port_auto_detect = ?9, updated_at = CURRENT_TIMESTAMP WHERE id = ?10",
             params![
                 name, description, command, cwd, env_vars, auto_start,
@@ -421,7 +434,7 @@ impl Database {
         pid: Option<i64>,
         ports: &str,
     ) -> Result<()> {
-        self.conn.lock().unwrap().execute(
+        self.lock_conn()?.execute(
             "UPDATE services SET status = ?1, pid = ?2, ports = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = ?4",
             params![status, pid, ports, id],
         )?;
@@ -434,7 +447,7 @@ impl Database {
         cpu_percent: f64,
         memory_mb: f64,
     ) -> Result<()> {
-        self.conn.lock().unwrap().execute(
+        self.lock_conn()?.execute(
             "UPDATE services SET cpu_percent = ?1, memory_mb = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
             params![cpu_percent, memory_mb, id],
         )?;
@@ -442,7 +455,7 @@ impl Database {
     }
 
     pub fn delete_service(&self, id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute("DELETE FROM service_logs WHERE service_id = ?1", params![id])?;
         conn.execute("DELETE FROM services WHERE id = ?1", params![id])?;
         Ok(())
@@ -451,7 +464,7 @@ impl Database {
     // === Group CRUD ===
 
     pub fn list_groups(&self) -> Result<Vec<Group>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, parent_id, sort_order, created_at, updated_at FROM groups ORDER BY sort_order, name"
         )?;
@@ -471,7 +484,7 @@ impl Database {
     }
 
     pub fn create_group(&self, name: &str, parent_id: Option<i64>, sort_order: i64) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO groups (name, parent_id, sort_order) VALUES (?1, ?2, ?3)",
             params![name, parent_id, sort_order],
@@ -480,7 +493,7 @@ impl Database {
     }
 
     pub fn update_group(&self, id: i64, name: &str, parent_id: Option<i64>, sort_order: i64) -> Result<()> {
-        self.conn.lock().unwrap().execute(
+        self.lock_conn()?.execute(
             "UPDATE groups SET name = ?1, parent_id = ?2, sort_order = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = ?4",
             params![name, parent_id, sort_order, id],
         )?;
@@ -488,7 +501,7 @@ impl Database {
     }
 
     pub fn delete_group(&self, id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         // Promote child groups to top-level
         conn.execute(
             "UPDATE groups SET parent_id = NULL WHERE parent_id = ?1",
@@ -523,7 +536,7 @@ impl Database {
         service_id: Option<i64>,
         health_check_url: &str,
     ) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO bookmarks (name, url, description, group_id, icon, service_id, health_check_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![name, url, description, group_id, icon, service_id, health_check_url],
@@ -532,7 +545,7 @@ impl Database {
     }
 
     pub fn list_bookmarks(&self, group_id: Option<i64>) -> Result<Vec<Bookmark>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let query = if let Some(_gid) = group_id {
             "SELECT id, name, url, description, group_id, icon, service_id, health_check_url, is_online, created_at, updated_at FROM bookmarks WHERE group_id = ?1 ORDER BY created_at DESC"
         } else {
@@ -589,7 +602,7 @@ impl Database {
         icon: &str,
         health_check_url: &str,
     ) -> Result<()> {
-        self.conn.lock().unwrap().execute(
+        self.lock_conn()?.execute(
             "UPDATE bookmarks SET name = ?1, url = ?2, description = ?3, group_id = ?4, icon = ?5, health_check_url = ?6, updated_at = CURRENT_TIMESTAMP WHERE id = ?7",
             params![name, url, description, group_id, icon, health_check_url, id],
         )?;
@@ -597,7 +610,7 @@ impl Database {
     }
 
     pub fn delete_bookmark(&self, id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
         Ok(())
     }
@@ -606,7 +619,7 @@ impl Database {
 
     pub fn add_service_log(&self, service_id: i64, content: &str, level: &str) -> Result<()> {
         // Keep only last 5000 logs per service
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM service_logs WHERE service_id = ?1",
             params![service_id],
@@ -630,7 +643,7 @@ impl Database {
     }
 
     pub fn get_service_logs(&self, service_id: i64, limit: i64) -> Result<Vec<ServiceLog>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, service_id, content, level, created_at FROM service_logs WHERE service_id = ?1 ORDER BY created_at DESC LIMIT ?2"
         )?;
@@ -651,7 +664,7 @@ impl Database {
     // === Settings ===
 
     pub fn get_settings(&self) -> Result<AppSettings> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let settings = conn.query_row(
             "SELECT id, theme, auto_refresh_interval, show_menu_bar, created_at, updated_at FROM settings WHERE id = 1",
             [],
@@ -675,7 +688,7 @@ impl Database {
         auto_refresh_interval: i64,
         show_menu_bar: bool,
     ) -> Result<()> {
-        self.conn.lock().unwrap().execute(
+        self.lock_conn()?.execute(
             "UPDATE settings SET theme = ?1, auto_refresh_interval = ?2, show_menu_bar = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
             params![theme, auto_refresh_interval, show_menu_bar],
         )?;
@@ -694,7 +707,7 @@ impl Database {
         auth_data: &str,
         group_id: Option<i64>,
     ) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "INSERT INTO ssh_connections (name, host, port, username, auth_type, auth_data, group_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -704,7 +717,7 @@ impl Database {
     }
 
     pub fn list_ssh_connections(&self) -> Result<Vec<SshConnection>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, host, port, username, auth_type, auth_data, group_id, created_at, updated_at
              FROM ssh_connections ORDER BY created_at DESC"
@@ -729,7 +742,7 @@ impl Database {
     }
 
     pub fn get_ssh_connection(&self, id: i64) -> Result<SshConnection> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         let connection = conn.query_row(
             "SELECT id, name, host, port, username, auth_type, auth_data, group_id, created_at, updated_at
              FROM ssh_connections WHERE id = ?1",
@@ -763,7 +776,7 @@ impl Database {
         auth_data: &str,
         group_id: Option<i64>,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute(
             "UPDATE ssh_connections
              SET name = ?1, host = ?2, port = ?3, username = ?4,
@@ -775,7 +788,7 @@ impl Database {
     }
 
     pub fn delete_ssh_connection(&self, id: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_conn()?;
         conn.execute("DELETE FROM ssh_connections WHERE id = ?1", params![id])?;
         Ok(())
     }

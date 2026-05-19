@@ -1,0 +1,224 @@
+<style>
+  .page-frame {
+    display: flex;
+    flex-direction: column;
+    border: 2px solid #333;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #1a1a2e;
+    margin-bottom: 20px;
+    height: 380px;
+  }
+  .page-label {
+    background: #2d2d44;
+    color: #e0e0e0;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: bold;
+  }
+  .ssh-area {
+    height: 50%;
+    border-bottom: 1px solid #333;
+    padding: 8px;
+    color: #0dbc79;
+    font-family: monospace;
+    font-size: 11px;
+    overflow: hidden;
+  }
+  .sftp-area {
+    height: 50%;
+    display: flex;
+    background: #22223a;
+    overflow: hidden;
+  }
+  .panel {
+    flex: 1;
+    border: 1px dashed #444;
+    padding: 6px;
+    font-size: 11px;
+    color: #bbb;
+    overflow: hidden;
+  }
+  .toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: #2a2a40;
+    border-bottom: 1px solid #444;
+    font-size: 10px;
+  }
+  .btn {
+    padding: 2px 8px;
+    background: #3b3b5e;
+    border-radius: 3px;
+    color: #ddd;
+  }
+  .file-item {
+    padding: 2px 4px;
+    font-size: 10px;
+    color: #999;
+  }
+  .file-item.folder {
+    color: #e5e510;
+  }
+  .options {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .option {
+    flex: 1;
+    min-width: 260px;
+    max-width: 320px;
+    cursor: pointer;
+    padding: 12px;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    background: #f8f9fa;
+    transition: all 0.2s;
+  }
+  .option:hover {
+    border-color: #2472c8;
+  }
+  .option.selected {
+    border-color: #0dbc79;
+    background: #e8f5ee;
+  }
+  .letter {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    border-radius: 50%;
+    background: #333;
+    color: white;
+    font-weight: bold;
+    font-size: 13px;
+    margin-right: 8px;
+  }
+</style>
+
+<h2>SFTP 文件管理器布局方案</h2>
+<p class="subtitle">SSH 终端在上，SFTP 文件管理器在下。点击选择你喜欢的 SFTP 内部布局。</p>
+
+<div class="options" data-multiselect>
+  <!-- A. macOS Finder 单面板 -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <span class="letter">A</span>
+      <div>
+        <h3 style="margin:0;font-size:16px">单面板 - macOS Finder 风格</h3>
+        <p style="margin:0;font-size:12px;color:#666">仅显示远程文件，简洁清爽</p>
+      </div>
+    </div>
+    <div class="page-frame">
+      <div class="page-label">Terminal Page (SSH 在上, SFTP 在下)</div>
+      <div class="ssh-area">
+        user@server:~$ <br>
+        user@server:~$ ls<br>
+        Documents  Downloads  public_html
+      </div>
+      <div class="sftp-area" style="flex-direction:column">
+        <div class="toolbar">
+          <span class="btn">上传</span>
+          <span class="btn">下载</span>
+          <span class="btn">删除</span>
+          <span class="btn">新建文件夹</span>
+          <span class="btn">刷新</span>
+        </div>
+        <div class="panel" style="flex-direction:column;display:flex">
+          <div class="file-item">/home/user</div>
+          <div class="file-item folder">📁 Documents</div>
+          <div class="file-item folder">📁 Downloads</div>
+          <div class="file-item folder">📁 public_html</div>
+          <div class="file-item">📄 .bashrc</div>
+          <div class="file-item">📄 .ssh/config</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B. FileZilla 双栏 -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <span class="letter">B</span>
+      <div>
+        <h3 style="margin:0;font-size:16px">双栏对比 - FileZilla 风格</h3>
+        <p style="margin:0;font-size:12px;color:#666">本地文件在左，远程文件在右，拖拽传输</p>
+      </div>
+    </div>
+    <div class="page-frame">
+      <div class="page-label">Terminal Page (SSH 在上, SFTP 在下)</div>
+      <div class="ssh-area">
+        user@server:~$ <br>
+        user@server:~$ ls<br>
+        Documents  Downloads  public_html
+      </div>
+      <div class="sftp-area">
+        <!-- 左栏：本地文件 -->
+        <div class="panel" style="border-right:1px solid #444">
+          <div class="page-label" style="margin:-6px -6px 4px -6px">本地 (本地文件系统)</div>
+          <div class="file-item">/Users/baiyuyao</div>
+          <div class="file-item folder">📁 Desktop</div>
+          <div class="file-item folder">📁 Documents</div>
+          <div class="file-item folder">📁 Downloads</div>
+          <div class="file-item">📄 README.md</div>
+        </div>
+        <!-- 右栏：远程文件 -->
+        <div class="panel">
+          <div class="page-label" style="margin:-6px -6px 4px -6px">远程 (服务器)</div>
+          <div class="file-item">/home/user</div>
+          <div class="file-item folder">📁 Documents</div>
+          <div class="file-item folder">📁 Downloads</div>
+          <div class="file-item folder">📁 public_html</div>
+          <div class="file-item">📄 .bashrc</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C. VS Code 侧边栏风格 -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <span class="letter">C</span>
+      <div>
+        <h3 style="margin:0;font-size:16px">侧边栏 + 主面板 - VS Code 风格</h3>
+        <p style="margin:0;font-size:12px;color:#666">树形文件列表在左，文件详情/预览在右</p>
+      </div>
+    </div>
+    <div class="page-frame">
+      <div class="page-label">Terminal Page (SSH 在上, SFTP 在下)</div>
+      <div class="ssh-area">
+        user@server:~$ <br>
+        user@server:~$ ls<br>
+        Documents  Downloads  public_html
+      </div>
+      <div class="sftp-area">
+        <!-- 左栏：树形文件列表 -->
+        <div class="panel" style="flex:0 0 200px;border-right:1px solid #444">
+          <div class="page-label" style="margin:-6px -6px 4px -6px">远程文件</div>
+          <div class="file-item">📁 home</div>
+          <div class="file-item" style="padding-left:16px">📁 user</div>
+          <div class="file-item folder" style="padding-left:32px">📁 Documents</div>
+          <div class="file-item folder" style="padding-left:32px">📁 Downloads</div>
+          <div class="file-item" style="padding-left:32px">📄 .bashrc</div>
+        </div>
+        <!-- 右栏：详情/预览 -->
+        <div class="panel">
+          <div class="page-label" style="margin:-6px -6px 4px -6px">文件详情</div>
+          <div style="font-size:11px;color:#888;line-height:1.8">
+            <p style="margin:4px 0"><strong style="color:#bbb">名称:</strong> .bashrc</p>
+            <p style="margin:4px 0"><strong style="color:#bbb">大小:</strong> 2.4 KB</p>
+            <p style="margin:4px 0"><strong style="color:#bbb">权限:</strong> -rw-r--r--</p>
+            <p style="margin:4px 0"><strong style="color:#bbb">修改时间:</strong> 2026-05-10 14:32</p>
+            <p style="margin:4px 0"><strong style="color:#bbb">所有者:</strong> user:user</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:20px">点击上方选项进行选择，然后告诉我你最喜欢哪个。</p>

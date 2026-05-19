@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
+import LogList from "@/components/LogList";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -85,7 +86,6 @@ export default function Services() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logTab, setLogTab] = useState("realtime");
   const [isListening, setIsListening] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
 
   // Delete confirm state
@@ -125,11 +125,6 @@ export default function Services() {
     return matchesSearch && matchesStatus;
   });
 
-  // ─── Log auto-scroll ──────────────────────────────────────
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
-
   // ─── Real-time log listener ───────────────────────────────
   useEffect(() => {
     if (!logDialogOpen || !logService) return;
@@ -137,14 +132,14 @@ export default function Services() {
     const setupListener = async () => {
       try {
         const unlisten = await listen(`service:log:${logService.id}`, (event) => {
-          setLogs((prev) => [
-            ...prev,
-            {
+          setLogs((prev) => {
+            const next = [...prev, {
               content: event.payload as string,
               level: "info",
               created_at: new Date().toISOString(),
-            },
-          ]);
+            }];
+            return next.length > 1000 ? next.slice(-1000) : next;
+          });
         });
         unlistenRef.current = unlisten;
         setIsListening(true);
@@ -336,14 +331,6 @@ export default function Services() {
     }
   };
 
-  const formatTime = (iso: string) => {
-    try {
-      const d = new Date(iso);
-      return d.toLocaleTimeString("zh-CN", { hour12: false });
-    } catch {
-      return iso;
-    }
-  };
 
   // Parse ports string into array
   const parsePorts = (portsStr: string): string[] => {
@@ -769,72 +756,27 @@ export default function Services() {
             </div>
 
             <TabsContent value="realtime" className="flex-1 min-h-0 mt-0 px-6 pb-6 pt-3">
-              <div className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6">
-                {logs.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-                    <Terminal className="h-8 w-8 opacity-40" />
-                    <p>等待日志输出...</p>
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {logs.map((log, i) => (
-                      <div key={i} className="flex gap-3 hover:bg-white/5 rounded px-1 -mx-1">
-                        <span className="shrink-0 text-[#666] select-none w-[72px] text-right">
-                          {formatTime(log.created_at)}
-                        </span>
-                        <span
-                          className={
-                            log.level === "error"
-                              ? "text-red-400"
-                              : log.level === "warn"
-                              ? "text-yellow-400"
-                              : log.level === "stdout"
-                              ? "text-blue-300"
-                              : "text-green-400"
-                          }
-                        >
-                          {log.content}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div ref={logEndRef} />
-              </div>
+              <LogList
+                logs={logs}
+                emptyMessage="等待日志输出..."
+                emptyIcon={<Terminal className="h-8 w-8 opacity-40" />}
+                className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6"
+                listClassName="space-y-0.5"
+                logClassName="gap-3 hover:bg-white/5 rounded px-1 -mx-1"
+                timestampClassName="shrink-0 text-[#666] select-none w-[72px] text-right"
+              />
             </TabsContent>
 
             <TabsContent value="history" className="flex-1 min-h-0 mt-0 px-6 pb-6 pt-3">
-              <div className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6">
-                {logs.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-                    <RotateCcw className="h-8 w-8 opacity-40" />
-                    <p>没有历史日志</p>
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {logs.map((log, i) => (
-                      <div key={i} className="flex gap-3 hover:bg-white/5 rounded px-1 -mx-1">
-                        <span className="shrink-0 text-[#666] select-none w-[72px] text-right">
-                          {formatTime(log.created_at)}
-                        </span>
-                        <span
-                          className={
-                            log.level === "error"
-                              ? "text-red-400"
-                              : log.level === "warn"
-                              ? "text-yellow-400"
-                              : log.level === "stdout"
-                              ? "text-blue-300"
-                              : "text-green-400"
-                          }
-                        >
-                          {log.content}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <LogList
+                logs={logs}
+                emptyMessage="没有历史日志"
+                emptyIcon={<RotateCcw className="h-8 w-8 opacity-40" />}
+                className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6"
+                listClassName="space-y-0.5"
+                logClassName="gap-3 hover:bg-white/5 rounded px-1 -mx-1"
+                timestampClassName="shrink-0 text-[#666] select-none w-[72px] text-right"
+              />
             </TabsContent>
           </Tabs>
         </DialogContent>

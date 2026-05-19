@@ -42,6 +42,9 @@ ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 # === PTY 支持（tmux 内嵌终端）===
 portable-pty = "0.9"
 
+# === base64 编码（WebSocket text message 传输二进制数据）===
+base64 = "0.22"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

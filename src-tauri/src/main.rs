@@ -37,12 +37,13 @@ fn main() {
         .setup(|app| {
             // Initialize database
             let app_handle = app.handle();
-            let app_dir = app_handle.path().app_data_dir().unwrap();
-            std::fs::create_dir_all(&app_dir).unwrap();
+            let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
             let db_path = app_dir.join("macops.db");
 
-            let db = Database::new(db_path.to_str().unwrap()).unwrap();
-            db.init().unwrap();
+            let db_path_str = db_path.to_str().ok_or("Invalid database path")?;
+            let db = Database::new(db_path_str).map_err(|e| e.to_string())?;
+            db.init().map_err(|e| e.to_string())?;
 
             let process_manager = Mutex::new(ProcessManager::new());
 
@@ -80,6 +81,8 @@ fn main() {
             let window = app.get_webview_window("main").unwrap();
             let _ = window.show();
             let _ = window.set_focus();
+            #[cfg(debug_assertions)]
+            let _ = window.open_devtools();
 
             Ok(())
         })

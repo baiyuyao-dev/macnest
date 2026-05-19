@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { Card, CardContent } from "@/components/ui/card";
+import LogList, { type LogEntry } from "@/components/LogList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,12 +42,6 @@ import { formatBytes, statusVariant } from "@/lib/utils";
 import type { Service, DockerContainer, Bookmark as BookmarkType, Group, SystemInfo } from "@/types";
 
 const MIN_LOADING_MS = 400;
-
-interface LogEntry {
-  content: string;
-  level: string;
-  created_at: string;
-}
 
 /* ── Skeletons ── */
 function StatCardSkeleton() {
@@ -146,7 +141,6 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logTab, setLogTab] = useState("realtime");
   const [isListening, setIsListening] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -201,11 +195,6 @@ export default function Dashboard() {
     };
   }, [loadData]);
 
-  // ─── Log auto-scroll ──────────────────────────────────────
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
-
   // ─── Real-time log listener ───────────────────────────────
   useEffect(() => {
     if (!logDialogOpen || !logService) return;
@@ -213,14 +202,14 @@ export default function Dashboard() {
     const setupListener = async () => {
       try {
         const unlisten = await listen(`service:log:${logService.id}`, (event) => {
-          setLogs((prev) => [
-            ...prev,
-            {
+          setLogs((prev) => {
+            const next = [...prev, {
               content: event.payload as string,
               level: "info",
               created_at: new Date().toISOString(),
-            },
-          ]);
+            }];
+            return next.length > 1000 ? next.slice(-1000) : next;
+          });
         });
         unlistenRef.current = unlisten;
         setIsListening(true);
@@ -289,14 +278,6 @@ export default function Dashboard() {
 
   const clearLogs = () => setLogs([]);
 
-  const formatTime = (iso: string) => {
-    try {
-      const d = new Date(iso);
-      return d.toLocaleTimeString("zh-CN", { hour12: false });
-    } catch {
-      return iso;
-    }
-  };
 
   const runningServices = services.filter((s) => s.status === "running").length;
   const runningContainers = containers.filter((c) => c.state === "running").length;
@@ -492,62 +473,21 @@ export default function Dashboard() {
                   清空日志
                 </Button>
               </div>
-              <div className="h-[400px] overflow-y-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed">
-                {logs.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-20">
-                    等待日志输出...
-                  </p>
-                ) : (
-                  logs.map((log, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="shrink-0 text-muted-foreground select-none">
-                        {formatTime(log.created_at)}
-                      </span>
-                      <span
-                        className={
-                          log.level === "error"
-                            ? "text-red-400"
-                            : log.level === "warn"
-                            ? "text-yellow-400"
-                            : "text-green-400"
-                        }
-                      >
-                        {log.content}
-                      </span>
-                    </div>
-                  ))
-                )}
-                <div ref={logEndRef} />
-              </div>
+              <LogList
+                logs={logs}
+                emptyMessage="等待日志输出..."
+                className="h-[400px] overflow-y-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed"
+                timestampClassName="shrink-0 text-muted-foreground select-none"
+              />
             </TabsContent>
 
             <TabsContent value="history">
-              <div className="h-[400px] overflow-y-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed">
-                {logs.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-20">
-                    没有历史日志
-                  </p>
-                ) : (
-                  logs.map((log, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="shrink-0 text-muted-foreground select-none">
-                        {formatTime(log.created_at)}
-                      </span>
-                      <span
-                        className={
-                          log.level === "error"
-                            ? "text-red-400"
-                            : log.level === "warn"
-                            ? "text-yellow-400"
-                            : "text-green-400"
-                        }
-                      >
-                        {log.content}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
+              <LogList
+                logs={logs}
+                emptyMessage="没有历史日志"
+                className="h-[400px] overflow-y-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed"
+                timestampClassName="shrink-0 text-muted-foreground select-none"
+              />
             </TabsContent>
           </Tabs>
         </DialogContent>

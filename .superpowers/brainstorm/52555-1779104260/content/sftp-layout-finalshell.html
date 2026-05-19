@@ -1,0 +1,298 @@
+<style>
+  .page-frame {
+    display: flex;
+    flex-direction: column;
+    border: 2px solid #333;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #1a1a2e;
+    margin: 0 auto;
+    max-width: 700px;
+    height: 460px;
+  }
+  .page-label {
+    background: #2d2d44;
+    color: #e0e0e0;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: bold;
+  }
+  /* SSH 终端区域 */
+  .ssh-area {
+    height: 45%;
+    border-bottom: 1px solid #333;
+    padding: 8px;
+    color: #0dbc79;
+    font-family: monospace;
+    font-size: 11px;
+    overflow: hidden;
+    background: #0d0d1a;
+  }
+  .ssh-prompt { color: #0dbc79; }
+  .ssh-cmd { color: #e0e0e0; }
+  .ssh-output { color: #888; }
+  /* SFTP 区域 - FinalShell 风格 */
+  .sftp-area {
+    height: 55%;
+    display: flex;
+    background: #1e1e2e;
+    overflow: hidden;
+  }
+  /* 左侧：树形目录 */
+  .tree-panel {
+    flex: 0 0 160px;
+    border-right: 1px solid #333;
+    background: #1a1a2e;
+    overflow-y: auto;
+    font-size: 10px;
+  }
+  .tree-header {
+    background: #252540;
+    padding: 5px 8px;
+    font-size: 10px;
+    font-weight: bold;
+    color: #aaa;
+    border-bottom: 1px solid #333;
+  }
+  .tree-item {
+    padding: 3px 8px;
+    color: #999;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tree-item:hover { background: #2a2a45; color: #ddd; }
+  .tree-item.active { background: #1e3a5f; color: #4fc3f7; }
+  .tree-item .indent { display: inline-block; }
+  .tree-icon { margin-right: 2px; }
+  /* 中间：文件列表 */
+  .file-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .breadcrumb {
+    background: #252540;
+    padding: 5px 10px;
+    font-size: 10px;
+    color: #aaa;
+    border-bottom: 1px solid #333;
+  }
+  .breadcrumb span { color: #4fc3f7; cursor: pointer; }
+  .breadcrumb span:hover { text-decoration: underline; }
+  .file-toolbar {
+    display: flex;
+    gap: 4px;
+    padding: 4px 8px;
+    background: #1e1e2e;
+    border-bottom: 1px solid #333;
+  }
+  .toolbar-btn {
+    padding: 2px 8px;
+    background: #2a2a45;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: #ccc;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .toolbar-btn:hover { background: #3a3a55; }
+  .file-list-header {
+    display: flex;
+    padding: 4px 10px;
+    background: #1a1a2e;
+    border-bottom: 1px solid #333;
+    font-size: 10px;
+    color: #888;
+    font-weight: bold;
+  }
+  .file-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .file-row {
+    display: flex;
+    padding: 4px 10px;
+    font-size: 10px;
+    color: #bbb;
+    border-bottom: 1px solid #222;
+    cursor: pointer;
+  }
+  .file-row:hover { background: #252540; }
+  .file-row.selected { background: #1e3a5f; }
+  .col-name { flex: 2; }
+  .col-size { flex: 1; text-align: right; }
+  .col-time { flex: 1.5; text-align: right; }
+  .col-perm { flex: 1; text-align: right; }
+  .folder-name { color: #e5e510; }
+  .file-name { color: #bbb; }
+  /* 右侧：详情/传输队列 */
+  .detail-panel {
+    flex: 0 0 140px;
+    border-left: 1px solid #333;
+    background: #1a1a2e;
+    overflow: hidden;
+  }
+  .detail-header {
+    background: #252540;
+    padding: 5px 8px;
+    font-size: 10px;
+    font-weight: bold;
+    color: #aaa;
+    border-bottom: 1px solid #333;
+  }
+  .detail-content {
+    padding: 8px;
+    font-size: 10px;
+    color: #999;
+    line-height: 1.8;
+  }
+  .detail-content strong { color: #ccc; }
+  .transfer-item {
+    padding: 3px 6px;
+    font-size: 9px;
+    color: #0dbc79;
+    border-bottom: 1px solid #222;
+  }
+  .transfer-progress {
+    height: 3px;
+    background: #333;
+    border-radius: 2px;
+    margin-top: 2px;
+  }
+  .transfer-progress-bar {
+    height: 100%;
+    width: 60%;
+    background: #0dbc79;
+    border-radius: 2px;
+  }
+  .status-bar {
+    background: #252540;
+    padding: 3px 10px;
+    font-size: 9px;
+    color: #888;
+    border-top: 1px solid #333;
+  }
+  h2 { margin-bottom: 8px; }
+  .subtitle { margin-bottom: 16px; }
+</style>
+
+<h2>FinalShell 风格 - SFTP 同屏显示</h2>
+<p class="subtitle">SSH 终端在上（45%），SFTP 文件管理器在下（55%）。SFTP 采用三栏布局：左侧树形目录 + 中间文件列表 + 右侧详情/传输队列。</p>
+
+<div class="page-frame">
+  <!-- SSH 终端 -->
+  <div class="ssh-area">
+    <span class="ssh-prompt">user@server:~$</span> <span class="ssh-cmd">cd /var/www</span><br>
+    <span class="ssh-prompt">user@server:/var/www$</span> <span class="ssh-cmd">ls -la</span><br>
+    <span class="ssh-output">drwxr-xr-x  5 root root 4096 May 15 10:23 .</span><br>
+    <span class="ssh-output">drwxr-xr-x 18 root root 4096 May 10 08:12 ..</span><br>
+    <span class="ssh-output">drwxr-xr-x  2 www  www  4096 May 16 14:20 html</span><br>
+    <span class="ssh-output">drwxr-xr-x  3 www  www  4096 May 17 09:45 logs</span><br>
+    <span class="ssh-output">-rw-r--r--  1 root root  220 May 15 10:23 nginx.conf</span><br>
+    <span class="ssh-prompt">user@server:/var/www$</span> <span class="ssh-cmd">_</span>
+  </div>
+
+  <!-- SFTP 文件管理器 -->
+  <div class="sftp-area">
+    <!-- 左侧：树形目录 -->
+    <div class="tree-panel">
+      <div class="tree-header">📁 远程目录</div>
+      <div class="tree-item active"><span class="tree-icon">📁</span> /</div>
+      <div class="tree-item"><span class="indent" style="width:12px"></span><span class="tree-icon">📁</span> home</div>
+      <div class="tree-item"><span class="indent" style="width:24px"></span><span class="tree-icon">📁</span> user</div>
+      <div class="tree-item"><span class="indent" style="width:36px"></span><span class="tree-icon">📁</span> .ssh</div>
+      <div class="tree-item"><span class="indent" style="width:36px"></span><span class="tree-icon">📁</span> Documents</div>
+      <div class="tree-item"><span class="indent" style="width:36px"></span><span class="tree-icon">📁</span> Downloads</div>
+      <div class="tree-item"><span class="indent" style="width:24px"></span><span class="tree-icon">📁</span> var</div>
+      <div class="tree-item"><span class="indent" style="width:36px"></span><span class="tree-icon" style="color:#4fc3f7">📂</span> <strong style="color:#4fc3f7">www</strong></div>
+      <div class="tree-item"><span class="indent" style="width:36px"></span><span class="tree-icon">📁</span> log</div>
+      <div class="tree-item"><span class="indent" style="width:12px"></span><span class="tree-icon">📁</span> etc</div>
+      <div class="tree-item"><span class="indent" style="width:12px"></span><span class="tree-icon">📁</span> usr</div>
+      <div class="tree-item"><span class="indent" style="width:24px"></span><span class="tree-icon">📁</span> local</div>
+      <div class="tree-item"><span class="indent" style="width:12px"></span><span class="tree-icon">📁</span> tmp</div>
+    </div>
+
+    <!-- 中间：文件列表 -->
+    <div class="file-panel">
+      <div class="breadcrumb">
+        根目录 > var > <span>www</span>
+      </div>
+      <div class="file-toolbar">
+        <span class="toolbar-btn">⬆ 上传</span>
+        <span class="toolbar-btn">⬇ 下载</span>
+        <span class="toolbar-btn">🗑 删除</span>
+        <span class="toolbar-btn">📁 新建</span>
+        <span class="toolbar-btn">✏ 重命名</span>
+        <span class="toolbar-btn">🔄 刷新</span>
+      </div>
+      <div class="file-list-header">
+        <div class="col-name">名称</div>
+        <div class="col-size">大小</div>
+        <div class="col-time">修改时间</div>
+        <div class="col-perm">权限</div>
+      </div>
+      <div class="file-list">
+        <div class="file-row">
+          <div class="col-name folder-name">📁 html</div>
+          <div class="col-size">4.0 KB</div>
+          <div class="col-time">2026-05-16 14:20</div>
+          <div class="col-perm">drwxr-xr-x</div>
+        </div>
+        <div class="file-row selected">
+          <div class="col-name folder-name">📁 logs</div>
+          <div class="col-size">4.0 KB</div>
+          <div class="col-time">2026-05-17 09:45</div>
+          <div class="col-perm">drwxr-xr-x</div>
+        </div>
+        <div class="file-row">
+          <div class="col-name file-name">📄 nginx.conf</div>
+          <div class="col-size">220 B</div>
+          <div class="col-time">2026-05-15 10:23</div>
+          <div class="col-perm">-rw-r--r--</div>
+        </div>
+        <div class="file-row">
+          <div class="col-name file-name">📄 index.html</div>
+          <div class="col-size">1.2 KB</div>
+          <div class="col-time">2026-05-16 16:30</div>
+          <div class="col-perm">-rw-r--r--</div>
+        </div>
+        <div class="file-row">
+          <div class="col-name file-name">📄 .htaccess</div>
+          <div class="col-size">156 B</div>
+          <div class="col-time">2026-05-14 08:12</div>
+          <div class="col-perm">-rw-r--r--</div>
+        </div>
+      </div>
+      <div class="status-bar">
+        5 个项目 | 已选择: logs | 可用空间: 45.2 GB
+      </div>
+    </div>
+
+    <!-- 右侧：详情 + 传输队列 -->
+    <div class="detail-panel">
+      <div class="detail-header">文件详情</div>
+      <div class="detail-content">
+        <p><strong>名称:</strong> logs</p>
+        <p><strong>类型:</strong> 文件夹</p>
+        <p><strong>大小:</strong> 4.0 KB</p>
+        <p><strong>权限:</strong> drwxr-xr-x</p>
+        <p><strong>所有者:</strong> www:www</p>
+        <p><strong>修改:</strong> 2026-05-17</p>
+      </div>
+      <div class="detail-header" style="border-top:1px solid #333">传输队列</div>
+      <div style="flex:1;overflow-y:auto">
+        <div class="transfer-item">
+          ⬆ deploy.zip<br>
+          <div class="transfer-progress"><div class="transfer-progress-bar"></div></div>
+          60% (12MB / 20MB)
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;text-align:center;color:#666">
+  这是 FinalShell 风格的 SFTP 布局。三栏设计：左侧树形目录导航，中间文件列表（带面包屑、工具栏、列表头），右侧文件详情和传输进度。<br>
+  支持拖拽上传、右键菜单、双击进入文件夹等交互。
+</p>

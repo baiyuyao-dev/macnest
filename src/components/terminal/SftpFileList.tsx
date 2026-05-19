@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Folder, FileText, ArrowUp, ArrowDown, Trash2, FolderPlus, Pencil, RefreshCw } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Folder, FileText, ArrowUp, ArrowDown, Trash2, FolderPlus, Pencil, RefreshCw, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { SftpFile } from "@/types";
+import { formatSize } from "@/lib/utils";
 
 interface SftpFileListProps {
   files: SftpFile[];
@@ -23,6 +24,7 @@ interface SftpFileListProps {
   onUpload: () => void;
   onDownload: () => void;
   onDropUpload: (localPath: string) => void;
+  onSyncToTerminal?: () => void;
 }
 
 export default function SftpFileList({
@@ -38,6 +40,7 @@ export default function SftpFileList({
   onUpload,
   onDownload,
   onDropUpload,
+  onSyncToTerminal,
 }: SftpFileListProps) {
   const [showMkdirDialog, setShowMkdirDialog] = useState(false);
   const [mkdirName, setMkdirName] = useState("");
@@ -45,12 +48,15 @@ export default function SftpFileList({
   const [renameValue, setRenameValue] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
-  const breadcrumbs = currentPath === "/"
-    ? [{ name: "根目录", path: "/" }]
-    : [{ name: "根目录", path: "/" }, ...currentPath.split("/").filter(Boolean).map((part, i, arr) => ({
-        name: part,
-        path: "/" + arr.slice(0, i + 1).join("/"),
-      }))];
+  const breadcrumbs = useMemo(() =>
+    currentPath === "/"
+      ? [{ name: "根目录", path: "/" }]
+      : [{ name: "根目录", path: "/" }, ...currentPath.split("/").filter(Boolean).map((part, i, arr) => ({
+          name: part,
+          path: "/" + arr.slice(0, i + 1).join("/"),
+        }))],
+    [currentPath]
+  );
 
   const handleDoubleClick = (file: SftpFile) => {
     if (file.is_dir) {
@@ -123,6 +129,11 @@ export default function SftpFileList({
         <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={openRename}>
           <Pencil className="h-3 w-3 mr-1" />重命名
         </Button>
+        {onSyncToTerminal && (
+          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#0dbc79] hover:bg-[#3a3a55]" onClick={onSyncToTerminal}>
+            <Terminal className="h-3 w-3 mr-1" />同步到终端
+          </Button>
+        )}
         <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55] ml-auto" onClick={onRefresh}>
           <RefreshCw className="h-3 w-3 mr-1" />刷新
         </Button>
@@ -256,10 +267,3 @@ export default function SftpFileList({
   );
 }
 
-function formatSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}

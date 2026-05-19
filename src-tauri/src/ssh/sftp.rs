@@ -137,21 +137,6 @@ impl SftpManager {
         })
     }
 
-    pub fn upload_file(&self, local_path: &str, remote_path: &str) -> anyhow::Result<()> {
-        let data = std::fs::read(local_path)?;
-        let mut remote_file = self.sftp.create(Path::new(remote_path))?;
-        remote_file.write_all(&data)?;
-        Ok(())
-    }
-
-    pub fn download_file(&self, remote_path: &str, local_path: &str) -> anyhow::Result<()> {
-        let mut remote_file = self.sftp.open(Path::new(remote_path))?;
-        let mut data = Vec::new();
-        remote_file.read_to_end(&mut data)?;
-        std::fs::write(local_path, &data)?;
-        Ok(())
-    }
-
     pub fn create_file(&self, path: &Path) -> anyhow::Result<ssh2::File> {
         self.sftp.create(path).map_err(|e| e.into())
     }

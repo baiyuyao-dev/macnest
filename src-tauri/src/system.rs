@@ -304,7 +304,9 @@ pub fn get_processes() -> Result<Vec<ProcessInfo>, String> {
     }
 
     // Sort by memory usage descending
-    processes.sort_by(|a, b| b.memory_mb.partial_cmp(&a.memory_mb).unwrap());
+    processes.sort_by(|a, b| {
+        b.memory_mb.partial_cmp(&a.memory_mb).unwrap_or(std::cmp::Ordering::Equal)
+    });
     processes.truncate(30);
     Ok(processes)
 }
