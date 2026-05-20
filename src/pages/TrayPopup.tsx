@@ -82,7 +82,7 @@ export default function TrayPopup() {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#1c1917] text-foreground select-none">
+    <div className="dark h-screen w-screen overflow-hidden bg-[#1c1917] text-foreground select-none">
       <div className="flex flex-col h-full p-4 space-y-3">
         {/* Header */}
         <div className="flex items-center gap-2 pb-2 border-b border-white/10">

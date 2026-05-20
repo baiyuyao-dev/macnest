@@ -192,6 +192,10 @@ fn main() {
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static LAST_CLICK_MS: AtomicU64 = AtomicU64::new(0);
 
     let show_i = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -202,7 +206,6 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let _tray = TrayIconBuilder::new()
         .tooltip("MacNest")
         .icon(icon)
-        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -218,20 +221,28 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            eprintln!("[macnest] Tray icon event: {:?}", std::mem::discriminant(&event));
             if let TrayIconEvent::Click { id: _, position, rect: _, .. } = event {
-                eprintln!("[macnest] Tray click at position: {:?}", position);
+                // 防抖：忽略 300ms 内的重复点击（macOS mouseDown + mouseUp 各触发一次）
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+                let last = LAST_CLICK_MS.load(Ordering::Relaxed);
+                if now.saturating_sub(last) < 300 {
+                    return;
+                }
+                LAST_CLICK_MS.store(now, Ordering::Relaxed);
+
                 let app = tray.app_handle();
                 match app.get_webview_window("tray-popup") {
                     Some(popup) => {
                         let is_visible = popup.is_visible().unwrap_or(false);
-                        eprintln!("[macnest] Popup visible: {}", is_visible);
                         if is_visible {
                             let _ = popup.hide();
                         } else {
+                            // 让 popup 显示在 tray icon 正下方
                             let x = position.x;
                             let y = position.y + 10.0;
-                            eprintln!("[macnest] Showing popup at: x={}, y={}", x, y);
                             let _ = popup.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
                             let _ = popup.show();
                             let _ = popup.set_focus();
