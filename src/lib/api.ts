@@ -158,7 +158,7 @@ export async function listBookmarks(groupId?: number): Promise<Bookmark[]> {
 }
 
 export async function createBookmark(
-  data: Omit<Bookmark, "id" | "is_online" | "created_at" | "updated_at">
+  data: Omit<Bookmark, "id" | "created_at" | "updated_at">
 ): Promise<number> {
   return invokeSafe("create_bookmark", { req: data });
 }
@@ -174,7 +174,6 @@ export async function updateBookmark(
       description: data.description,
       group_id: data.group_id,
       icon: data.icon,
-      health_check_url: data.health_check_url,
       service_id: data.service_id,
     },
   });

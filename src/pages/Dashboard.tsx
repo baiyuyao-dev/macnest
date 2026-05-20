@@ -16,6 +16,8 @@ import {
   Terminal,
   LayoutGrid,
   ChevronRight,
+  Cpu,
+  MemoryStick,
 } from "lucide-react";
 import {
   listServices,
@@ -314,10 +316,21 @@ export default function Dashboard() {
                       </Badge>
                       <span className="text-sm font-medium truncate">{svc.name}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {svc.ports && <span className="text-[11px] text-muted-foreground hidden sm:inline font-mono">:{svc.ports}</span>}
-                      <span className="text-[11px] text-muted-foreground hidden sm:inline font-mono">{svc.cpu_percent?.toFixed(1)}%</span>
-                      <span className="text-[11px] text-muted-foreground hidden sm:inline font-mono">{svc.memory_mb?.toFixed(0)}MB</span>
+                    <div className="flex items-center gap-2">
+                      {svc.ports && (
+                        <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
+                          <span className="text-muted-foreground/60">端口</span>
+                          <span className="font-mono">{svc.ports}</span>
+                        </span>
+                      )}
+                      <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
+                        <Cpu className="h-3 w-3 text-muted-foreground/60" />
+                        <span className="font-mono">{svc.cpu_percent?.toFixed(1)}%</span>
+                      </span>
+                      <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
+                        <MemoryStick className="h-3 w-3 text-muted-foreground/60" />
+                        <span className="font-mono">{svc.memory_mb?.toFixed(0)}MB</span>
+                      </span>
                       <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" onClick={() => handleStop(svc.id)} title="终止">
                         <Square className="h-3.5 w-3.5" />
                       </Button>

@@ -50,8 +50,6 @@ export interface Bookmark {
   group_id: number | null;
   icon: string;
   service_id: number | null;
-  health_check_url: string;
-  is_online: boolean;
   created_at: string;
   updated_at: string;
 }

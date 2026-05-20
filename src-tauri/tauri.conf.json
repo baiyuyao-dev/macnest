@@ -27,11 +27,6 @@
         "focus": false
       }
     ],
-    "trayIcon": {
-      "id": "main-tray",
-      "iconPath": "icons/tray-icon.png",
-      "menuOnLeftClick": false
-    },
     "withGlobalTauri": true,
     "security": {
       "csp": null

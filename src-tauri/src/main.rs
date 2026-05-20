@@ -197,8 +197,11 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
+
     let _tray = TrayIconBuilder::new()
         .tooltip("MacNest")
+        .icon(icon)
         .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)

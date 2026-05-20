@@ -16,11 +16,8 @@ import {
   Pencil,
   Search,
   RotateCcw,
-  Cpu,
-  MemoryStick,
   AlertTriangle,
   Loader2,
-  ChevronRight,
 } from "lucide-react";
 import type { Service } from "@/types";
 import {
@@ -253,12 +250,6 @@ export default function Services() {
     }
   };
 
-  // Parse ports string into array
-  const parsePorts = (portsStr: string): string[] => {
-    if (!portsStr) return [];
-    return portsStr.split(",").filter((p) => p.trim());
-  };
-
   // ─── Filter tabs ──────────────────────────────────────────
   const statusTabs: { value: ServiceStatus; label: string }[] = [
     { value: "all", label: "全部" },
@@ -360,31 +351,6 @@ export default function Services() {
               <div className="mt-3 rounded-lg bg-muted/60 px-2.5 py-1.5 overflow-hidden border border-[var(--glass-border)]">
                 <code className="text-[11px] font-mono text-muted-foreground truncate block">{service.command || "无命令"}</code>
               </div>
-
-              {/* Ports */}
-              {service.ports && parsePorts(service.ports).length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {parsePorts(service.ports).map((port) => (
-                    <Badge key={port} variant="outline" className="text-[10px] h-5 px-1.5 rounded-full font-mono">
-                      {port.trim()}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-
-              {/* CPU / Memory */}
-              {service.status === "running" && (
-                <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <Cpu className="h-3 w-3" />
-                    CPU {service.cpu_percent?.toFixed(1)}%
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <MemoryStick className="h-3 w-3" />
-                    {service.memory_mb?.toFixed(0)} MB
-                  </span>
-                </div>
-              )}
 
               {/* Spacer */}
               <div className="flex-1 min-h-[8px]" />

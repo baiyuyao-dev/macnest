@@ -25,17 +25,6 @@ import {
 } from "@/lib/api";
 import { buildGroupTree, collectDescendantIds, filterGroupTree, type GroupNode } from "@/lib/tree";
 
-function StatusDot({ isOnline }: { isOnline: boolean }) {
-  return (
-    <span
-      className={`inline-block h-2 w-2 rounded-full ${
-        isOnline ? "bg-green-500" : "bg-red-500"
-      }`}
-      title={isOnline ? "在线" : "离线"}
-    />
-  );
-}
-
 interface BookmarkViewProps {
   bookmarks: BookmarkType[];
   groups: Group[];
@@ -66,7 +55,6 @@ function GridView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
               <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-red-500/10 hover:text-red-500"
                 onClick={(e) => { e.stopPropagation(); onDelete(bookmark.id); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
             </div>
-            <div className="absolute top-3 left-3"><StatusDot isOnline={bookmark.is_online} /></div>
             <div className="flex justify-center mt-5 mb-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110">
                 <IconComp className="h-6 w-6" />
@@ -106,7 +94,6 @@ function ListView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
               <div className="w-40 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium truncate text-sm">{bookmark.name}</span>
-                  <StatusDot isOnline={bookmark.is_online} />
                 </div>
               </div>
               <div className="flex-1 min-w-0"><span className="text-sm text-muted-foreground truncate block">{bookmark.url}</span></div>
@@ -194,7 +181,7 @@ export default function BookmarksPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     name: "", url: "", description: "", group_id: null as number | null, icon: "link",
-    service_id: null as number | null, health_check_url: "",
+    service_id: null as number | null,
   });
 
   const [groupSearchInput, setGroupSearchInput] = useState("");
@@ -266,12 +253,12 @@ export default function BookmarksPage() {
   }, [bookmarks, searchQuery, activeGroupId, groups]);
 
   const resetForm = () => {
-    setFormData({ name: "", url: "", description: "", group_id: null, icon: "link", service_id: null, health_check_url: "" });
+    setFormData({ name: "", url: "", description: "", group_id: null, icon: "link", service_id: null });
     setEditingId(null); setDialogMode(null);
   };
 
   const openCreateDialog = () => {
-    setFormData({ name: "", url: "", description: "", group_id: activeGroupId, icon: "link", service_id: null, health_check_url: "" });
+    setFormData({ name: "", url: "", description: "", group_id: activeGroupId, icon: "link", service_id: null });
     setEditingId(null); setDialogMode("create"); setDialogOpen(true);
   };
 
@@ -279,7 +266,7 @@ export default function BookmarksPage() {
     setFormData({
       name: bookmark.name, url: bookmark.url, description: bookmark.description || "",
       group_id: bookmark.group_id, icon: bookmark.icon || "link",
-      service_id: bookmark.service_id, health_check_url: bookmark.health_check_url || "",
+      service_id: bookmark.service_id,
     });
     setEditingId(bookmark.id); setDialogMode("edit"); setDialogOpen(true);
   };
@@ -673,11 +660,6 @@ export default function BookmarksPage() {
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">健康检测 URL</Label>
-              <Input value={formData.health_check_url} onChange={(e) => setFormData({ ...formData, health_check_url: e.target.value })} placeholder="http://localhost:8080/health (可选)" className="input-macos" />
-              <p className="text-[11px] text-muted-foreground">用于检测服务是否在线，留空则不检测</p>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setDialogOpen(false); resetForm(); }}>取消</Button>
