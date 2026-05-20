@@ -13,6 +13,19 @@ use crate::AppState;
 const PORT_DETECT_MAX_ATTEMPTS: u32 = 8;
 const PORT_DETECT_RETRY_MS: u64 = 800;
 const SFTP_CHUNK_SIZE: usize = 64 * 1024; // 64KB
+
+/// 解密 auth_data，兼容旧的明文格式
+/// 先尝试解密（新格式），失败则回退到明文 JSON（旧格式）
+fn decrypt_auth_data(auth_data: &str) -> Result<SshAuthType, String> {
+    // 先尝试解密（加密后的数据）
+    if let Ok(json) = crate::security::decrypt(auth_data) {
+        if let Ok(auth) = serde_json::from_str::<SshAuthType>(&json) {
+            return Ok(auth);
+        }
+    }
+    // 回退：直接作为明文 JSON 解析（旧数据兼容）
+    serde_json::from_str::<SshAuthType>(auth_data).map_err(|e| e.to_string())
+}
 const SFTP_YIELD_INTERVAL: usize = 16;    // ~1MB per yield (64KB * 16)
 
 // === Service Commands ===
@@ -603,7 +616,8 @@ pub fn create_ssh_connection(
         SshAuthType::Password { .. } => "password",
         SshAuthType::PublicKey { .. } => "publickey",
     };
-    let auth_data = serde_json::to_string(&req.auth_type).map_err(|e| e.to_string())?;
+    let auth_json = serde_json::to_string(&req.auth_type).map_err(|e| e.to_string())?;
+    let auth_data = crate::security::encrypt(&auth_json).map_err(|e| e.to_string())?;
 
     state
         .db
@@ -627,8 +641,7 @@ pub fn list_ssh_connections(
 
     let mut connections = Vec::new();
     for db_conn in db_connections {
-        let auth_type: SshAuthType =
-            serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+        let auth_type = decrypt_auth_data(&db_conn.auth_data)?;
 
         connections.push(crate::ssh::types::SshConnection {
             id: db_conn.id,
@@ -674,7 +687,8 @@ pub fn update_ssh_connection(
         SshAuthType::Password { .. } => "password",
         SshAuthType::PublicKey { .. } => "publickey",
     };
-    let auth_data = serde_json::to_string(&req.auth_type).map_err(|e| e.to_string())?;
+    let auth_json = serde_json::to_string(&req.auth_type).map_err(|e| e.to_string())?;
+    let auth_data = crate::security::encrypt(&auth_json).map_err(|e| e.to_string())?;
 
     state
         .db
@@ -707,9 +721,8 @@ pub async fn ssh_connect(
         .get_ssh_connection(connection_id)
         .map_err(|e| e.to_string())?;
 
-    // Deserialize auth_data
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_connection.auth_data).map_err(|e| e.to_string())?;
+    // Decrypt and deserialize auth_data（兼容旧格式）
+    let auth_type = decrypt_auth_data(&db_connection.auth_data)?;
 
     let connection = crate::ssh::types::SshConnection {
         id: db_connection.id,
@@ -776,8 +789,7 @@ async fn get_sftp_manager(
         .get_ssh_connection(info.connection_id)
         .map_err(|e| e.to_string())?;
 
-    let auth_type: SshAuthType =
-        serde_json::from_str(&db_conn.auth_data).map_err(|e| e.to_string())?;
+    let auth_type = decrypt_auth_data(&db_conn.auth_data)?;
 
     crate::ssh::sftp::SftpManager::connect(
         &db_conn.host,

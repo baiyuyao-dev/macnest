@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 interface DialogProps {
@@ -9,13 +10,14 @@ interface DialogProps {
 
 function Dialog({ open, onOpenChange, children }: DialogProps) {
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
       <div className="relative z-50" onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -28,7 +30,7 @@ DialogTrigger.displayName = "DialogTrigger";
 
 const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg", className)} {...props} />
+    <div ref={ref} className={cn("rounded-lg border bg-background p-6 shadow-lg", className)} {...props} />
   )
 );
 DialogContent.displayName = "DialogContent";

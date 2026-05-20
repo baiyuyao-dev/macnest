@@ -10,6 +10,8 @@ pub struct SshSessionManager {
     sessions: Mutex<HashMap<String, SshSession>>,
 }
 
+const MAX_SESSIONS: usize = 50;
+
 pub struct SshSession {
     pub info: SshSessionInfo,
     pub connection_manager: SshConnectionManager,
@@ -27,11 +29,23 @@ impl SshSessionManager {
         &self,
         connection: &SshConnection,
     ) -> anyhow::Result<String> {
+        // 检查最大会话数限制
+        {
+            let sessions = self.sessions.lock().await;
+            if sessions.len() >= MAX_SESSIONS {
+                anyhow::bail!(
+                    "已达到最大 SSH 会话数限制（{}），请先断开不使用的连接",
+                    MAX_SESSIONS
+                );
+            }
+        }
+
         let session_id = Uuid::new_v4().to_string();
-        let mut manager = SshConnectionManager::connect((
-            connection.host.as_str(),
-            connection.port,
-        ))
+        let host_key = format!("{}:{}", connection.host, connection.port);
+        let mut manager = SshConnectionManager::connect(
+            (connection.host.as_str(), connection.port),
+            host_key,
+        )
         .await?;
 
         let auth_result = manager

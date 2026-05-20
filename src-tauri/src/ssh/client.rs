@@ -2,25 +2,52 @@ use async_trait::async_trait;
 use russh::keys::key::PrivateKeyWithHashAlg;
 use russh::keys::{load_secret_key, ssh_key};
 use russh::*;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use tokio::net::ToSocketAddrs;
 
 use super::types::SshAuthType;
 
-pub struct SshClientHandler;
+/// 已知主机指纹缓存（内存），key 为 "host:port"
+lazy_static::lazy_static! {
+    static ref KNOWN_HOSTS: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+}
+
+pub struct SshClientHandler {
+    pub host_key: String, // "host:port"
+}
 
 #[async_trait]
 impl client::Handler for SshClientHandler {
     type Error = russh::Error;
 
-    /// TODO: Implement proper host key verification (known_hosts file)
-    /// Currently accepts all host keys for ease of use in MVP.
-    /// This is a security risk and should be addressed before production use.
     async fn check_server_key(
         &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        server_public_key: &ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
+        let fingerprint = server_public_key
+            .fingerprint(ssh_key::HashAlg::Sha256);
+        let fingerprint_str = fingerprint.to_string();
+
+        let known = KNOWN_HOSTS.lock().unwrap();
+        if let Some(stored) = known.get(&self.host_key) {
+            // 已知主机：指纹必须匹配
+            return Ok(stored == &fingerprint_str);
+        }
+        drop(known);
+
+        // 首次连接：记录指纹并接受
+        // TODO: 生产环境应 emit 事件让前端展示指纹确认对话框
+        eprintln!(
+            "[ssh] 首次连接 {}，指纹: {}",
+            self.host_key, fingerprint_str
+        );
+        KNOWN_HOSTS
+            .lock()
+            .unwrap()
+            .insert(self.host_key.clone(), fingerprint_str);
         Ok(true)
     }
 }
@@ -30,8 +57,9 @@ pub struct SshConnectionManager {
 }
 
 impl SshConnectionManager {
-    pub async fn connect<A: ToSocketAddrs>(
+    pub async fn connect<A: ToSocketAddrs + Clone + std::fmt::Debug>(
         addrs: A,
+        host_key: String,
     ) -> anyhow::Result<Self> {
         let config = client::Config {
             inactivity_timeout: Some(Duration::from_secs(300)),
@@ -39,7 +67,7 @@ impl SshConnectionManager {
             ..<_>::default()
         };
         let config = Arc::new(config);
-        let handler = SshClientHandler {};
+        let handler = SshClientHandler { host_key };
         let session = client::connect(config, addrs, handler).await?;
         Ok(Self { session })
     }

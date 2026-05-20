@@ -9,18 +9,18 @@ interface SftpFileDetailProps {
 
 export default function SftpFileDetail({ file, transfers, onCancelTransfer }: SftpFileDetailProps) {
   return (
-    <div className="flex h-full w-[160px] flex-col border-l border-[var(--glass-border)] bg-muted/20 shrink-0">
+    <div className="flex h-full w-[180px] flex-col border-l border-[var(--glass-border)] bg-muted/20 shrink-0">
       {/* 文件详情 */}
-      <div className="bg-muted/40 px-2 py-1.5 text-[10px] font-bold text-muted-foreground border-b border-[var(--glass-border)]">
+      <div className="bg-muted/40 px-2 py-1.5 text-xs font-bold text-muted-foreground border-b border-[var(--glass-border)]">
         文件详情
       </div>
-      <div className="flex-1 overflow-y-auto p-2 text-[10px] text-muted-foreground leading-relaxed">
+      <div className="flex-1 overflow-y-auto p-2 text-xs text-muted-foreground leading-relaxed">
         {file ? (
           <>
             <p><strong className="text-foreground">名称:</strong> {file.name}</p>
             <p><strong className="text-foreground">类型:</strong> {file.is_dir ? "文件夹" : "文件"}</p>
             <p><strong className="text-foreground">大小:</strong> {formatSize(file.size)}</p>
-            <p><strong className="text-foreground">权限:</strong> {file.permissions}</p>
+            <p><strong className="text-foreground">权限:</strong> <span className="font-mono">{file.permissions}</span></p>
             <p><strong className="text-foreground">所有者:</strong> {file.owner}:{file.group}</p>
             <p><strong className="text-foreground">修改:</strong> {file.modified_time}</p>
           </>
@@ -30,12 +30,12 @@ export default function SftpFileDetail({ file, transfers, onCancelTransfer }: Sf
       </div>
 
       {/* 传输队列 */}
-      <div className="bg-muted/40 px-2 py-1.5 text-[10px] font-bold text-muted-foreground border-t border-b border-[var(--glass-border)]">
+      <div className="bg-muted/40 px-2 py-1.5 text-xs font-bold text-muted-foreground border-t border-b border-[var(--glass-border)]">
         传输队列
       </div>
       <div className="flex-1 overflow-y-auto">
         {transfers.length === 0 ? (
-          <p className="p-2 text-[10px] text-muted-foreground/50">暂无传输</p>
+          <p className="p-2 text-xs text-muted-foreground/50">暂无传输</p>
         ) : (
           transfers.map((t) => {
             const percent = t.total_bytes > 0
@@ -46,7 +46,7 @@ export default function SftpFileDetail({ file, transfers, onCancelTransfer }: Sf
             const isActive = t.status === "in_progress";
 
             return (
-              <div key={t.id} className="px-2 py-1.5 text-[9px] border-b border-[var(--glass-border)]">
+              <div key={t.id} className="px-2 py-1.5 text-[11px] border-b border-[var(--glass-border)]">
                 <div className={isDone ? "text-emerald-500" : isFailed ? "text-red-500" : "text-amber-500"}>
                   {t.direction === "upload" ? "⬆" : "⬇"} {t.file_name}
                 </div>

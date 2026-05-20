@@ -3,7 +3,9 @@
 mod commands;
 mod database;
 mod docker;
+mod error;
 mod process;
+mod security;
 mod system;
 mod ssh;
 mod tmux;

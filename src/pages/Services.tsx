@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -98,11 +98,11 @@ export default function Services() {
   }, [loadServices]);
 
   // ─── Filtered services ────────────────────────────────────
-  const filteredServices = services.filter((s) => {
+  const filteredServices = useMemo(() => services.filter((s) => {
     const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || s.status === statusFilter;
     return matchesSearch && matchesStatus;
-  });
+  }), [services, searchQuery, statusFilter]);
 
   // ─── CRUD handlers ────────────────────────────────────────
   const openCreateDialog = () => {
@@ -427,11 +427,11 @@ export default function Services() {
 
       {/* ─── Create/Edit Dialog ─────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] w-[36rem] max-w-[90vw]">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">{isEditing ? "编辑服务" : "添加服务"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
             <div className="space-y-1.5">
               <Label htmlFor="svc-name" className="text-xs">名称 <span className="text-destructive">*</span></Label>
               <Input id="svc-name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="如: frpc 内网穿透" className="input-macos" />
@@ -444,15 +444,17 @@ export default function Services() {
               <Label htmlFor="svc-cmd" className="text-xs">启动命令 <span className="text-destructive">*</span></Label>
               <Textarea id="svc-cmd" value={formData.command} onChange={(e) => setFormData({ ...formData, command: e.target.value })} placeholder="如: /usr/local/bin/frpc -c ~/.frp/frpc.toml" rows={2} className="input-macos" />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="svc-cwd" className="text-xs">工作目录</Label>
-              <Input id="svc-cwd" value={formData.cwd} onChange={(e) => setFormData({ ...formData, cwd: e.target.value })} placeholder="如: /Users/xxx/projects" className="input-macos" />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="svc-cwd" className="text-xs">工作目录</Label>
+                <Input id="svc-cwd" value={formData.cwd} onChange={(e) => setFormData({ ...formData, cwd: e.target.value })} placeholder="如: /Users/xxx/projects" className="input-macos" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="svc-env" className="text-xs">环境变量 (JSON)</Label>
+                <Input id="svc-env" value={formData.env_vars} onChange={(e) => setFormData({ ...formData, env_vars: e.target.value })} placeholder='{"KEY": "value"}' className="input-macos font-mono text-xs" />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="svc-env" className="text-xs">环境变量 (JSON格式)</Label>
-              <Textarea id="svc-env" value={formData.env_vars} onChange={(e) => setFormData({ ...formData, env_vars: e.target.value })} placeholder={`{"KEY": "value", "NODE_ENV": "production"}`} rows={2} className="input-macos" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="svc-policy" className="text-xs">重启策略</Label>
                 <select id="svc-policy" value={formData.restart_policy} onChange={(e) => setFormData({ ...formData, restart_policy: e.target.value as "always" | "on-failure" | "never" })}
@@ -478,7 +480,7 @@ export default function Services() {
                 自动检测端口
               </label>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-3 border-t border-[var(--glass-border)]">
               <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setDialogOpen(false)}>取消</Button>
               <Button size="sm" className="btn-macos rounded-lg" onClick={handleSave} disabled={!formData.name.trim() || !formData.command.trim()}>
                 {isEditing ? "保存" : "创建"}

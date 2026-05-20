@@ -1,7 +1,7 @@
 use ssh2::Session;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::types::{SshAuthType, SftpFile};
 
@@ -9,6 +9,26 @@ pub struct SftpManager {
     #[allow(dead_code)]
     session: Session,
     sftp: ssh2::Sftp,
+}
+
+/// 将权限位转换为人类可读的 rwx 格式，例如 "rwxr-xr-x"
+fn format_permissions(perm: u32, is_dir: bool) -> String {
+    let mode = perm & 0o777; // 只取低9位权限位
+    let mut result = String::with_capacity(10);
+    result.push(if is_dir { 'd' } else { '-' });
+    // owner
+    result.push(if mode & 0o400 != 0 { 'r' } else { '-' });
+    result.push(if mode & 0o200 != 0 { 'w' } else { '-' });
+    result.push(if mode & 0o100 != 0 { 'x' } else { '-' });
+    // group
+    result.push(if mode & 0o040 != 0 { 'r' } else { '-' });
+    result.push(if mode & 0o020 != 0 { 'w' } else { '-' });
+    result.push(if mode & 0o010 != 0 { 'x' } else { '-' });
+    // others
+    result.push(if mode & 0o004 != 0 { 'r' } else { '-' });
+    result.push(if mode & 0o002 != 0 { 'w' } else { '-' });
+    result.push(if mode & 0o001 != 0 { 'x' } else { '-' });
+    result
 }
 
 impl SftpManager {
@@ -45,7 +65,19 @@ impl SftpManager {
         Ok(Self { session, sftp })
     }
 
+    /// 验证路径安全性，防止路径遍历攻击
+    fn validate_sftp_path(&self, path: &str) -> anyhow::Result<()> {
+        // 拒绝包含 .. 的路径组件
+        for component in Path::new(path).components() {
+            if let std::path::Component::ParentDir = component {
+                anyhow::bail!("路径遍历不被允许：路径中包含 '..'");
+            }
+        }
+        Ok(())
+    }
+
     pub fn list_dir(&self, path: &str) -> anyhow::Result<Vec<SftpFile>> {
+        self.validate_sftp_path(path)?;
         let entries = self.sftp.readdir(Path::new(path))?;
         let mut files = Vec::new();
         for (path_buf, stat) in entries {
@@ -60,8 +92,8 @@ impl SftpManager {
             let is_dir = stat.is_dir();
             let permissions = stat
                 .perm
-                .map(|p| format!("{:o}", p))
-                .unwrap_or_else(|| "0".to_string());
+                .map(|p| format_permissions(p, is_dir))
+                .unwrap_or_else(|| "-".to_string());
             let modified_time = stat
                 .mtime
                 .and_then(|t| {
@@ -85,6 +117,7 @@ impl SftpManager {
     }
 
     pub fn delete(&self, path: &str, is_dir: bool) -> anyhow::Result<()> {
+        self.validate_sftp_path(path)?;
         if is_dir {
             self.sftp.rmdir(Path::new(path))?;
         } else {
@@ -94,17 +127,21 @@ impl SftpManager {
     }
 
     pub fn mkdir(&self, path: &str) -> anyhow::Result<()> {
+        self.validate_sftp_path(path)?;
         self.sftp.mkdir(Path::new(path), 0o755)?;
         Ok(())
     }
 
     pub fn rename(&self, old_path: &str, new_path: &str) -> anyhow::Result<()> {
+        self.validate_sftp_path(old_path)?;
+        self.validate_sftp_path(new_path)?;
         self.sftp
             .rename(Path::new(old_path), Path::new(new_path), None)?;
         Ok(())
     }
 
     pub fn get_file_info(&self, path: &str) -> anyhow::Result<SftpFile> {
+        self.validate_sftp_path(path)?;
         let stat = self.sftp.stat(Path::new(path))?;
         let path_obj = Path::new(path);
         let name = path_obj
@@ -113,10 +150,11 @@ impl SftpManager {
             .unwrap_or("")
             .to_string();
 
+        let is_dir = stat.is_dir();
         let permissions = stat
             .perm
-            .map(|p| format!("{:o}", p))
-            .unwrap_or_else(|| "0".to_string());
+            .map(|p| format_permissions(p, is_dir))
+            .unwrap_or_else(|| "-".to_string());
         let modified_time = stat
             .mtime
             .and_then(|t| {

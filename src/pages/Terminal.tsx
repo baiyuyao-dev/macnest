@@ -56,6 +56,105 @@ interface TerminalGroupNode extends Omit<GroupNode, "children"> {
 
 const DEFAULT_SIDEBAR_WIDTH = 280;
 
+/**
+ * 每个 Tab 独立的终端+SFTP 分栏，自带 ref 和高度状态。
+ * 避免多 tab 共用 ref 导致拖动和布局异常。
+ */
+function TerminalSplitPane({
+  tab,
+  isActive,
+  xtermRefs,
+  onDragOverlayChange,
+}: {
+  tab: { id: string; name: string; sessionId: string; websocketUrl: string };
+  isActive: boolean;
+  xtermRefs: React.MutableRefObject<Map<string, XTermHandle>>;
+  onDragOverlayChange: (v: "row-resize" | null) => void;
+}) {
+  const [splitPct, setSplitPct] = useState(60);
+  const termRef = useRef<HTMLDivElement>(null);
+  const sftpRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const startY = useRef(0);
+  const startPct = useRef(60);
+  // 用 ref 持有回调，避免 useEffect 依赖变化导致重新注册
+  const onDragOverlayChangeRef = useRef(onDragOverlayChange);
+  onDragOverlayChangeRef.current = onDragOverlayChange;
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!isDragging.current || !termRef.current || !sftpRef.current) return;
+      e.preventDefault();
+      const parent = sftpRef.current.parentElement;
+      if (!parent) return;
+      const rect = parent.getBoundingClientRect();
+      const delta = e.clientY - startY.current;
+      const deltaPct = (delta / rect.height) * 100;
+      const pct = Math.max(20, Math.min(80, startPct.current + deltaPct));
+      termRef.current.style.flex = String(pct);
+      sftpRef.current.style.flex = String(100 - pct);
+    };
+    const handleUp = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      const pct = Number(termRef.current?.style.flex ?? 60);
+      setSplitPct(pct);
+      onDragOverlayChangeRef.current(null);
+    };
+    window.addEventListener("mousemove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, []);
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="overflow-hidden bg-muted/30" ref={termRef} style={{ flex: splitPct }}>
+        <XTerm
+          ref={(el) => {
+            if (el) xtermRefs.current.set(tab.id, el);
+            else xtermRefs.current.delete(tab.id);
+          }}
+          websocketUrl={tab.websocketUrl}
+          active={isActive}
+        />
+      </div>
+      {/* Vertical splitter */}
+      <div
+        className="h-3 shrink-0 z-10 group relative cursor-row-resize"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          isDragging.current = true;
+          startY.current = e.clientY;
+          const parent = sftpRef.current?.parentElement;
+          if (parent) {
+            const rect = parent.getBoundingClientRect();
+            const top = termRef.current?.getBoundingClientRect().top ?? rect.top;
+            startPct.current = ((e.clientY - top) / rect.height) * 100;
+          }
+          onDragOverlayChange("row-resize");
+        }}
+      >
+        <div className="absolute inset-0 -top-1 -bottom-1" />
+        <div className="h-[3px] w-full my-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
+      </div>
+      <div className="overflow-hidden" ref={sftpRef} style={{ flex: 100 - splitPct }}>
+        <SftpPanel
+          sessionId={tab.sessionId}
+          onSyncToTerminal={(path) => {
+            const xterm = xtermRefs.current.get(tab.id);
+            if (xterm) {
+              xterm.sendCommand(`cd ${path}`);
+            }
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function buildTerminalGroupTree(groups: Group[], connections: SshConnection[]): TerminalGroupNode[] {
   const tree = buildGroupTree(groups);
   const map = new Map<number, TerminalGroupNode>();
@@ -277,20 +376,15 @@ export default function Terminal() {
 
   // Resizable state
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
-  const [terminalHeight, setTerminalHeight] = useState(60);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const termPanelRef = useRef<HTMLDivElement>(null);
-  const sftpPanelRef = useRef<HTMLDivElement>(null);
   const tabContentRef = useRef<HTMLDivElement>(null);
   const xtermRefs = useRef<Map<string, XTermHandle>>(new Map());
   const isDraggingH = useRef(false);
-  const isDraggingV = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
-  const startYRef = useRef(0);
-  const startPctRef = useRef(45);
+  const [dragOverlay, setDragOverlay] = useState<"col-resize" | "row-resize" | null>(null);
 
-  // Drag handlers — direct DOM manipulation, no React state during drag
+  // Drag handlers — sidebar only, V drag is per-tab in TerminalSplitPane
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
       e.preventDefault();
@@ -299,17 +393,6 @@ export default function Terminal() {
         const w = Math.max(240, Math.min(420, startWidthRef.current + delta));
         sidebarRef.current.style.width = w + "px";
       }
-      if (isDraggingV.current && termPanelRef.current && sftpPanelRef.current) {
-        const parent = sftpPanelRef.current.parentElement;
-        if (parent) {
-          const rect = parent.getBoundingClientRect();
-          const delta = e.clientY - startYRef.current;
-          const deltaPct = (delta / rect.height) * 100;
-          const pct = Math.max(20, Math.min(80, startPctRef.current + deltaPct));
-          termPanelRef.current.style.flex = String(pct);
-          sftpPanelRef.current.style.flex = String(100 - pct);
-        }
-      }
     };
     const handleUp = () => {
       if (isDraggingH.current) {
@@ -317,14 +400,7 @@ export default function Terminal() {
         const w = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
         setSidebarWidth(w);
       }
-      if (isDraggingV.current) {
-        isDraggingV.current = false;
-        const pct = Number(termPanelRef.current?.style.flex ?? 45);
-        setTerminalHeight(pct);
-      }
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.body.style.pointerEvents = "";
+      setDragOverlay(null);
     };
     window.addEventListener("mousemove", handleMove, { passive: false });
     window.addEventListener("mouseup", handleUp);
@@ -733,7 +809,14 @@ export default function Terminal() {
   );
 
   return (
-    <div className="flex h-full bg-background animate-page-enter">
+    <div className="flex h-full bg-background animate-page-enter relative">
+      {/* 拖动时全屏透明覆盖层，防止 xterm/sftp 拦截鼠标事件 */}
+      {dragOverlay && (
+        <div
+          className="fixed inset-0 z-[9999]"
+          style={{ cursor: dragOverlay }}
+        />
+      )}
       {/* ── Sidebar ── */}
       <div
         className="border-r border-[var(--glass-border)] flex flex-col shrink-0 bg-muted/20"
@@ -891,16 +974,18 @@ export default function Terminal() {
 
       {/* Horizontal splitter */}
       <div
-        className="w-[5px] bg-muted hover:bg-primary cursor-col-resize shrink-0 z-20 transition-colors"
+        className="w-2 shrink-0 z-20 group relative cursor-col-resize"
         onMouseDown={(e) => {
+          e.preventDefault();
           isDraggingH.current = true;
           startXRef.current = e.clientX;
           startWidthRef.current = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
-          document.body.style.cursor = "col-resize";
-          document.body.style.userSelect = "none";
-          document.body.style.pointerEvents = "none";
+          setDragOverlay("col-resize");
         }}
-      />
+      >
+        <div className="absolute inset-0 -left-1 -right-1" />
+        <div className="w-[3px] h-full mx-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
+      </div>
 
       {/* ── Main Content ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -966,47 +1051,13 @@ export default function Terminal() {
                     {tab.name} — {tab.websocketUrl}
                   </span>
                 </div>
-                {/* Terminal + SFTP */}
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  <div className="overflow-hidden bg-muted/30" ref={termPanelRef} style={{ flex: terminalHeight }}>
-                    <XTerm
-                      ref={(el) => {
-                        if (el) xtermRefs.current.set(tab.id, el);
-                        else xtermRefs.current.delete(tab.id);
-                      }}
-                      websocketUrl={tab.websocketUrl}
-                      active={activeTabId === tab.id}
-                    />
-                  </div>
-                  {/* Vertical splitter */}
-                  <div
-                    className="h-[5px] bg-muted hover:bg-primary cursor-row-resize shrink-0 z-10 transition-colors"
-                    onMouseDown={(e) => {
-                      isDraggingV.current = true;
-                      startYRef.current = e.clientY;
-                      const parent = sftpPanelRef.current?.parentElement;
-                      if (parent) {
-                        const rect = parent.getBoundingClientRect();
-                        const top = termPanelRef.current?.getBoundingClientRect().top ?? rect.top;
-                        startPctRef.current = ((e.clientY - top) / rect.height) * 100;
-                      }
-                      document.body.style.cursor = "row-resize";
-                      document.body.style.userSelect = "none";
-                      document.body.style.pointerEvents = "none";
-                    }}
-                  />
-                  <div className="overflow-hidden" ref={sftpPanelRef} style={{ flex: 100 - terminalHeight }}>
-                    <SftpPanel
-                      sessionId={tab.sessionId}
-                      onSyncToTerminal={(path) => {
-                        const xterm = xtermRefs.current.get(tab.id);
-                        if (xterm) {
-                          xterm.sendCommand(`cd ${path}`);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
+                {/* Terminal + SFTP — per-tab 独立管理 */}
+                <TerminalSplitPane
+                  tab={tab}
+                  isActive={activeTabId === tab.id}
+                  xtermRefs={xtermRefs}
+                  onDragOverlayChange={(v) => setDragOverlay(v ? "row-resize" : null)}
+                />
               </div>
             ))
           )}

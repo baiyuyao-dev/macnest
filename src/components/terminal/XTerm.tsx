@@ -123,18 +123,21 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm({ websocketUrl,
     },
   }));
 
+  // 组件卸载时彻底清理所有资源（不依赖 websocketUrl）
   useEffect(() => {
     return () => {
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
       }
       if (keepaliveTimerRef.current) {
         clearInterval(keepaliveTimerRef.current);
+        keepaliveTimerRef.current = null;
       }
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [websocketUrl]);
+  }, []);
 
   return (
     <BaseTerminal

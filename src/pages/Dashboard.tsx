@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -210,8 +210,14 @@ export default function Dashboard() {
     }
   };
 
-  const runningServices = services.filter((s) => s.status === "running").length;
-  const runningContainers = containers.filter((c) => c.state === "running").length;
+  const runningServices = useMemo(
+    () => services.filter((s) => s.status === "running").length,
+    [services]
+  );
+  const runningContainers = useMemo(
+    () => containers.filter((c) => c.state === "running").length,
+    [containers]
+  );
 
   return (
     <div className="space-y-6 p-6 animate-page-enter">

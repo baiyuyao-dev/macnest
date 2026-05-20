@@ -41,10 +41,13 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
     loadFiles("/");
   }, [sessionId, loadFiles]);
 
-  // 进度轮询
+  // 进度轮询（使用 ref 避免依赖 transfers 导致多次创建 interval）
+  const transfersRef = useRef(transfers);
+  transfersRef.current = transfers;
+
   useEffect(() => {
     const interval = setInterval(async () => {
-      const inProgress = transfers.filter(t => t.status === "in_progress");
+      const inProgress = transfersRef.current.filter(t => t.status === "in_progress");
       for (const t of inProgress) {
         try {
           const progress = await sftpGetProgress(t.id);
@@ -75,7 +78,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
       }
     }, 200);
     return () => clearInterval(interval);
-  }, [transfers]);
+  }, [sessionId]);
 
   // 完成后自动清理
   useEffect(() => {

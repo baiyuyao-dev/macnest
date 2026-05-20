@@ -98,7 +98,7 @@ export default function SftpFileList({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* 面包屑 */}
-      <div className="bg-muted/40 px-3 py-1.5 text-[10px] text-muted-foreground border-b border-[var(--glass-border)]">
+      <div className="bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground border-b border-[var(--glass-border)]">
         {breadcrumbs.map((crumb, i) => (
           <span key={crumb.path}>
             {i > 0 && <span className="mx-1 text-muted-foreground/50">&gt;</span>}
@@ -114,33 +114,33 @@ export default function SftpFileList({
 
       {/* 工具栏 */}
       <div className="flex gap-1 px-2 py-1 bg-muted/30 border-b border-[var(--glass-border)]">
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={onUpload}>
-          <ArrowUp className="h-3 w-3 mr-1" />上传
+        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={onUpload}>
+          <ArrowUp className="h-3.5 w-3.5 mr-1" />上传
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={onDownload}>
-          <ArrowDown className="h-3 w-3 mr-1" />下载
+        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={onDownload}>
+          <ArrowDown className="h-3.5 w-3.5 mr-1" />下载
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={handleDelete}>
-          <Trash2 className="h-3 w-3 mr-1" />删除
+        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={handleDelete}>
+          <Trash2 className="h-3.5 w-3.5 mr-1" />删除
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={() => setShowMkdirDialog(true)}>
-          <FolderPlus className="h-3 w-3 mr-1" />新建
+        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={() => setShowMkdirDialog(true)}>
+          <FolderPlus className="h-3.5 w-3.5 mr-1" />新建
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={openRename}>
-          <Pencil className="h-3 w-3 mr-1" />重命名
+        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={openRename}>
+          <Pencil className="h-3.5 w-3.5 mr-1" />重命名
         </Button>
         {onSyncToTerminal && (
-          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-emerald-500 hover:bg-accent/40" onClick={onSyncToTerminal}>
-            <Terminal className="h-3 w-3 mr-1" />同步到终端
+          <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-emerald-500 hover:bg-accent/40" onClick={onSyncToTerminal}>
+            <Terminal className="h-3.5 w-3.5 mr-1" />同步到终端
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40 ml-auto" onClick={onRefresh}>
-          <RefreshCw className="h-3 w-3 mr-1" />刷新
+        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 ml-auto" onClick={onRefresh}>
+          <RefreshCw className="h-3.5 w-3.5 mr-1" />刷新
         </Button>
       </div>
 
       {/* 列表头 */}
-      <div className="flex px-3 py-1 bg-muted/20 border-b border-[var(--glass-border)] text-[10px] text-muted-foreground font-bold">
+      <div className="flex px-3 py-1 bg-muted/20 border-b border-[var(--glass-border)] text-xs text-muted-foreground font-semibold">
         <div className="flex-[2]">名称</div>
         <div className="flex-1 text-right">大小</div>
         <div className="flex-[1.5] text-right">修改时间</div>
@@ -183,7 +183,7 @@ export default function SftpFileList({
         {/* 返回上级 */}
         {currentPath !== "/" && (
           <div
-            className="flex px-3 py-1 text-[10px] text-muted-foreground cursor-pointer hover:bg-accent/30 border-b border-[var(--glass-border)]"
+            className="flex px-3 py-1.5 text-xs text-muted-foreground cursor-pointer hover:bg-accent/30 border-b border-[var(--glass-border)]"
             onClick={() => {
               const parent = currentPath.split("/").slice(0, -1).join("/") || "/";
               onPathChange(parent);
@@ -198,7 +198,7 @@ export default function SftpFileList({
         {files.map((file) => (
           <div
             key={file.path}
-            className={`flex px-3 py-1 text-[10px] cursor-pointer border-b border-[var(--glass-border)] ${
+            className={`flex px-3 py-1.5 text-xs cursor-pointer border-b border-[var(--glass-border)] ${
               selectedFile?.path === file.path
                 ? "bg-primary/15"
                 : "hover:bg-accent/30"
@@ -207,18 +207,18 @@ export default function SftpFileList({
             onDoubleClick={() => handleDoubleClick(file)}
           >
             <div className={`flex-[2] ${file.is_dir ? "text-amber-500" : "text-foreground"}`}>
-              {file.is_dir ? <Folder className="h-3 w-3 inline mr-1" /> : <FileText className="h-3 w-3 inline mr-1" />}
+              {file.is_dir ? <Folder className="h-3.5 w-3.5 inline mr-1" /> : <FileText className="h-3.5 w-3.5 inline mr-1" />}
               {file.name}
             </div>
             <div className="flex-1 text-right text-muted-foreground">{formatSize(file.size)}</div>
             <div className="flex-[1.5] text-right text-muted-foreground">{file.modified_time}</div>
-            <div className="flex-1 text-right text-muted-foreground">{file.permissions}</div>
+            <div className="flex-1 text-right text-muted-foreground font-mono text-[11px]">{file.permissions}</div>
           </div>
         ))}
       </div>
 
       {/* 状态栏 */}
-      <div className="bg-muted/40 px-3 py-[3px] text-[9px] text-muted-foreground border-t border-[var(--glass-border)]">
+      <div className="bg-muted/40 px-3 py-[3px] text-[11px] text-muted-foreground border-t border-[var(--glass-border)]">
         {files.length} 个项目{selectedFile ? ` | 已选择: ${selectedFile.name}` : ""}
       </div>
 

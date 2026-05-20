@@ -43,8 +43,24 @@ pub fn list_sessions() -> Result<Vec<TmuxSession>, String> {
     Ok(sessions)
 }
 
+/// 验证 tmux 会话名称合法性
+fn validate_session_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err("会话名称长度必须在1-64字符之间".to_string());
+    }
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
+        return Err("会话名称只能包含字母、数字、下划线、连字符和点".to_string());
+    }
+    if name.starts_with('.') || name.starts_with('-') {
+        return Err("会话名称不能以 . 或 - 开头".to_string());
+    }
+    Ok(())
+}
+
 /// 创建新会话（detached 模式）
 pub fn create_session(req: &CreateTmuxSessionRequest) -> Result<(), String> {
+    validate_session_name(&req.name)?;
+
     let tmux = crate::tmux::get_tmux_path();
     let mut cmd = Command::new(&tmux);
     cmd.args(["new-session", "-d", "-s", &req.name]);
@@ -90,6 +106,8 @@ pub fn kill_session(name: &str) -> Result<(), String> {
 
 /// 重命名会话
 pub fn rename_session(req: &RenameTmuxSessionRequest) -> Result<(), String> {
+    validate_session_name(&req.new_name)?;
+
     let tmux = crate::tmux::get_tmux_path();
     let output = Command::new(&tmux)
         .args(["rename-session", "-t", &req.old_name, &req.new_name])
