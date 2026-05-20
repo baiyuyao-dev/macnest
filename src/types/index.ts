@@ -37,6 +37,7 @@ export interface Group {
   name: string;
   parent_id: number | null;
   sort_order: number;
+  group_type: string;
   created_at: string;
   updated_at: string;
 }

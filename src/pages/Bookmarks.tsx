@@ -21,6 +21,7 @@ import type { Bookmark as BookmarkType, Group } from "@/types";
 import {
   listBookmarks, createBookmark, updateBookmark, deleteBookmark,
   listGroups, createGroup, updateGroup, deleteGroup,
+  openExternalUrl,
 } from "@/lib/api";
 import { buildGroupTree, collectDescendantIds, filterGroupTree, type GroupNode } from "@/lib/tree";
 
@@ -45,36 +46,39 @@ interface BookmarkViewProps {
 
 function GridView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-      {bookmarks.map((bookmark) => {
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      {bookmarks.map((bookmark, index) => {
         const IconComp = getIcon(bookmark.icon || "link");
         const groupName = groups.find((g) => g.id === bookmark.group_id)?.name || "未分组";
         return (
           <div
             key={bookmark.id}
-            className="group relative rounded-lg border bg-card p-4 cursor-pointer transition-all hover:bg-accent hover:-translate-y-0.5 hover:shadow-md"
+            className="group relative card-macos p-4 cursor-pointer transition-all duration-300 hover:shadow-glass-lg"
             onClick={() => onOpen(bookmark.url)}
             title={bookmark.description || bookmark.name}
+            style={{ animationDelay: `${index * 30}ms` }}
           >
             <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-              <Button variant="ghost" size="icon" className="h-7 w-7 bg-background/80"
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-secondary/60"
                 onClick={(e) => { e.stopPropagation(); onOpen(bookmark.url); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 bg-background/80"
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-secondary/60"
                 onClick={(e) => { e.stopPropagation(); onEdit(bookmark); }}><Edit className="h-3.5 w-3.5" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 bg-background/80 hover:text-destructive"
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-red-500/10 hover:text-red-500"
                 onClick={(e) => { e.stopPropagation(); onDelete(bookmark.id); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
             </div>
             <div className="absolute top-3 left-3"><StatusDot isOnline={bookmark.is_online} /></div>
-            <div className="flex justify-center mt-4 mb-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary"><IconComp className="h-7 w-7" /></div>
+            <div className="flex justify-center mt-5 mb-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110">
+                <IconComp className="h-6 w-6" />
+              </div>
             </div>
-            <h3 className="font-semibold text-center truncate px-1" title={bookmark.name}>{bookmark.name}</h3>
-            <p className="text-xs text-muted-foreground text-center truncate mt-1 px-1" title={bookmark.url}>{bookmark.url}</p>
+            <h3 className="font-semibold text-sm text-center truncate px-1" title={bookmark.name}>{bookmark.name}</h3>
+            <p className="text-[11px] text-muted-foreground text-center truncate mt-1 px-1" title={bookmark.url}>{bookmark.url}</p>
             <div className="flex justify-center mt-2">
-              <Badge variant="secondary" className="text-[10px]">{groupName}</Badge>
+              <Badge variant="secondary" className="text-[10px] rounded-full">{groupName}</Badge>
             </div>
             {bookmark.description && (
-              <p className="text-xs text-muted-foreground text-center truncate mt-2 px-1">{bookmark.description}</p>
+              <p className="text-[11px] text-muted-foreground text-center truncate mt-2 px-1">{bookmark.description}</p>
             )}
           </div>
         );
@@ -85,52 +89,59 @@ function GridView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
 
 function ListView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewProps) {
   return (
-    <Card>
-      <div className="divide-y">
+    <div className="card-macos overflow-hidden">
+      <div className="divide-y divide-[var(--glass-border)]">
         {bookmarks.map((bookmark) => {
           const IconComp = getIcon(bookmark.icon || "link");
           const groupName = groups.find((g) => g.id === bookmark.group_id)?.name || "未分组";
           return (
             <div
               key={bookmark.id}
-              className="flex items-center gap-4 py-3 px-4 hover:bg-accent/50 transition-colors cursor-pointer group"
+              className="flex items-center gap-4 py-3 px-4 hover:bg-accent/40 transition-colors cursor-pointer group"
               onClick={() => onOpen(bookmark.url)}
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><IconComp className="h-4.5 w-4.5" /></div>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <IconComp className="h-4.5 w-4.5" />
+              </div>
               <div className="w-40 shrink-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium truncate">{bookmark.name}</span>
+                  <span className="font-medium truncate text-sm">{bookmark.name}</span>
                   <StatusDot isOnline={bookmark.is_online} />
                 </div>
               </div>
               <div className="flex-1 min-w-0"><span className="text-sm text-muted-foreground truncate block">{bookmark.url}</span></div>
               <div className="w-28 shrink-0">
-                <Badge variant="secondary" className="text-[10px]">{groupName}</Badge>
+                <Badge variant="secondary" className="text-[10px] rounded-full">{groupName}</Badge>
               </div>
-              <div className="hidden lg:block flex-1 min-w-0 max-w-xs"><span className="text-xs text-muted-foreground truncate block">{bookmark.description || "-"}</span></div>
+              <div className="hidden lg:block flex-1 min-w-0 max-w-xs"><span className="text-[11px] text-muted-foreground truncate block">{bookmark.description || "-"}</span></div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button variant="ghost" size="icon" className="h-7 w-7"
+                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-secondary/60"
                   onClick={(e) => { e.stopPropagation(); onOpen(bookmark.url); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7"
+                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-secondary/60"
                   onClick={(e) => { e.stopPropagation(); onEdit(bookmark); }}><Edit className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7"
+                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-red-500/10 hover:text-red-500"
                   onClick={(e) => { e.stopPropagation(); onDelete(bookmark.id); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
               </div>
             </div>
           );
         })}
       </div>
-    </Card>
+    </div>
   );
 }
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-20">
-      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-muted"><Bookmark className="h-10 w-10 text-muted-foreground" /></div>
-      <h3 className="mt-6 text-lg font-semibold">还没有书签</h3>
-      <p className="mt-2 text-sm text-muted-foreground">添加你的第一个书签来快速访问常用服务</p>
-      <Button className="mt-6" onClick={onCreate}><Plus className="mr-2 h-4 w-4" />添加第一个书签</Button>
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+        <Bookmark className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <h3 className="mt-5 text-base font-semibold tracking-tight">还没有书签</h3>
+      <p className="mt-1.5 text-sm text-muted-foreground">添加你的第一个书签来快速访问常用服务</p>
+      <Button className="btn-macos mt-5 rounded-xl" onClick={onCreate}>
+        <Plus className="mr-1.5 h-3.5 w-3.5" />
+        添加第一个书签
+      </Button>
     </div>
   );
 }
@@ -186,22 +197,19 @@ export default function BookmarksPage() {
     service_id: null as number | null, health_check_url: "",
   });
 
-  // Group management state
   const [groupSearchInput, setGroupSearchInput] = useState("");
   const [groupSearchQuery, setGroupSearchQuery] = useState("");
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
-  const [editingGroupName, setEditingGroupName] = useState("");
 
-  // Group dialog
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [groupDialogMode, setGroupDialogMode] = useState<"create" | "edit" | null>(null);
-  const [groupForm, setGroupForm] = useState({ name: "", parent_id: null as number | null });
+  const [groupForm, setGroupForm] = useState({ id: 0, name: "", parent_id: null as number | null, group_type: "bookmark" });
 
-  // Delete confirmation
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [groupDeleteConfirmOpen, setGroupDeleteConfirmOpen] = useState(false);
+  const [groupDeleteTargetId, setGroupDeleteTargetId] = useState<number | null>(null);
+  const [bookmarkDeleteConfirmOpen, setBookmarkDeleteConfirmOpen] = useState(false);
+  const [bookmarkDeleteTargetId, setBookmarkDeleteTargetId] = useState<number | null>(null);
 
-  // Expanded group nodes
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const loadBookmarks = useCallback(async () => {
@@ -218,7 +226,7 @@ export default function BookmarksPage() {
 
   const loadGroups = useCallback(async () => {
     try {
-      const data = await listGroups();
+      const data = await listGroups("bookmark");
       setGroups(data);
     } catch (error) {
       console.error("Failed to load groups:", error);
@@ -235,7 +243,6 @@ export default function BookmarksPage() {
 
   const filteredBookmarks = useMemo(() => {
     let result = bookmarks;
-    // 按分组过滤（包含该分组下所有子分组的书签）
     if (activeGroupId != null) {
       const allowedIds: number[] = [];
       function collectDescendants(pid: number) {
@@ -293,12 +300,21 @@ export default function BookmarksPage() {
     } catch (error) { console.error("Failed to update bookmark:", error); }
   };
 
-  const handleDelete = async (id: number) => {
-    try { await deleteBookmark(id); loadBookmarks(); }
-    catch (error) { console.error("Failed to delete bookmark:", error); }
+  const handleDelete = (id: number) => {
+    setBookmarkDeleteTargetId(id);
+    setBookmarkDeleteConfirmOpen(true);
   };
 
-  // Group search: press Enter or click search button to filter
+  const confirmDeleteBookmark = async () => {
+    if (bookmarkDeleteTargetId == null) return;
+    try {
+      await deleteBookmark(bookmarkDeleteTargetId);
+      loadBookmarks();
+    } catch (error) { console.error("Failed to delete bookmark:", error); }
+    setBookmarkDeleteConfirmOpen(false);
+    setBookmarkDeleteTargetId(null);
+  };
+
   const handleGroupSearch = () => {
     setGroupSearchQuery(groupSearchInput);
   };
@@ -310,44 +326,48 @@ export default function BookmarksPage() {
         name: groupForm.name.trim(),
         parent_id: groupForm.parent_id,
         sort_order: groups.length,
+        group_type: "bookmark",
       });
-      setGroupForm({ name: "", parent_id: null });
+      setGroupForm({ id: 0, name: "", parent_id: null, group_type: "bookmark" });
       setGroupDialogOpen(false);
       setGroupDialogMode(null);
       loadGroups();
     } catch (error) { console.error("Failed to create group:", error); }
   };
 
-  const handleUpdateGroup = async (id: number) => {
-    if (!editingGroupName.trim()) return;
+  const handleUpdateGroup = async () => {
+    if (!groupForm.name.trim() || !groupForm.id) return;
     try {
-      const group = groups.find((g) => g.id === id);
+      const group = groups.find((g) => g.id === groupForm.id);
       if (!group) return;
-      await updateGroup({ ...group, name: editingGroupName.trim() });
-      setEditingGroupId(null);
-      setEditingGroupName("");
+      await updateGroup({ ...group, name: groupForm.name.trim(), parent_id: groupForm.parent_id, group_type: "bookmark" });
+      setGroupForm({ id: 0, name: "", parent_id: null, group_type: "bookmark" });
+      setGroupDialogOpen(false);
+      setGroupDialogMode(null);
       loadGroups();
     } catch (error) { console.error("Failed to update group:", error); }
   };
 
   const handleDeleteGroup = async (id: number) => {
-    setDeleteTargetId(id);
-    setDeleteConfirmOpen(true);
+    setGroupDeleteTargetId(id);
+    setGroupDeleteConfirmOpen(true);
   };
 
   const confirmDeleteGroup = async () => {
-    if (deleteTargetId == null) return;
+    if (groupDeleteTargetId == null) return;
     try {
-      await deleteGroup(deleteTargetId);
-      if (activeGroupId === deleteTargetId) setActiveGroupId(null);
+      await deleteGroup(groupDeleteTargetId);
+      if (activeGroupId === groupDeleteTargetId) setActiveGroupId(null);
       loadGroups();
       loadBookmarks();
     } catch (error) { console.error("Failed to delete group:", error); }
-    setDeleteConfirmOpen(false);
-    setDeleteTargetId(null);
+    setGroupDeleteConfirmOpen(false);
+    setGroupDeleteTargetId(null);
   };
 
-  const openUrl = (url: string) => { window.open(url, "_blank"); };
+  const openUrl = async (url: string) => {
+    await openExternalUrl(url);
+  };
   const handleDialogSave = () => { dialogMode === "edit" ? handleUpdate() : handleCreate(); };
 
   const groupCounts = useMemo(() => {
@@ -378,7 +398,6 @@ export default function BookmarksPage() {
     });
   };
 
-  // Recursive tree renderer
   interface TreeNodeProps {
     node: GroupNode;
     depth: number;
@@ -398,10 +417,10 @@ export default function BookmarksPage() {
       <div>
         <div
           onClick={() => setActiveGroupId(node.id)}
-          className={`group flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
+          className={`group flex items-center justify-between px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
             isActive
-              ? "bg-primary text-primary-foreground"
-              : "hover:bg-accent text-foreground"
+              ? "bg-primary text-primary-foreground shadow-glass"
+              : "hover:bg-accent/50 text-foreground"
           }`}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
@@ -409,7 +428,7 @@ export default function BookmarksPage() {
             {hasChildren ? (
               <button
                 onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
-                className="shrink-0 p-0.5 rounded hover:bg-black/10"
+                className="shrink-0 p-0.5 rounded-md hover:bg-black/10 transition-colors"
               >
                 {isExpanded ? (
                   <ChevronDown className="h-3.5 w-3.5" />
@@ -425,45 +444,31 @@ export default function BookmarksPage() {
           </div>
           <div className="flex items-center gap-1 shrink-0 ml-1">
             <span className="text-xs opacity-70">{count}</span>
-            {editingGroupId === node.id ? (
-              <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-                <Input
-                  value={editingGroupName}
-                  onChange={(e) => setEditingGroupName(e.target.value)}
-                  className="h-6 text-xs w-24"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleUpdateGroup(node.id);
-                    if (e.key === "Escape") { setEditingGroupId(null); setEditingGroupName(""); }
-                  }}
-                />
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpdateGroup(node.id)}>
-                  <Edit className="h-3 w-3" />
-                </Button>
-              </div>
-            ) : (
-              <div
-                className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => e.stopPropagation()}
+            <div
+              className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-lg hover:bg-secondary/60"
+                onClick={() => {
+                  setGroupForm({ id: node.id, name: node.name, parent_id: node.parent_id, group_type: node.group_type });
+                  setGroupDialogMode("edit");
+                  setGroupDialogOpen(true);
+                }}
               >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => { setEditingGroupId(node.id); setEditingGroupName(node.name); }}
-                >
-                  <Edit className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 hover:text-destructive"
-                  onClick={() => handleDeleteGroup(node.id)}
-                >
-                  <Trash2 className="h-3 w-3 text-destructive" />
-                </Button>
-              </div>
-            )}
+                <Edit className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-lg hover:bg-red-500/10 hover:text-red-500"
+                onClick={() => handleDeleteGroup(node.id)}
+              >
+                <Trash2 className="h-3 w-3 text-destructive" />
+              </Button>
+            </div>
           </div>
         </div>
         {hasChildren && isExpanded && (
@@ -477,7 +482,6 @@ export default function BookmarksPage() {
     );
   }
 
-  // Flat list of all groups for parent select
   const flatGroupsForSelect = useMemo(() => {
     const result: { id: number; name: string; depth: number }[] = [];
     function walk(nodes: GroupNode[], depth: number) {
@@ -491,19 +495,32 @@ export default function BookmarksPage() {
   }, [groupTree]);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full animate-page-enter">
       {/* Sidebar - Group Navigation */}
-      <div className="w-64 border-r bg-muted/30 flex flex-col shrink-0">
-        <div className="p-4 border-b">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">分组</h2>
+      <div className="w-64 border-r border-[var(--glass-border)] flex flex-col shrink-0 bg-muted/20">
+        <div className="p-4 border-b border-[var(--glass-border)] flex items-center justify-between">
+          <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">分组</h2>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 rounded-lg text-xs px-2.5 btn-macos-secondary"
+            onClick={() => {
+              setGroupForm({ id: 0, name: "", parent_id: activeGroupId, group_type: "bookmark" });
+              setGroupDialogMode("create");
+              setGroupDialogOpen(true);
+            }}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            新建分组
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           <button
             onClick={() => setActiveGroupId(null)}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition-all duration-200 ${
               activeGroupId === null
-                ? "bg-primary text-primary-foreground"
-                : "hover:bg-accent text-foreground"
+                ? "bg-primary text-primary-foreground shadow-glass"
+                : "hover:bg-accent/50 text-foreground"
             }`}
           >
             <span className="flex items-center gap-2">
@@ -516,31 +533,18 @@ export default function BookmarksPage() {
             <TreeNode key={node.id} node={node} depth={0} />
           ))}
         </div>
-        <div className="p-3 border-t space-y-2">
-          <div className="flex items-center gap-2">
+        <div className="p-3 border-t border-[var(--glass-border)]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="搜索分组"
               value={groupSearchInput}
               onChange={(e) => setGroupSearchInput(e.target.value)}
-              className="h-8 text-sm"
+              className="input-macos h-8 text-xs pl-9"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleGroupSearch();
               }}
             />
-            <Button size="icon" variant="outline" className="h-8 w-8 shrink-0" onClick={handleGroupSearch}>
-              <Search className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => {
-                setGroupForm({ name: "", parent_id: activeGroupId });
-                setGroupDialogMode("create");
-                setGroupDialogOpen(true);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       </div>
@@ -548,30 +552,33 @@ export default function BookmarksPage() {
       {/* Main Content */}
       <div className="flex-1 p-6 space-y-4 overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">服务导航</h1>
-          <Button onClick={openCreateDialog}>
-            <Plus className="mr-2 h-4 w-4" />
+        <div className="flex items-center justify-between animate-slide-up">
+          <div>
+            <h1 className="text-[22px] font-bold tracking-tight">服务导航</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">管理常用服务书签</p>
+          </div>
+          <Button className="btn-macos rounded-xl" onClick={openCreateDialog}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
             添加书签
           </Button>
         </div>
 
         {/* Search + View toggle */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 animate-slide-up" style={{ animationDelay: "50ms" }}>
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索书签名称、URL..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="input-macos pl-10"
             />
           </div>
-          <div className="flex items-center border rounded-md overflow-hidden">
+          <div className="flex items-center p-0.5 rounded-xl bg-muted/50">
             <Button
               variant={viewMode === "grid" ? "default" : "ghost"}
               size="icon"
-              className="h-9 w-9 rounded-none"
+              className={`h-9 w-9 rounded-lg transition-all ${viewMode === "grid" ? "bg-primary text-primary-foreground shadow-glass" : "text-muted-foreground"}`}
               onClick={() => setViewMode("grid")}
             >
               <Grid3X3 className="h-4 w-4" />
@@ -579,7 +586,7 @@ export default function BookmarksPage() {
             <Button
               variant={viewMode === "list" ? "default" : "ghost"}
               size="icon"
-              className="h-9 w-9 rounded-none"
+              className={`h-9 w-9 rounded-lg transition-all ${viewMode === "list" ? "bg-primary text-primary-foreground shadow-glass" : "text-muted-foreground"}`}
               onClick={() => setViewMode("list")}
             >
               <List className="h-4 w-4" />
@@ -592,9 +599,11 @@ export default function BookmarksPage() {
           <EmptyState onCreate={openCreateDialog} />
         ) : filteredBookmarks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
-            <Search className="h-10 w-10 text-muted-foreground" />
-            <p className="mt-4 text-muted-foreground">没有找到匹配的书签</p>
-            <Button variant="outline" className="mt-4" onClick={() => setSearchQuery("")}>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted mb-4">
+              <Search className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <p className="text-sm text-muted-foreground">没有找到匹配的书签</p>
+            <Button variant="outline" className="mt-4 rounded-lg btn-macos-secondary" onClick={() => setSearchQuery("")}>
               清除搜索
             </Button>
           </div>
@@ -619,43 +628,31 @@ export default function BookmarksPage() {
 
       {/* Bookmark Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="w-[48rem] max-w-[90vw]">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] w-[48rem] max-w-[90vw]">
           <DialogHeader>
-            <DialogTitle>{dialogMode === "edit" ? "编辑书签" : "添加书签"}</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{dialogMode === "edit" ? "编辑书签" : "添加书签"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
-            <div className="space-y-2">
-              <Label>名称 <span className="text-destructive">*</span></Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="例如：Grafana 监控"
-              />
+            <div className="space-y-1.5">
+              <Label className="text-xs">名称 <span className="text-destructive">*</span></Label>
+              <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="例如：Grafana 监控" className="input-macos" />
             </div>
-            <div className="space-y-2">
-              <Label>URL <span className="text-destructive">*</span></Label>
-              <Input
-                value={formData.url}
-                onChange={(e) => setFormData({ ...formData, url: e.target.value })}
-                placeholder="http://localhost:8080"
-              />
+            <div className="space-y-1.5">
+              <Label className="text-xs">URL <span className="text-destructive">*</span></Label>
+              <Input value={formData.url} onChange={(e) => setFormData({ ...formData, url: e.target.value })} placeholder="http://localhost:8080" className="input-macos" />
             </div>
-            <div className="space-y-2">
-              <Label>描述</Label>
-              <Input
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="简短描述该服务的用途"
-              />
+            <div className="space-y-1.5">
+              <Label className="text-xs">描述</Label>
+              <Input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="简短描述该服务的用途" className="input-macos" />
             </div>
-            <div className="space-y-2">
-              <Label>分组</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">分组</Label>
               <select
                 value={formData.group_id?.toString() || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, group_id: e.target.value ? Number(e.target.value) : null })
                 }
-                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
+                className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 transition-all"
               >
                 <option value="">未分组</option>
                 {flatGroupsForSelect.map((g) => (
@@ -665,34 +662,26 @@ export default function BookmarksPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <Label>图标</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">图标</Label>
               <select
                 value={formData.icon}
                 onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
+                className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 transition-all"
               >
                 {ICON_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <Label>健康检测 URL</Label>
-              <Input
-                value={formData.health_check_url}
-                onChange={(e) => setFormData({ ...formData, health_check_url: e.target.value })}
-                placeholder="http://localhost:8080/health (可选)"
-              />
-              <p className="text-xs text-muted-foreground">用于检测服务是否在线，留空则不检测</p>
+            <div className="space-y-1.5">
+              <Label className="text-xs">健康检测 URL</Label>
+              <Input value={formData.health_check_url} onChange={(e) => setFormData({ ...formData, health_check_url: e.target.value })} placeholder="http://localhost:8080/health (可选)" className="input-macos" />
+              <p className="text-[11px] text-muted-foreground">用于检测服务是否在线，留空则不检测</p>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>
-                取消
-              </Button>
-              <Button onClick={handleDialogSave} disabled={!formData.name.trim() || !formData.url.trim()}>
-                保存
-              </Button>
+              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setDialogOpen(false); resetForm(); }}>取消</Button>
+              <Button size="sm" className="btn-macos rounded-lg" onClick={handleDialogSave} disabled={!formData.name.trim() || !formData.url.trim()}>保存</Button>
             </div>
           </div>
         </DialogContent>
@@ -700,31 +689,30 @@ export default function BookmarksPage() {
 
       {/* Group Create/Edit Dialog */}
       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
-        <DialogContent>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)]">
           <DialogHeader>
-            <DialogTitle>{groupDialogMode === "edit" ? "编辑分组" : "新建分组"}</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{groupDialogMode === "edit" ? "编辑分组" : "新建分组"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>分组名称 <span className="text-destructive">*</span></Label>
-              <Input
-                value={groupForm.name}
-                onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })}
-                placeholder="输入分组名称"
-                autoFocus
+            <div className="space-y-1.5">
+              <Label className="text-xs">分组名称 <span className="text-destructive">*</span></Label>
+              <Input value={groupForm.name} onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })} placeholder="输入分组名称" autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && groupForm.name.trim()) handleCreateGroup();
+                  if (e.key === "Enter" && groupForm.name.trim()) {
+                    groupDialogMode === "edit" ? handleUpdateGroup() : handleCreateGroup();
+                  }
                 }}
+                className="input-macos"
               />
             </div>
-            <div className="space-y-2">
-              <Label>上级分组</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">上级分组</Label>
               <select
                 value={groupForm.parent_id?.toString() || ""}
                 onChange={(e) =>
                   setGroupForm({ ...groupForm, parent_id: e.target.value ? Number(e.target.value) : null })
                 }
-                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
+                className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 transition-all"
               >
                 <option value="">一级分组</option>
                 {flatGroupsForSelect.map((g) => (
@@ -733,13 +721,13 @@ export default function BookmarksPage() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-muted-foreground">选择上级分组可将该分组作为子分组，留空则为一级分组</p>
+              <p className="text-[11px] text-muted-foreground">选择上级分组可将该分组作为子分组，留空则为一级分组</p>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => { setGroupDialogOpen(false); setGroupDialogMode(null); }}>
-                取消
-              </Button>
-              <Button onClick={handleCreateGroup} disabled={!groupForm.name.trim()}>
+              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setGroupDialogOpen(false); setGroupDialogMode(null); }}>取消</Button>
+              <Button size="sm" className="btn-macos rounded-lg"
+                onClick={() => groupDialogMode === "edit" ? handleUpdateGroup() : handleCreateGroup()}
+                disabled={!groupForm.name.trim()}>
                 保存
               </Button>
             </div>
@@ -747,24 +735,38 @@ export default function BookmarksPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent>
+      {/* Group Delete Confirmation Dialog */}
+      <Dialog open={groupDeleteConfirmOpen} onOpenChange={setGroupDeleteConfirmOpen}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)]">
           <DialogHeader>
-            <DialogTitle>确认删除分组</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">确认删除分组</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-2">
             <p className="text-sm text-muted-foreground">
               确定要删除该分组吗？该分组下的书签将变为未分组，子分组将提升为一级分组。
             </p>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => { setDeleteConfirmOpen(false); setDeleteTargetId(null); }}>
-              取消
-            </Button>
-            <Button variant="destructive" onClick={confirmDeleteGroup}>
-              删除
-            </Button>
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setGroupDeleteConfirmOpen(false); setGroupDeleteTargetId(null); }}>取消</Button>
+            <Button variant="destructive" size="sm" className="rounded-lg" onClick={confirmDeleteGroup}>删除</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bookmark Delete Confirmation Dialog */}
+      <Dialog open={bookmarkDeleteConfirmOpen} onOpenChange={setBookmarkDeleteConfirmOpen}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)]">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold">确认删除书签</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground">
+              确定要删除该书签吗？删除后将无法恢复。
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setBookmarkDeleteConfirmOpen(false); setBookmarkDeleteTargetId(null); }}>取消</Button>
+            <Button variant="destructive" size="sm" className="rounded-lg" onClick={confirmDeleteBookmark}>删除</Button>
           </div>
         </DialogContent>
       </Dialog>

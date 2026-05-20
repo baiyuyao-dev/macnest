@@ -245,10 +245,10 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
   };
 
   return (
-    <div className="flex h-full bg-[#1e1e2e] relative">
+    <div className="flex h-full bg-background relative">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
-          <div className="text-[#0dbc79] text-xs">加载中...</div>
+          <div className="text-emerald-500 text-xs">加载中...</div>
         </div>
       )}
       <SftpTree
@@ -278,19 +278,19 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
 
       {/* 删除确认对话框 */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-[#eee]">确认删除</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-[#999] py-2">
-            确定要删除 <strong className="text-[#eee]">{pendingDeleteFile?.name}</strong> 吗？
+          <p className="text-sm text-muted-foreground py-2">
+            确定要删除 <strong className="text-foreground">{pendingDeleteFile?.name}</strong> 吗？
             {pendingDeleteFile?.is_dir ? " 文件夹及其内容将无法恢复。" : " 此操作无法撤销。"}
           </p>
           <div className="flex justify-end gap-2 mt-4">
             <Button
               variant="outline"
               size="sm"
-              className="border-[#444] text-[#ccc] hover:bg-[#333] hover:text-[#eee]"
+              className="rounded-lg"
               onClick={() => {
                 setDeleteDialogOpen(false);
                 setPendingDeleteFile(null);
@@ -301,7 +301,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
             <Button
               variant="destructive"
               size="sm"
-              className="bg-[#c0392b] hover:bg-[#e74c3c]"
+              className="rounded-lg"
               onClick={confirmDelete}
             >
               确认删除

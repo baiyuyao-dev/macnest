@@ -1,15 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
-import LogList from "@/components/LogList";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Server,
   Play,
@@ -17,18 +13,16 @@ import {
   RefreshCw,
   Trash2,
   Plus,
-  FileText,
   Pencil,
   Search,
   RotateCcw,
-  XCircle,
-  Terminal,
   Cpu,
   MemoryStick,
   AlertTriangle,
   Loader2,
+  ChevronRight,
 } from "lucide-react";
-import type { Service, ServiceLog } from "@/types";
+import type { Service } from "@/types";
 import {
   listServices,
   createService,
@@ -37,16 +31,9 @@ import {
   startService,
   stopService,
   restartService,
-  getServiceLogs,
 } from "@/lib/api";
 
 type ServiceStatus = "all" | "running" | "stopped" | "error" | "restarting";
-
-interface LogEntry {
-  content: string;
-  level: string;
-  created_at: string;
-}
 
 const restartPolicyLabels: Record<string, string> = {
   always: "始终重启",
@@ -79,14 +66,6 @@ export default function Services() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({ ...emptyFormData });
-
-  // Log states
-  const [logDialogOpen, setLogDialogOpen] = useState(false);
-  const [logService, setLogService] = useState<Service | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [logTab, setLogTab] = useState("realtime");
-  const [isListening, setIsListening] = useState(false);
-  const unlistenRef = useRef<(() => void) | null>(null);
 
   // Delete confirm state
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -124,40 +103,6 @@ export default function Services() {
     const matchesStatus = statusFilter === "all" || s.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
-
-  // ─── Real-time log listener ───────────────────────────────
-  useEffect(() => {
-    if (!logDialogOpen || !logService) return;
-
-    const setupListener = async () => {
-      try {
-        const unlisten = await listen(`service:log:${logService.id}`, (event) => {
-          setLogs((prev) => {
-            const next = [...prev, {
-              content: event.payload as string,
-              level: "info",
-              created_at: new Date().toISOString(),
-            }];
-            return next.length > 1000 ? next.slice(-1000) : next;
-          });
-        });
-        unlistenRef.current = unlisten;
-        setIsListening(true);
-      } catch (e) {
-        console.error("Failed to setup log listener:", e);
-      }
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlistenRef.current) {
-        unlistenRef.current();
-        unlistenRef.current = null;
-      }
-      setIsListening(false);
-    };
-  }, [logDialogOpen, logService]);
 
   // ─── CRUD handlers ────────────────────────────────────────
   const openCreateDialog = () => {
@@ -292,45 +237,21 @@ export default function Services() {
     }
   };
 
-  // ─── Log handlers ─────────────────────────────────────────
-  const openLogs = async (service: Service) => {
-    setLogService(service);
-    setLogs([]);
-    setLogTab("realtime");
-    setLogDialogOpen(true);
-
-    // Load historical logs
-    try {
-      const historicalLogs = await getServiceLogs(service.id);
-      const formatted = historicalLogs.map((l: { content: string; level: string; created_at: string }) => ({
-        content: l.content,
-        level: l.level as "info" | "warn" | "error" | "stdout" | "stderr",
-        created_at: l.created_at,
-      }));
-      setLogs(formatted);
-    } catch (error) {
-      console.error("Failed to load historical logs:", error);
-    }
-  };
-
-  const clearLogs = () => setLogs([]);
-
   // ─── Status badge helper ──────────────────────────────────
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "running":
-        return <Badge variant="success">运行中</Badge>;
+        return <Badge className="badge-macos badge-macos-success rounded-full">运行中</Badge>;
       case "stopped":
-        return <Badge variant="secondary">已停止</Badge>;
+        return <Badge variant="secondary" className="text-[10px] rounded-full">已停止</Badge>;
       case "error":
-        return <Badge variant="destructive">错误</Badge>;
+        return <Badge className="badge-macos badge-macos-danger rounded-full">错误</Badge>;
       case "restarting":
-        return <Badge variant="warning">重启中</Badge>;
+        return <Badge className="badge-macos badge-macos-warning rounded-full">重启中</Badge>;
       default:
-        return <Badge variant="outline">未知</Badge>;
+        return <Badge variant="outline" className="text-[10px] rounded-full">未知</Badge>;
     }
   };
-
 
   // Parse ports string into array
   const parsePorts = (portsStr: string): string[] => {
@@ -348,35 +269,38 @@ export default function Services() {
 
   // ─── Render ───────────────────────────────────────────────
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-6 space-y-5 animate-page-enter">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">服务管理</h1>
-        <Button onClick={openCreateDialog}>
-          <Plus className="mr-2 h-4 w-4" />
+      <div className="flex items-center justify-between animate-slide-up">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight">服务管理</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">管理本地进程服务的启动、停止与监控</p>
+        </div>
+        <Button className="btn-macos rounded-xl" onClick={openCreateDialog}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
           添加服务
         </Button>
       </div>
 
       {/* Search & Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:w-72">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between animate-slide-up" style={{ animationDelay: "50ms" }}>
+        <div className="relative w-full sm:w-80">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="搜索服务名称..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            className="input-macos pl-10"
           />
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 p-0.5 rounded-xl bg-muted/50">
           {statusTabs.map((tab) => (
             <Button
               key={tab.value}
               variant={statusFilter === tab.value ? "default" : "ghost"}
               size="sm"
               onClick={() => setStatusFilter(tab.value)}
-              className="text-xs"
+              className={`text-xs rounded-lg transition-all duration-200 ${statusFilter === tab.value ? "bg-primary text-primary-foreground shadow-glass" : "text-muted-foreground hover:text-foreground"}`}
             >
               {tab.label}
               {tab.value !== "all" && (
@@ -391,331 +315,172 @@ export default function Services() {
 
       {/* Service Grid */}
       {services.length === 0 ? (
-        <Card className="py-16">
-          <CardContent className="text-center space-y-4">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+        <div className="card-macos py-16 animate-slide-up" style={{ animationDelay: "100ms" }}>
+          <div className="text-center space-y-4">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
               <Server className="h-8 w-8 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-lg font-medium">还没有服务</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                添加第一个服务来开始管理
-              </p>
+              <p className="text-base font-medium">还没有服务</p>
+              <p className="text-xs text-muted-foreground mt-1">添加第一个服务来开始管理</p>
             </div>
-            <Button onClick={openCreateDialog}>
-              <Plus className="mr-2 h-4 w-4" />
+            <Button className="btn-macos mt-2 rounded-xl" onClick={openCreateDialog}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
               添加第一个服务
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : filteredServices.length === 0 ? (
-        <Card className="py-12">
-          <CardContent className="text-center">
+        <div className="card-macos py-12 animate-slide-up" style={{ animationDelay: "100ms" }}>
+          <div className="text-center">
             <Search className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="mt-4 text-muted-foreground">
-              没有找到匹配的服务
-            </p>
-          </CardContent>
-        </Card>
+            <p className="mt-4 text-sm text-muted-foreground">没有找到匹配的服务</p>
+          </div>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredServices.map((service) => (
-            <Card key={service.id} className="flex flex-col">
-              <CardContent className="p-4 flex flex-col flex-1">
-                {/* Top: Name + Status */}
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold truncate" title={service.name}>
-                    {service.name}
-                  </h3>
-                  {getStatusBadge(service.status)}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-slide-up" style={{ animationDelay: "100ms" }}>
+          {filteredServices.map((service, index) => (
+            <div
+              key={service.id}
+              className="card-macos p-4 flex flex-col group animate-slide-up"
+              style={{ animationDelay: `${150 + index * 40}ms` }}
+            >
+              {/* Top: Name + Status */}
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-semibold text-sm truncate" title={service.name}>{service.name}</h3>
+                {getStatusBadge(service.status)}
+              </div>
+
+              {/* Description */}
+              {service.description && (
+                <p className="text-[11px] text-muted-foreground mt-1.5 line-clamp-2">{service.description}</p>
+              )}
+
+              {/* Command block */}
+              <div className="mt-3 rounded-lg bg-muted/60 px-2.5 py-1.5 overflow-hidden border border-[var(--glass-border)]">
+                <code className="text-[11px] font-mono text-muted-foreground truncate block">{service.command || "无命令"}</code>
+              </div>
+
+              {/* Ports */}
+              {service.ports && parsePorts(service.ports).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {parsePorts(service.ports).map((port) => (
+                    <Badge key={port} variant="outline" className="text-[10px] h-5 px-1.5 rounded-full font-mono">
+                      {port.trim()}
+                    </Badge>
+                  ))}
                 </div>
+              )}
 
-                {/* Description */}
-                {service.description && (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                    {service.description}
-                  </p>
-                )}
-
-                {/* Command block */}
-                <div className="mt-3 rounded bg-muted px-2.5 py-1.5 overflow-hidden">
-                  <code className="text-xs font-mono text-muted-foreground truncate block">
-                    {service.command || "无命令"}
-                  </code>
+              {/* CPU / Memory */}
+              {service.status === "running" && (
+                <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Cpu className="h-3 w-3" />
+                    CPU {service.cpu_percent?.toFixed(1)}%
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <MemoryStick className="h-3 w-3" />
+                    {service.memory_mb?.toFixed(0)} MB
+                  </span>
                 </div>
+              )}
 
-                {/* Ports */}
-                {service.ports && parsePorts(service.ports).length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {parsePorts(service.ports).map((port) => (
-                      <Badge key={port} variant="outline" className="text-[10px] h-5 px-1.5">
-                        {port.trim()}
-                      </Badge>
-                    ))}
-                  </div>
+              {/* Spacer */}
+              <div className="flex-1 min-h-[8px]" />
+
+              {/* Action buttons */}
+              <div className="mt-3 pt-3 border-t border-[var(--glass-border)] flex items-center gap-0.5">
+                {service.status === "running" ? (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" title="停止"
+                    disabled={!!pendingActions[service.id]} onClick={() => handleStop(service.id)}
+                  >
+                    {pendingActions[service.id] === "stopping" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600" title="启动"
+                    disabled={!!pendingActions[service.id]} onClick={() => handleStart(service.id)}
+                  >
+                    {pendingActions[service.id] === "starting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  </Button>
                 )}
-
-                {/* CPU / Memory */}
-                {service.status === "running" && (
-                  <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Cpu className="h-3 w-3" />
-                      CPU {service.cpu_percent?.toFixed(1)}%
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MemoryStick className="h-3 w-3" />
-                      内存 {service.memory_mb?.toFixed(0)} MB
-                    </span>
-                  </div>
-                )}
-
-                {/* Spacer */}
-                <div className="flex-1" />
-
-                {/* Action buttons */}
-                <div className="mt-3 pt-3 border-t flex items-center gap-1">
-                  {service.status === "running" ? (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
-                      title="停止"
-                      disabled={!!pendingActions[service.id]}
-                      onClick={() => handleStop(service.id)}
-                    >
-                      {pendingActions[service.id] === "stopping" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Square className="h-4 w-4" />
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
-                      title="启动"
-                      disabled={!!pendingActions[service.id]}
-                      onClick={() => handleStart(service.id)}
-                    >
-                      {pendingActions[service.id] === "starting" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Play className="h-4 w-4" />
-                      )}
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title="重启"
-                    disabled={!!pendingActions[service.id]}
-                    onClick={() => handleRestart(service.id)}
-                  >
-                    {pendingActions[service.id] === "restarting" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title="查看日志"
-                    disabled={!!pendingActions[service.id]}
-                    onClick={() => openLogs(service)}
-                  >
-                    <FileText className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title="编辑"
-                    disabled={!!pendingActions[service.id]}
-                    onClick={() => openEditDialog(service)}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    title="删除"
-                    disabled={!!pendingActions[service.id]}
-                    onClick={() => openDeleteConfirm(service)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-amber-500 hover:bg-amber-500/10 hover:text-amber-600" title="重启"
+                  disabled={!!pendingActions[service.id]} onClick={() => handleRestart(service.id)}
+                >
+                  {pendingActions[service.id] === "restarting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60" title="编辑"
+                  disabled={!!pendingActions[service.id]} onClick={() => openEditDialog(service)}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10" title="删除"
+                  disabled={!!pendingActions[service.id]} onClick={() => openDeleteConfirm(service)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
       {/* ─── Create/Edit Dialog ─────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{isEditing ? "编辑服务" : "添加服务"}</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{isEditing ? "编辑服务" : "添加服务"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* Name */}
+          <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="svc-name">
-                名称 <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="svc-name"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                placeholder="如: frpc 内网穿透"
-              />
+              <Label htmlFor="svc-name" className="text-xs">名称 <span className="text-destructive">*</span></Label>
+              <Input id="svc-name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="如: frpc 内网穿透" className="input-macos" />
             </div>
-
-            {/* Description */}
             <div className="space-y-1.5">
-              <Label htmlFor="svc-desc">描述</Label>
-              <Textarea
-                id="svc-desc"
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-                placeholder="服务的简要描述..."
-                rows={2}
-              />
+              <Label htmlFor="svc-desc" className="text-xs">描述</Label>
+              <Textarea id="svc-desc" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="服务的简要描述..." rows={2} className="input-macos" />
             </div>
-
-            {/* Command */}
             <div className="space-y-1.5">
-              <Label htmlFor="svc-cmd">
-                启动命令 <span className="text-destructive">*</span>
-              </Label>
-              <Textarea
-                id="svc-cmd"
-                value={formData.command}
-                onChange={(e) =>
-                  setFormData({ ...formData, command: e.target.value })
-                }
-                placeholder="如: /usr/local/bin/frpc -c ~/.frp/frpc.toml"
-                rows={2}
-              />
+              <Label htmlFor="svc-cmd" className="text-xs">启动命令 <span className="text-destructive">*</span></Label>
+              <Textarea id="svc-cmd" value={formData.command} onChange={(e) => setFormData({ ...formData, command: e.target.value })} placeholder="如: /usr/local/bin/frpc -c ~/.frp/frpc.toml" rows={2} className="input-macos" />
             </div>
-
-            {/* Working Directory */}
             <div className="space-y-1.5">
-              <Label htmlFor="svc-cwd">工作目录</Label>
-              <Input
-                id="svc-cwd"
-                value={formData.cwd}
-                onChange={(e) =>
-                  setFormData({ ...formData, cwd: e.target.value })
-                }
-                placeholder="如: /Users/xxx/projects"
-              />
+              <Label htmlFor="svc-cwd" className="text-xs">工作目录</Label>
+              <Input id="svc-cwd" value={formData.cwd} onChange={(e) => setFormData({ ...formData, cwd: e.target.value })} placeholder="如: /Users/xxx/projects" className="input-macos" />
             </div>
-
-            {/* Environment Variables */}
             <div className="space-y-1.5">
-              <Label htmlFor="svc-env">环境变量 (JSON格式)</Label>
-              <Textarea
-                id="svc-env"
-                value={formData.env_vars}
-                onChange={(e) =>
-                  setFormData({ ...formData, env_vars: e.target.value })
-                }
-                placeholder={`{"KEY": "value", "NODE_ENV": "production"}`}
-                rows={2}
-              />
+              <Label htmlFor="svc-env" className="text-xs">环境变量 (JSON格式)</Label>
+              <Textarea id="svc-env" value={formData.env_vars} onChange={(e) => setFormData({ ...formData, env_vars: e.target.value })} placeholder={`{"KEY": "value", "NODE_ENV": "production"}`} rows={2} className="input-macos" />
             </div>
-
-            {/* Restart Policy + Max Restarts */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="svc-policy">重启策略</Label>
-                <select
-                  id="svc-policy"
-                  value={formData.restart_policy}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      restart_policy: e.target.value as
-                        | "always"
-                        | "on-failure"
-                        | "never",
-                    })
-                  }
-                  className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
+                <Label htmlFor="svc-policy" className="text-xs">重启策略</Label>
+                <select id="svc-policy" value={formData.restart_policy} onChange={(e) => setFormData({ ...formData, restart_policy: e.target.value as "always" | "on-failure" | "never" })}
+                  className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/12 transition-all"
                 >
                   <option value="always">{restartPolicyLabels.always}</option>
-                  <option value="on-failure">
-                    {restartPolicyLabels["on-failure"]}
-                  </option>
+                  <option value="on-failure">{restartPolicyLabels["on-failure"]}</option>
                   <option value="never">{restartPolicyLabels.never}</option>
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="svc-max">最大重启次数</Label>
-                <Input
-                  id="svc-max"
-                  type="number"
-                  min={0}
-                  max={20}
-                  value={formData.max_restarts}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      max_restarts: parseInt(e.target.value) || 0,
-                    })
-                  }
-                />
+                <Label htmlFor="svc-max" className="text-xs">最大重启次数</Label>
+                <Input id="svc-max" type="number" min={0} max={20} value={formData.max_restarts} onChange={(e) => setFormData({ ...formData, max_restarts: parseInt(e.target.value) || 0 })} className="input-macos" />
               </div>
             </div>
-
-            {/* Checkboxes */}
             <div className="flex gap-6 pt-1">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.auto_start}
-                  onChange={(e) =>
-                    setFormData({ ...formData, auto_start: e.target.checked })
-                  }
-                  className="rounded border-border"
-                />
+                <input type="checkbox" checked={formData.auto_start} onChange={(e) => setFormData({ ...formData, auto_start: e.target.checked })} className="rounded border-border" />
                 自动启动
               </label>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.port_auto_detect}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      port_auto_detect: e.target.checked,
-                    })
-                  }
-                  className="rounded border-border"
-                />
+                <input type="checkbox" checked={formData.port_auto_detect} onChange={(e) => setFormData({ ...formData, port_auto_detect: e.target.checked })} className="rounded border-border" />
                 自动检测端口
               </label>
             </div>
-
-            {/* Actions */}
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                取消
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={!formData.name.trim() || !formData.command.trim()}
-              >
+              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setDialogOpen(false)}>取消</Button>
+              <Button size="sm" className="btn-macos rounded-lg" onClick={handleSave} disabled={!formData.name.trim() || !formData.command.trim()}>
                 {isEditing ? "保存" : "创建"}
               </Button>
             </div>
@@ -723,88 +488,24 @@ export default function Services() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Logs Dialog ────────────────────────────────────── */}
-      <Dialog open={logDialogOpen} onOpenChange={setLogDialogOpen}>
-        <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b">
-            <DialogTitle className="flex items-center gap-2">
-              <Terminal className="h-5 w-5 text-primary" />
-              服务日志 — {logService?.name}
-              {isListening && (
-                <span className="ml-2 inline-flex items-center gap-1.5 text-xs font-normal text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                  实时监听中
-                </span>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-          <Tabs value={logTab} onValueChange={setLogTab} className="flex-1 flex flex-col min-h-0">
-            <div className="px-6 pt-3 flex items-center justify-between">
-              <TabsList>
-                <TabsTrigger value="realtime">实时日志</TabsTrigger>
-                <TabsTrigger value="history">历史日志</TabsTrigger>
-              </TabsList>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={clearLogs}
-              >
-                <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                清空日志
-              </Button>
-            </div>
-
-            <TabsContent value="realtime" className="flex-1 min-h-0 mt-0 px-6 pb-6 pt-3">
-              <LogList
-                logs={logs}
-                emptyMessage="等待日志输出..."
-                emptyIcon={<Terminal className="h-8 w-8 opacity-40" />}
-                className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6"
-                listClassName="space-y-0.5"
-                logClassName="gap-3 hover:bg-white/5 rounded px-1 -mx-1"
-                timestampClassName="shrink-0 text-[#666] select-none w-[72px] text-right"
-              />
-            </TabsContent>
-
-            <TabsContent value="history" className="flex-1 min-h-0 mt-0 px-6 pb-6 pt-3">
-              <LogList
-                logs={logs}
-                emptyMessage="没有历史日志"
-                emptyIcon={<RotateCcw className="h-8 w-8 opacity-40" />}
-                className="h-full overflow-y-auto rounded-lg bg-[#0d0d0d] border border-border/50 p-4 font-mono text-[13px] leading-6"
-                listClassName="space-y-0.5"
-                logClassName="gap-3 hover:bg-white/5 rounded px-1 -mx-1"
-                timestampClassName="shrink-0 text-[#666] select-none w-[72px] text-right"
-              />
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
-      </Dialog>
-
       {/* ─── Delete Confirm Dialog ─────────────────────────── */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5" />
+            <DialogTitle className="flex items-center gap-2 text-destructive text-sm font-semibold">
+              <AlertTriangle className="h-4 w-4" />
               确认删除服务
             </DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-2">
             <p className="text-sm text-muted-foreground">
-              确定要删除服务 <span className="font-medium text-foreground">{serviceToDelete?.name}</span> 吗？
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">
-              此操作将永久删除该服务及其所有配置，不可撤销。
+              确定要删除服务 <span className="font-medium text-foreground">{serviceToDelete?.name}</span> 吗？此操作不可撤销。
             </p>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
-              取消
-            </Button>
-            <Button variant="destructive" onClick={handleDelete}>
-              <Trash2 className="mr-1.5 h-4 w-4" />
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setDeleteConfirmOpen(false)}>取消</Button>
+            <Button variant="destructive" size="sm" className="rounded-lg" onClick={handleDelete}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
               确认删除
             </Button>
           </div>

@@ -67,6 +67,7 @@ pub struct Group {
     pub name: String,
     pub parent_id: Option<i64>,
     pub sort_order: i64,
+    pub group_type: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -167,9 +168,10 @@ impl Database {
                 name TEXT NOT NULL,
                 parent_id INTEGER,
                 sort_order INTEGER DEFAULT 0,
+                group_type TEXT DEFAULT 'bookmark',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(name, parent_id)
+                UNIQUE(name, parent_id, group_type)
             );
 
             CREATE TABLE IF NOT EXISTS docker_cache (
@@ -228,6 +230,39 @@ impl Database {
         // Migration: add group_id to ssh_connections
         let _ = conn.execute("ALTER TABLE ssh_connections ADD COLUMN group_id INTEGER", []);
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_ssh_connections_group_id ON ssh_connections(group_id)", []);
+
+        // Migration: add group_type to groups
+        let _ = conn.execute("ALTER TABLE groups ADD COLUMN group_type TEXT DEFAULT 'bookmark'", []);
+
+        // Migration: fix groups unique constraint to include group_type
+        // Check if old unique constraint exists (name, parent_id only) by checking
+        // sqlite_master for an autoindex on groups that covers just those two columns.
+        let has_old_constraint: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'groups' AND sql LIKE '%ON groups(name, parent_id)%'",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        if has_old_constraint > 0 {
+            // Recreate the table with the correct constraint
+            let _ = conn.execute_batch(
+                "BEGIN;
+                CREATE TABLE groups_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    parent_id INTEGER,
+                    sort_order INTEGER DEFAULT 0,
+                    group_type TEXT DEFAULT 'bookmark',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(name, parent_id, group_type)
+                );
+                INSERT INTO groups_new (id, name, parent_id, sort_order, group_type, created_at, updated_at)
+                SELECT id, name, parent_id, sort_order, group_type, created_at, updated_at FROM groups;
+                DROP TABLE groups;
+                ALTER TABLE groups_new RENAME TO groups;
+                COMMIT;"
+            );
+        }
 
         // Migration: migrate ssh_connections group_name to group_id
         {
@@ -463,39 +498,40 @@ impl Database {
 
     // === Group CRUD ===
 
-    pub fn list_groups(&self) -> Result<Vec<Group>> {
+    pub fn list_groups(&self, group_type: &str) -> Result<Vec<Group>> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, parent_id, sort_order, created_at, updated_at FROM groups ORDER BY sort_order, name"
+            "SELECT id, name, parent_id, sort_order, group_type, created_at, updated_at FROM groups WHERE group_type = ?1 ORDER BY sort_order, name"
         )?;
         let groups = stmt
-            .query_map([], |row| {
+            .query_map(params![group_type], |row| {
                 Ok(Group {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     parent_id: row.get(2)?,
                     sort_order: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    group_type: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })?
             .collect::<Result<Vec<_>>>()?;
         Ok(groups)
     }
 
-    pub fn create_group(&self, name: &str, parent_id: Option<i64>, sort_order: i64) -> Result<i64> {
+    pub fn create_group(&self, name: &str, parent_id: Option<i64>, sort_order: i64, group_type: &str) -> Result<i64> {
         let conn = self.lock_conn()?;
         conn.execute(
-            "INSERT INTO groups (name, parent_id, sort_order) VALUES (?1, ?2, ?3)",
-            params![name, parent_id, sort_order],
+            "INSERT INTO groups (name, parent_id, sort_order, group_type) VALUES (?1, ?2, ?3, ?4)",
+            params![name, parent_id, sort_order, group_type],
         )?;
         Ok(conn.last_insert_rowid())
     }
 
-    pub fn update_group(&self, id: i64, name: &str, parent_id: Option<i64>, sort_order: i64) -> Result<()> {
+    pub fn update_group(&self, id: i64, name: &str, parent_id: Option<i64>, sort_order: i64, group_type: &str) -> Result<()> {
         self.lock_conn()?.execute(
-            "UPDATE groups SET name = ?1, parent_id = ?2, sort_order = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = ?4",
-            params![name, parent_id, sort_order, id],
+            "UPDATE groups SET name = ?1, parent_id = ?2, sort_order = ?3, group_type = ?4, updated_at = CURRENT_TIMESTAMP WHERE id = ?5",
+            params![name, parent_id, sort_order, group_type, id],
         )?;
         Ok(())
     }

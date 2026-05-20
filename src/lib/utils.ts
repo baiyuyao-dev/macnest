@@ -64,8 +64,14 @@ export function statusVariant(status: string): BadgeVariant {
 }
 
 export function processStatusVariant(status: string): BadgeVariant {
-  if (status === "Running" || status === "running") return "success";
-  if (status === "Sleeping" || status === "sleeping") return "secondary";
-  if (status === "Zombie" || status === "zombie") return "warning";
-  return "destructive";
+  switch (status) {
+    case "运行中": return "success";
+    case "睡眠":
+    case "空闲": return "secondary";
+    case "僵尸":
+    case "等待": return "warning";
+    case "停止":
+    case "不可中断": return "destructive";
+    default: return "secondary";
+  }
 }

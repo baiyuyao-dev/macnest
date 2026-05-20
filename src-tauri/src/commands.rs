@@ -48,7 +48,7 @@ pub fn list_services(state: State<AppState>) -> Result<Vec<database::Service>, S
     for svc in &mut services {
         if svc.status == "running" {
             // Validate that the recorded PID is still alive.
-            // If the process died while MacOps was closed, clean up the stale DB state.
+            // If the process died while MacNest was closed, clean up the stale DB state.
             let pid_alive = svc.pid.map_or(false, |p| {
                 std::process::Command::new("kill")
                     .args(["-0", &p.to_string()])
@@ -219,7 +219,7 @@ fn stop_service_internal(state: &State<'_, AppState>, id: i64) -> Result<(), Str
             .map_err(|e| e.to_string())?;
         let _ = pm.stop_service_by_pid(id, pid);
     } else {
-        // Fallback: service was started before MacOps restarted.
+        // Fallback: service was started before MacNest restarted.
         // PID is only in the DB, not in memory.
         if let Ok(service) = state.db.get_service(id) {
             if let Some(pid) = service.pid {
@@ -368,38 +368,38 @@ fn detect_ports(pid: u32) -> Result<Vec<String>, String> {
 // === Docker Commands ===
 
 #[tauri::command]
-pub fn list_containers() -> Result<Vec<docker::DockerContainer>, String> {
-    docker::list_containers()
+pub async fn list_containers() -> Result<Vec<docker::DockerContainer>, String> {
+    docker::list_containers().await
 }
 
 #[tauri::command]
-pub fn start_container(container_id: String) -> Result<(), String> {
-    docker::start_container(&container_id)
+pub async fn start_container(container_id: String) -> Result<(), String> {
+    docker::start_container(&container_id).await
 }
 
 #[tauri::command]
-pub fn stop_container(container_id: String) -> Result<(), String> {
-    docker::stop_container(&container_id)
+pub async fn stop_container(container_id: String) -> Result<(), String> {
+    docker::stop_container(&container_id).await
 }
 
 #[tauri::command]
-pub fn restart_container(container_id: String) -> Result<(), String> {
-    docker::restart_container(&container_id)
+pub async fn restart_container(container_id: String) -> Result<(), String> {
+    docker::restart_container(&container_id).await
 }
 
 #[tauri::command]
-pub fn remove_container(container_id: String) -> Result<(), String> {
-    docker::remove_container(&container_id)
+pub async fn remove_container(container_id: String) -> Result<(), String> {
+    docker::remove_container(&container_id).await
 }
 
 #[tauri::command]
-pub fn get_container_logs(container_id: String, tail: i64) -> Result<String, String> {
-    docker::get_container_logs(&container_id, tail)
+pub async fn get_container_logs(container_id: String, tail: i64) -> Result<String, String> {
+    docker::get_container_logs(&container_id, tail).await
 }
 
 #[tauri::command]
-pub fn get_container_stats(container_id: String) -> Result<docker::ContainerStats, String> {
-    docker::get_container_stats(&container_id)
+pub async fn get_container_stats(container_id: String) -> Result<docker::ContainerStats, String> {
+    docker::get_container_stats(&container_id).await
 }
 
 // === Group Commands ===
@@ -409,6 +409,7 @@ pub struct CreateGroupRequest {
     pub name: String,
     pub parent_id: Option<i64>,
     pub sort_order: i64,
+    pub group_type: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -417,11 +418,24 @@ pub struct UpdateGroupRequest {
     pub name: String,
     pub parent_id: Option<i64>,
     pub sort_order: i64,
+    pub group_type: String,
 }
 
 #[tauri::command]
-pub fn list_groups(state: State<AppState>) -> Result<Vec<database::Group>, String> {
-    state.db.list_groups().map_err(|e| e.to_string())
+pub fn list_groups(
+    state: State<AppState>,
+    group_type: String,
+) -> Result<Vec<database::Group>, String> {
+    let groups = state
+        .db
+        .list_groups(&group_type)
+        .map_err(|e| e.to_string())?;
+    // 过滤掉 "其他" 和 "默认" 分组
+    let filtered = groups
+        .into_iter()
+        .filter(|g| g.name != "其他" && g.name != "默认")
+        .collect();
+    Ok(filtered)
 }
 
 #[tauri::command]
@@ -431,7 +445,7 @@ pub fn create_group(
 ) -> Result<i64, String> {
     state
         .db
-        .create_group(&req.name, req.parent_id, req.sort_order)
+        .create_group(&req.name, req.parent_id, req.sort_order, &req.group_type)
         .map_err(|e| e.to_string())
 }
 
@@ -442,7 +456,7 @@ pub fn update_group(
 ) -> Result<(), String> {
     state
         .db
-        .update_group(req.id, &req.name, req.parent_id, req.sort_order)
+        .update_group(req.id, &req.name, req.parent_id, req.sort_order, &req.group_type)
         .map_err(|e| e.to_string())
 }
 
@@ -1221,4 +1235,9 @@ end tell"#,
 #[tauri::command]
 pub fn tmux_generate_config() -> Result<String, String> {
     crate::tmux::commands::generate_config()
+}
+
+#[tauri::command]
+pub fn exit_app(app: AppHandle) {
+    app.exit(0);
 }

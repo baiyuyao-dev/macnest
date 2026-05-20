@@ -1,5 +1,32 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::path::PathBuf;
+use tokio::process::Command;
+
+/// Locate the docker binary. GUI apps on macOS don't inherit the user's shell PATH,
+/// so we check common install locations before falling back to `docker`.
+fn docker_path() -> PathBuf {
+    if let Ok(path) = std::env::var("DOCKER_PATH") {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return p;
+        }
+    }
+
+    let candidates = [
+        "/opt/homebrew/bin/docker",      // Apple Silicon Homebrew
+        "/usr/local/bin/docker",         // Intel Homebrew
+        "/usr/bin/docker",
+        "/bin/docker",
+    ];
+
+    for c in &candidates {
+        if std::path::Path::new(c).exists() {
+            return PathBuf::from(c);
+        }
+    }
+
+    PathBuf::from("docker")
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DockerContainer {
@@ -14,8 +41,8 @@ pub struct DockerContainer {
     pub created: String,
 }
 
-pub fn list_containers() -> Result<Vec<DockerContainer>, String> {
-    let output = Command::new("docker")
+pub async fn list_containers() -> Result<Vec<DockerContainer>, String> {
+    let output = Command::new(docker_path())
         .args([
             "ps",
             "-a",
@@ -23,10 +50,10 @@ pub fn list_containers() -> Result<Vec<DockerContainer>, String> {
             "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.State}}|{{.Ports}}|{{.Labels}}|{{.CreatedAt}}",
         ])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        // Docker might not be installed or running
         return Ok(Vec::new());
     }
 
@@ -57,7 +84,6 @@ pub fn list_containers() -> Result<Vec<DockerContainer>, String> {
         }
     }
 
-    // Sort: running containers first
     containers.sort_by(|a, b| {
         let a_running = a.state == "running";
         let b_running = b.state == "running";
@@ -71,10 +97,11 @@ pub fn list_containers() -> Result<Vec<DockerContainer>, String> {
     Ok(containers)
 }
 
-pub fn start_container(container_id: &str) -> Result<(), String> {
-    let output = Command::new("docker")
+pub async fn start_container(container_id: &str) -> Result<(), String> {
+    let output = Command::new(docker_path())
         .args(["start", container_id])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
@@ -83,10 +110,11 @@ pub fn start_container(container_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn stop_container(container_id: &str) -> Result<(), String> {
-    let output = Command::new("docker")
-        .args(["stop", container_id])
+pub async fn stop_container(container_id: &str) -> Result<(), String> {
+    let output = Command::new(docker_path())
+        .args(["stop", "-t", "2", container_id])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
@@ -95,10 +123,11 @@ pub fn stop_container(container_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn restart_container(container_id: &str) -> Result<(), String> {
-    let output = Command::new("docker")
-        .args(["restart", container_id])
+pub async fn restart_container(container_id: &str) -> Result<(), String> {
+    let output = Command::new(docker_path())
+        .args(["restart", "-t", "2", container_id])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
@@ -107,10 +136,11 @@ pub fn restart_container(container_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn remove_container(container_id: &str) -> Result<(), String> {
-    let output = Command::new("docker")
+pub async fn remove_container(container_id: &str) -> Result<(), String> {
+    let output = Command::new(docker_path())
         .args(["rm", "-f", container_id])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
@@ -119,8 +149,8 @@ pub fn remove_container(container_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn get_container_logs(container_id: &str, tail: i64) -> Result<String, String> {
-    let output = Command::new("docker")
+pub async fn get_container_logs(container_id: &str, tail: i64) -> Result<String, String> {
+    let output = Command::new(docker_path())
         .args([
             "logs",
             "--tail",
@@ -129,6 +159,7 @@ pub fn get_container_logs(container_id: &str, tail: i64) -> Result<String, Strin
             container_id,
         ])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -154,8 +185,8 @@ pub struct ContainerStats {
     pub block_io: String,
 }
 
-pub fn get_container_stats(container_id: &str) -> Result<ContainerStats, String> {
-    let output = Command::new("docker")
+pub async fn get_container_stats(container_id: &str) -> Result<ContainerStats, String> {
+    let output = Command::new(docker_path())
         .args([
             "stats",
             "--no-stream",
@@ -164,6 +195,7 @@ pub fn get_container_stats(container_id: &str) -> Result<ContainerStats, String>
             container_id,
         ])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
@@ -189,10 +221,11 @@ pub fn get_container_stats(container_id: &str) -> Result<ContainerStats, String>
     }
 }
 
-pub fn get_container_top_processes(container_id: &str) -> Result<String, String> {
-    let output = Command::new("docker")
+pub async fn get_container_top_processes(container_id: &str) -> Result<String, String> {
+    let output = Command::new(docker_path())
         .args(["top", container_id])
         .output()
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())

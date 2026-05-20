@@ -98,12 +98,12 @@ export default function SftpFileList({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* 面包屑 */}
-      <div className="bg-[#252540] px-3 py-1.5 text-[10px] text-[#aaa] border-b border-[#333]">
+      <div className="bg-muted/40 px-3 py-1.5 text-[10px] text-muted-foreground border-b border-[var(--glass-border)]">
         {breadcrumbs.map((crumb, i) => (
           <span key={crumb.path}>
-            {i > 0 && <span className="mx-1 text-[#666]">&gt;</span>}
+            {i > 0 && <span className="mx-1 text-muted-foreground/50">&gt;</span>}
             <span
-              className="cursor-pointer text-[#4fc3f7] hover:underline"
+              className="cursor-pointer text-primary hover:underline hover:text-primary/80"
               onClick={() => onPathChange(crumb.path)}
             >
               {crumb.name}
@@ -113,34 +113,34 @@ export default function SftpFileList({
       </div>
 
       {/* 工具栏 */}
-      <div className="flex gap-1 px-2 py-1 bg-[#1e1e2e] border-b border-[#333]">
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={onUpload}>
+      <div className="flex gap-1 px-2 py-1 bg-muted/30 border-b border-[var(--glass-border)]">
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={onUpload}>
           <ArrowUp className="h-3 w-3 mr-1" />上传
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={onDownload}>
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={onDownload}>
           <ArrowDown className="h-3 w-3 mr-1" />下载
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={handleDelete}>
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={handleDelete}>
           <Trash2 className="h-3 w-3 mr-1" />删除
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={() => setShowMkdirDialog(true)}>
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={() => setShowMkdirDialog(true)}>
           <FolderPlus className="h-3 w-3 mr-1" />新建
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55]" onClick={openRename}>
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40" onClick={openRename}>
           <Pencil className="h-3 w-3 mr-1" />重命名
         </Button>
         {onSyncToTerminal && (
-          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#0dbc79] hover:bg-[#3a3a55]" onClick={onSyncToTerminal}>
+          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-emerald-500 hover:bg-accent/40" onClick={onSyncToTerminal}>
             <Terminal className="h-3 w-3 mr-1" />同步到终端
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-[#ccc] hover:bg-[#3a3a55] ml-auto" onClick={onRefresh}>
+        <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-muted-foreground hover:bg-accent/40 ml-auto" onClick={onRefresh}>
           <RefreshCw className="h-3 w-3 mr-1" />刷新
         </Button>
       </div>
 
       {/* 列表头 */}
-      <div className="flex px-3 py-1 bg-[#1a1a2e] border-b border-[#333] text-[10px] text-[#888] font-bold">
+      <div className="flex px-3 py-1 bg-muted/20 border-b border-[var(--glass-border)] text-[10px] text-muted-foreground font-bold">
         <div className="flex-[2]">名称</div>
         <div className="flex-1 text-right">大小</div>
         <div className="flex-[1.5] text-right">修改时间</div>
@@ -149,7 +149,7 @@ export default function SftpFileList({
 
       {/* 文件列表 */}
       <div
-        className={`flex-1 overflow-y-auto ${isDragging ? "bg-[#1e3a5f]/30" : ""}`}
+        className={`flex-1 overflow-y-auto ${isDragging ? "bg-primary/10" : ""}`}
         onDragOver={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -183,7 +183,7 @@ export default function SftpFileList({
         {/* 返回上级 */}
         {currentPath !== "/" && (
           <div
-            className="flex px-3 py-1 text-[10px] text-[#888] cursor-pointer hover:bg-[#252540] border-b border-[#222]"
+            className="flex px-3 py-1 text-[10px] text-muted-foreground cursor-pointer hover:bg-accent/30 border-b border-[var(--glass-border)]"
             onClick={() => {
               const parent = currentPath.split("/").slice(0, -1).join("/") || "/";
               onPathChange(parent);
@@ -198,35 +198,35 @@ export default function SftpFileList({
         {files.map((file) => (
           <div
             key={file.path}
-            className={`flex px-3 py-1 text-[10px] cursor-pointer border-b border-[#222] ${
+            className={`flex px-3 py-1 text-[10px] cursor-pointer border-b border-[var(--glass-border)] ${
               selectedFile?.path === file.path
-                ? "bg-[#1e3a5f]"
-                : "hover:bg-[#252540]"
+                ? "bg-primary/15"
+                : "hover:bg-accent/30"
             }`}
             onClick={() => onSelectFile(file)}
             onDoubleClick={() => handleDoubleClick(file)}
           >
-            <div className={`flex-[2] ${file.is_dir ? "text-[#e5e510]" : "text-[#bbb]"}`}>
+            <div className={`flex-[2] ${file.is_dir ? "text-amber-500" : "text-foreground"}`}>
               {file.is_dir ? <Folder className="h-3 w-3 inline mr-1" /> : <FileText className="h-3 w-3 inline mr-1" />}
               {file.name}
             </div>
-            <div className="flex-1 text-right text-[#999]">{formatSize(file.size)}</div>
-            <div className="flex-[1.5] text-right text-[#999]">{file.modified_time}</div>
-            <div className="flex-1 text-right text-[#999]">{file.permissions}</div>
+            <div className="flex-1 text-right text-muted-foreground">{formatSize(file.size)}</div>
+            <div className="flex-[1.5] text-right text-muted-foreground">{file.modified_time}</div>
+            <div className="flex-1 text-right text-muted-foreground">{file.permissions}</div>
           </div>
         ))}
       </div>
 
       {/* 状态栏 */}
-      <div className="bg-[#252540] px-3 py-[3px] text-[9px] text-[#888] border-t border-[#333]">
+      <div className="bg-muted/40 px-3 py-[3px] text-[9px] text-muted-foreground border-t border-[var(--glass-border)]">
         {files.length} 个项目{selectedFile ? ` | 已选择: ${selectedFile.name}` : ""}
       </div>
 
       {/* 新建文件夹对话框 */}
       <Dialog open={showMkdirDialog} onOpenChange={setShowMkdirDialog}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle>新建文件夹</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">新建文件夹</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <Input
@@ -235,8 +235,9 @@ export default function SftpFileList({
               onChange={(e) => setMkdirName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleMkdir()}
               autoFocus
+              className="input-macos"
             />
-            <Button className="w-full" onClick={handleMkdir} disabled={!mkdirName.trim()}>
+            <Button className="w-full btn-macos rounded-lg" onClick={handleMkdir} disabled={!mkdirName.trim()}>
               创建
             </Button>
           </div>
@@ -245,9 +246,9 @@ export default function SftpFileList({
 
       {/* 重命名对话框 */}
       <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle>重命名</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">重命名</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <Input
@@ -256,8 +257,9 @@ export default function SftpFileList({
               onChange={(e) => setRenameValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleRename()}
               autoFocus
+              className="input-macos"
             />
-            <Button className="w-full" onClick={handleRename} disabled={!renameValue.trim()}>
+            <Button className="w-full btn-macos rounded-lg" onClick={handleRename} disabled={!renameValue.trim()}>
               确认
             </Button>
           </div>

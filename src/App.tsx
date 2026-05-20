@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route, useNavigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Services from "./pages/Services";
@@ -10,6 +10,25 @@ import Tmux from "./pages/Tmux";
 import Settings from "./pages/Settings";
 import { useThemeStore } from "./stores/theme";
 import { useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
+
+function NavigationListener() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const unlisten = listen("navigate-to", (event) => {
+      const path = event.payload as string;
+      if (path) {
+        navigate(path);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [navigate]);
+
+  return null;
+}
 
 function App() {
   const { isDark } = useThemeStore();
@@ -24,6 +43,7 @@ function App() {
 
   return (
     <HashRouter>
+      <NavigationListener />
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />

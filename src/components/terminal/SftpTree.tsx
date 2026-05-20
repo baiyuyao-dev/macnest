@@ -49,7 +49,7 @@ export default function SftpTree({ currentPath, onPathChange }: SftpTreeProps) {
       <div key={node.path}>
         <div
           className={`flex items-center px-2 py-[3px] text-[10px] cursor-pointer whitespace-nowrap transition-colors ${
-            isActive ? "bg-[#1e3a5f] text-[#4fc3f7]" : "text-[#999] hover:bg-[#2a2a45] hover:text-[#ddd]"
+            isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent/30 hover:text-foreground"
           }`}
           style={{ paddingLeft: `${8 + depth * 12}px` }}
           onClick={() => {
@@ -77,8 +77,8 @@ export default function SftpTree({ currentPath, onPathChange }: SftpTreeProps) {
   };
 
   return (
-    <div className="flex h-full w-[160px] flex-col border-r border-[#333] bg-[#1a1a2e] shrink-0 overflow-hidden">
-      <div className="bg-[#252540] px-2 py-1.5 text-[10px] font-bold text-[#aaa] border-b border-[#333]">
+    <div className="flex h-full w-[160px] flex-col border-r border-[var(--glass-border)] bg-muted/20 shrink-0 overflow-hidden">
+      <div className="bg-muted/40 px-2 py-1.5 text-[10px] font-bold text-muted-foreground border-b border-[var(--glass-border)]">
         📁 远程目录
       </div>
       <div className="flex-1 overflow-y-auto">

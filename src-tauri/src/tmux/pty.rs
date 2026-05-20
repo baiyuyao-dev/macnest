@@ -29,7 +29,8 @@ pub fn attach_session_pty(
         })
         .map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new("tmux");
+    let tmux_path = crate::tmux::get_tmux_path();
+    let mut cmd = CommandBuilder::new(&tmux_path);
     cmd.arg("attach");
     cmd.arg("-t");
     cmd.arg(session_name);

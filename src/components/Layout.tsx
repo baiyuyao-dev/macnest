@@ -1,5 +1,5 @@
 import { useOutlet, useLocation, NavLink } from "react-router-dom";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   LayoutDashboard,
   Server,
@@ -9,9 +9,8 @@ import {
   Terminal as TerminalIcon,
   Monitor,
   Settings,
-  Moon,
-  Sun,
 } from "lucide-react";
+import MacNestLogo from "@/components/icons/MacNestLogo";
 import { useThemeStore } from "@/stores/theme";
 
 const navItems = [
@@ -28,66 +27,142 @@ export default function Layout() {
   const location = useLocation();
   const outlet = useOutlet();
   const cacheRef = useRef<Map<string, React.ReactNode>>(new Map());
+  const [collapsed, setCollapsed] = useState(false);
 
   const currentPath = location.pathname;
   if (outlet && !cacheRef.current.has(currentPath)) {
     cacheRef.current.set(currentPath, outlet);
   }
 
-  const { isDark, toggleTheme } = useThemeStore();
+  useThemeStore();
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
-      {/* Sidebar */}
-      <aside className="flex w-[200px] flex-col border-r bg-card">
-        <div className="flex h-14 items-center border-b px-4">
-          <Server className="mr-2 h-5 w-5 text-primary" />
-          <span className="text-lg font-bold">MacOps</span>
-        </div>
-        <nav className="flex-1 space-y-1 p-3">
-          {navItems.map((item) => (
+      {/* ── Sidebar ── */}
+      <aside
+        className={`relative flex flex-col shrink-0 z-20 transition-all duration-300 ease-in-out ${
+          collapsed ? "w-16" : "w-[220px]"
+        }`}
+      >
+        {/* Glass background */}
+        <div className="absolute inset-0 glass-strong border-r border-[var(--glass-border-strong)]" />
+
+        {/* Logo */}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="relative flex h-[52px] w-full items-center px-3 cursor-pointer hover:bg-accent/40 transition-colors"
+        >
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <MacNestLogo className="h-5 w-5" size={20} />
+            </div>
+            <div
+              className="overflow-hidden whitespace-nowrap"
+              style={{
+                opacity: collapsed ? 0 : 1,
+                maxWidth: collapsed ? 0 : 120,
+                transition: collapsed
+                  ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
+                  : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
+              }}
+            >
+              <span className="text-[15px] font-bold tracking-tight">MacNest</span>
+              <span className="ml-1.5 text-[10px] font-medium text-muted-foreground">v0.2</span>
+            </div>
+          </div>
+        </button>
+
+        {/* Nav */}
+        <nav className="relative flex-1 space-y-0.5 px-2 py-2">
+          {navItems.map((item, index) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === "/"}
+              title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
-                `flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-300 ${
                   isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    ? "text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`
               }
+              style={{ animationDelay: `${index * 40}ms` }}
             >
-              <item.icon className="mr-2 h-4 w-4" />
-              {item.label}
+              {({ isActive }) => (
+                <>
+                  {/* Active background pill */}
+                  {isActive && (
+                    <div className="absolute inset-0 rounded-xl bg-primary shadow-glass transition-all duration-300" />
+                  )}
+                  {/* Active indicator dot */}
+                  {isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-primary-foreground/80" />
+                  )}
+                  <item.icon
+                    className={`relative h-[18px] w-[18px] shrink-0 transition-transform duration-300 ${
+                      isActive ? "" : "group-hover:scale-110"
+                    }`}
+                  />
+                  <span
+                    className="relative overflow-hidden whitespace-nowrap"
+                    style={{
+                      opacity: collapsed ? 0 : 1,
+                      maxWidth: collapsed ? 0 : 120,
+                      transition: collapsed
+                        ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
+                        : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
+                    }}
+                  >
+                    {item.label}
+                  </span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
-        <div className="border-t p-3">
-          <button
-            onClick={toggleTheme}
-            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            {isDark ? <Sun className="mr-2 h-4 w-4" /> : <Moon className="mr-2 h-4 w-4" />}
-            {isDark ? "浅色模式" : "深色模式"}
-          </button>
+
+        {/* Bottom actions */}
+        <div className="relative p-2 space-y-0.5">
           <NavLink
             to="/settings"
+            title={collapsed ? "设置" : undefined}
             className={({ isActive }) =>
-              `mt-1 flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              `group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-300 ${
                 isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  ? "text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`
             }
           >
-            <Settings className="mr-2 h-4 w-4" />
-            设置
+            {({ isActive }) => (
+              <>
+                {isActive && <div className="absolute inset-0 rounded-xl bg-primary shadow-glass transition-all duration-300" />}
+                <Settings
+                  className={`relative h-[18px] w-[18px] shrink-0 transition-transform duration-300 ${
+                    isActive ? "" : "group-hover:rotate-45"
+                  }`}
+                />
+                <span
+                  className="relative overflow-hidden whitespace-nowrap"
+                  style={{
+                    opacity: collapsed ? 0 : 1,
+                    maxWidth: collapsed ? 0 : 120,
+                    transition: collapsed
+                      ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
+                      : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
+                  }}
+                >
+                  设置
+                </span>
+              </>
+            )}
           </NavLink>
         </div>
       </aside>
-      {/* Main Content — keep-alive: cache all visited routes */}
-      <main className="flex-1 overflow-hidden relative">
+
+      {/* ── Main Content ── */}
+      <main className="relative flex-1 overflow-hidden">
         {Array.from(cacheRef.current.entries()).map(([path, element]) => {
           const isActive = currentPath === path;
           return (
@@ -97,9 +172,7 @@ export default function Layout() {
               style={{
                 position: "absolute",
                 inset: 0,
-                visibility: isActive ? "visible" : "hidden",
-                pointerEvents: isActive ? "auto" : "none",
-                zIndex: isActive ? 1 : 0,
+                display: isActive ? "block" : "none",
               }}
             >
               {element}

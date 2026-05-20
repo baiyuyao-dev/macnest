@@ -139,16 +139,8 @@ pub fn get_resource_usage() -> Result<ResourceUsage, String> {
     let cpu_str = String::from_utf8_lossy(&cpu_output.stdout);
     let cpu_percent = parse_cpu_usage(&cpu_str);
 
-    // Memory via top's PhysMem line (most accurate on macOS)
-    let mem_output = Command::new("sh")
-        .args([
-            "-c",
-            "top -l 1 -s 0 | grep 'PhysMem' | head -1",
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let mem_str = String::from_utf8_lossy(&mem_output.stdout);
-    let (memory_used_mb, memory_total_mb, memory_percent) = parse_memory_top(&mem_str)?;
+    // Memory via vm_stat (more accurate than top on macOS)
+    let (memory_used_mb, memory_total_mb, memory_percent) = get_memory_usage()?;
 
     Ok(ResourceUsage {
         cpu_percent,
@@ -178,64 +170,81 @@ fn parse_cpu_usage(cpu_str: &str) -> f64 {
     0.0
 }
 
-fn parse_memory_top(mem_str: &str) -> Result<(u64, u64, f64), String> {
-    // Parse "PhysMem: 24G used (6789M wired, 4567M compressor, 1234M shared), 8G unused."
-    // or "PhysMem: 23148M used (6155M wired, 3566M compressor, 1194M shared), 1428M unused."
-    let mut used_mb: u64 = 0;
-    let mut unused_mb: u64 = 0;
+fn get_memory_usage() -> Result<(u64, u64, f64), String> {
+    // Total physical memory
+    let total_bytes = Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .map_err(|e| e.to_string())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u64>()
+                .map_err(|e| e.to_string())
+        })?;
+    let total_mb = total_bytes / 1024 / 1024;
 
-    for line in mem_str.lines() {
-        if let Some(used_part) = line.split("used").next() {
-            if let Some(val_str) = used_part.trim().rsplit(' ').next() {
-                used_mb = parse_mem_value(val_str);
+    // Memory stats via vm_stat (more reliable than top across macOS versions)
+    let vm_output = Command::new("vm_stat")
+        .output()
+        .map_err(|e| e.to_string())?;
+    let vm_str = String::from_utf8_lossy(&vm_output.stdout);
+
+    let mut page_size: u64 = 16384;
+    let mut pages_free: u64 = 0;
+    let mut pages_active: u64 = 0;
+    let mut pages_inactive: u64 = 0;
+    let mut pages_speculative: u64 = 0;
+    let mut pages_wired: u64 = 0;
+    let mut pages_compressed: u64 = 0;
+    let mut pages_purgeable: u64 = 0;
+
+    for line in vm_str.lines() {
+        if line.contains("page size of") {
+            if let Some(start) = line.find("page size of ") {
+                let after = &line[start + "page size of ".len()..];
+                if let Some(end) = after.find(" bytes") {
+                    page_size = after[..end].parse::<u64>().unwrap_or(16384);
+                }
             }
-        }
-        if let Some(unused_part) = line.split("unused").next() {
-            if let Some(val_str) = unused_part.trim().rsplit(' ').next() {
-                unused_mb = parse_mem_value(val_str);
-            }
+        } else if line.starts_with("Pages free:") {
+            pages_free = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages active:") {
+            pages_active = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages inactive:") {
+            pages_inactive = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages speculative:") {
+            pages_speculative = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages wired down:") {
+            pages_wired = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages occupied by compressor:") {
+            pages_compressed = parse_vm_stat_value(line);
+        } else if line.starts_with("Pages purgeable:") {
+            pages_purgeable = parse_vm_stat_value(line);
         }
     }
 
-    let memory_total_mb = if used_mb + unused_mb > 0 {
-        used_mb + unused_mb
-    } else {
-        // fallback to sysctl
-        Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
-            .map_err(|e| e.to_string())
-            .and_then(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .parse::<u64>()
-                    .map_err(|e| e.to_string())
-            })? / 1024 / 1024
-    };
+    // Calculate memory usage like Activity Monitor:
+    // Used = active + wired + speculative + compressed
+    // (inactive + free + purgeable are treated as available/cache)
+    let used_pages = pages_active + pages_wired + pages_speculative + pages_compressed;
+    let used_mb = used_pages * page_size / 1024 / 1024;
 
-    let memory_percent = if memory_total_mb > 0 {
-        (used_mb as f64 / memory_total_mb as f64) * 100.0
+    let percent = if total_mb > 0 {
+        (used_mb as f64 / total_mb as f64) * 100.0
     } else {
         0.0
     };
 
-    Ok((used_mb, memory_total_mb, memory_percent))
+    Ok((used_mb, total_mb, percent))
 }
 
-fn parse_mem_value(s: &str) -> u64 {
-    let s = s.trim().trim_end_matches(",").trim_end_matches("(").trim();
-    if s.is_empty() {
-        return 0;
-    }
-    let (num_part, unit) = s.split_at(s.len() - 1);
-    let num = num_part.parse::<f64>().unwrap_or(0.0);
-    match unit.to_ascii_uppercase().as_str() {
-        "G" => (num * 1024.0) as u64,
-        "M" => num as u64,
-        "K" => (num / 1024.0) as u64,
-        "T" => (num * 1024.0 * 1024.0) as u64,
-        _ => 0,
-    }
+fn parse_vm_stat_value(line: &str) -> u64 {
+    line.split(':')
+        .nth(1)
+        .map(|s| s.trim().trim_end_matches('.').replace(',', ""))
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 fn parse_disk_usage(disk_str: &str) -> f64 {
@@ -264,14 +273,28 @@ pub struct ProcessInfo {
 }
 
 pub fn get_processes() -> Result<Vec<ProcessInfo>, String> {
+    // Use rss (resident set size in KB) instead of pmem — pmem is a coarse percentage
+    // and macOS ps %mem is unreliable for large-memory apps.
     let output = Command::new("ps")
-        .args(["-axro", "pid,pcpu,pmem,state,comm,command"])
+        .args(["-axo", "pid,pcpu,rss,state,comm,command"])
         .output()
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
+
+    // Total physical memory for percentage calculation
+    let total_kb = Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .map_err(|e| e.to_string())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u64>()
+                .map_err(|e| e.to_string())
+        })? / 1024; // bytes -> KB
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut processes = Vec::new();
@@ -284,18 +307,36 @@ pub fn get_processes() -> Result<Vec<ProcessInfo>, String> {
         if parts.len() >= 6 {
             let pid = parts[0].parse::<i32>().unwrap_or(0);
             let cpu = parts[1].parse::<f64>().unwrap_or(0.0);
-            let mem = parts[2].parse::<f64>().unwrap_or(0.0);
-            let status = parts[3].to_string();
-            let name = parts[4].to_string();
+            let rss_kb = parts[2].parse::<u64>().unwrap_or(0);
+            let raw_status = parts[3];
+            let comm = parts[4];
             let cmd = parts[5..].join(" ");
 
-            // Filter out kernel processes and low-memory processes
-            if mem > 0.1 && !name.starts_with('[') {
+            // rss in MB
+            let mem_mb = rss_kb as f64 / 1024.0;
+
+            // Translate ps state to Chinese
+            let status = match raw_status.chars().next().unwrap_or('?') {
+                'R' => "运行中",
+                'S' => "睡眠",
+                'T' => "停止",
+                'Z' => "僵尸",
+                'I' => "空闲",
+                'U' => "不可中断",
+                'W' => "等待",
+                _ => raw_status,
+            }
+            .to_string();
+
+            let name = extract_process_name(&cmd, comm);
+
+            // Filter out kernel processes and very-low-memory processes
+            if mem_mb >= 1.0 && !name.starts_with('[') {
                 processes.push(ProcessInfo {
                     pid,
                     name,
                     cpu_percent: cpu,
-                    memory_mb: mem,
+                    memory_mb: mem_mb,
                     status,
                     command: cmd,
                 });
@@ -303,12 +344,30 @@ pub fn get_processes() -> Result<Vec<ProcessInfo>, String> {
         }
     }
 
-    // Sort by memory usage descending
+    // Sort by actual memory usage (MB) descending
     processes.sort_by(|a, b| {
         b.memory_mb.partial_cmp(&a.memory_mb).unwrap_or(std::cmp::Ordering::Equal)
     });
-    processes.truncate(30);
+    processes.truncate(10);
     Ok(processes)
+}
+
+fn extract_process_name(cmd: &str, comm: &str) -> String {
+    // Try to extract app name from macOS .app bundle path
+    // e.g. /Applications/IntelliJ IDEA.app/Contents/MacOS/idea -> "IntelliJ IDEA"
+    if let Some(app_pos) = cmd.find(".app/") {
+        let before = &cmd[..app_pos];
+        if let Some(last_slash) = before.rfind('/') {
+            return before[last_slash + 1..].to_string();
+        }
+    }
+    // Fallback to basename of first command token
+    let first = cmd.split_whitespace().next().unwrap_or(comm);
+    std::path::Path::new(first)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(comm)
+        .to_string()
 }
 
 pub fn get_network_io() -> Result<(u64, u64), String> {

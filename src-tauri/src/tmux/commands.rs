@@ -4,7 +4,8 @@ use crate::tmux::types::{CreateTmuxSessionRequest, RenameTmuxSessionRequest, Tmu
 
 /// 列出所有 tmux 会话
 pub fn list_sessions() -> Result<Vec<TmuxSession>, String> {
-    let output = Command::new("tmux")
+    let tmux = crate::tmux::get_tmux_path();
+    let output = Command::new(&tmux)
         .args([
             "list-sessions",
             "-F",
@@ -44,7 +45,8 @@ pub fn list_sessions() -> Result<Vec<TmuxSession>, String> {
 
 /// 创建新会话（detached 模式）
 pub fn create_session(req: &CreateTmuxSessionRequest) -> Result<(), String> {
-    let mut cmd = Command::new("tmux");
+    let tmux = crate::tmux::get_tmux_path();
+    let mut cmd = Command::new(&tmux);
     cmd.args(["new-session", "-d", "-s", &req.name]);
 
     if let Some(ref dir) = req.start_directory {
@@ -69,7 +71,8 @@ pub fn create_session(req: &CreateTmuxSessionRequest) -> Result<(), String> {
 
 /// Kill 会话
 pub fn kill_session(name: &str) -> Result<(), String> {
-    let output = Command::new("tmux")
+    let tmux = crate::tmux::get_tmux_path();
+    let output = Command::new(&tmux)
         .args(["kill-session", "-t", name])
         .output()
         .map_err(|e| e.to_string())?;
@@ -87,7 +90,8 @@ pub fn kill_session(name: &str) -> Result<(), String> {
 
 /// 重命名会话
 pub fn rename_session(req: &RenameTmuxSessionRequest) -> Result<(), String> {
-    let output = Command::new("tmux")
+    let tmux = crate::tmux::get_tmux_path();
+    let output = Command::new(&tmux)
         .args(["rename-session", "-t", &req.old_name, &req.new_name])
         .output()
         .map_err(|e| e.to_string())?;
@@ -100,7 +104,8 @@ pub fn rename_session(req: &RenameTmuxSessionRequest) -> Result<(), String> {
 
 /// 检查 tmux 是否安装
 pub fn is_tmux_available() -> bool {
-    Command::new("tmux")
+    let path = crate::tmux::get_tmux_path();
+    Command::new(&path)
         .arg("-V")
         .output()
         .map(|o| o.status.success())
@@ -109,7 +114,7 @@ pub fn is_tmux_available() -> bool {
 
 /// 生成 ~/.tmux.conf
 pub fn generate_config() -> Result<String, String> {
-    let config = r#"# MacOps 生成的 tmux 配置
+    let config = r#"# MacNest 生成的 tmux 配置
 
 # 鼠标支持
 set -g mouse on

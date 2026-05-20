@@ -17,6 +17,9 @@ import {
   Trash2,
   AlertTriangle,
   Save,
+  Hexagon,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useThemeStore } from "@/stores/theme";
 import { getSettings, updateSettings } from "@/lib/api";
@@ -57,7 +60,6 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await updateSettings(settings);
-      // 同步主题
       setTheme(settings.theme === "dark");
     } catch (err) {
       console.error("Failed to save settings:", err);
@@ -74,8 +76,8 @@ export default function SettingsPage() {
 
   const handleExport = () => {
     const data = {
-      app: "MacOps",
-      version: "0.1.0",
+      app: "MacNest",
+      version: "0.2.0",
       export_at: new Date().toISOString(),
       settings,
     };
@@ -83,7 +85,7 @@ export default function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `macops-config-${Date.now()}.json`;
+    a.download = `macnest-config-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -131,77 +133,90 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="flex h-full items-center justify-center animate-page-enter">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <RefreshCw className="h-5 w-5 animate-spin" />
+          <span className="text-sm">加载中...</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">设置</h1>
-        <Button onClick={handleSave} disabled={saving}>
-          <Save className="mr-2 h-4 w-4" />
+    <div className="mx-auto max-w-2xl space-y-5 p-6 animate-page-enter">
+      {/* Header */}
+      <div className="flex items-center justify-between animate-slide-up">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight">设置</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">自定义 MacNest 的偏好选项</p>
+        </div>
+        <Button className="btn-macos rounded-xl" onClick={handleSave} disabled={saving}>
+          <Save className="mr-1.5 h-3.5 w-3.5" />
           {saving ? "保存中..." : "保存设置"}
         </Button>
       </div>
 
-      {/* ========== 外观设置 ========== */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center text-base">
-            <Monitor className="mr-2 h-4 w-4" />
-            外观
-          </CardTitle>
-          <CardDescription>自定义 MacOps 的外观和主题</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>主题</Label>
-              <p className="text-sm text-muted-foreground">选择深色或浅色主题</p>
-            </div>
-            <select
-              value={settings.theme}
-              onChange={(e) => handleThemeChange(e.target.value)}
-              className="w-32 flex h-9 rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
-            >
-              <option value="dark">深色</option>
-              <option value="light">浅色</option>
-            </select>
+      {/* 外观设置 */}
+      <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "50ms" }}>
+        <div className="flex items-center px-5 py-4 border-b border-[var(--glass-border)]">
+          <Monitor className="mr-2 h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight">外观</h3>
+            <p className="text-[11px] text-muted-foreground">自定义 MacNest 的外观和主题</p>
           </div>
-          <Separator />
+        </div>
+        <div className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label>深色模式预览</Label>
-              <p className="text-sm text-muted-foreground">
-                当前状态：{isDark ? "深色模式" : "浅色模式"}
+              <Label className="text-xs font-medium">主题</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">选择深色或浅色主题</p>
+            </div>
+            <div className="flex items-center gap-2 p-1 rounded-xl bg-muted/50">
+              <button
+                onClick={() => handleThemeChange("light")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${settings.theme === "light" ? "bg-primary text-primary-foreground shadow-glass" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Sun className="h-3.5 w-3.5" />
+                浅色
+              </button>
+              <button
+                onClick={() => handleThemeChange("dark")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${settings.theme === "dark" ? "bg-primary text-primary-foreground shadow-glass" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Moon className="h-3.5 w-3.5" />
+                深色
+              </button>
+            </div>
+          </div>
+          <div className="h-px bg-[var(--glass-border)]" />
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-xs font-medium">当前状态</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {isDark ? "深色模式" : "浅色模式"}
               </p>
             </div>
-            <Badge variant={isDark ? "default" : "secondary"}>
+            <Badge variant={isDark ? "default" : "secondary"} className="text-[10px] rounded-full">
               {isDark ? "深色" : "浅色"}
             </Badge>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* ========== 刷新设置 ========== */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center text-base">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            数据刷新
-          </CardTitle>
-          <CardDescription>配置系统监控数据自动刷新频率</CardDescription>
-        </CardHeader>
-        <CardContent>
+      {/* 刷新设置 */}
+      <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "100ms" }}>
+        <div className="flex items-center px-5 py-4 border-b border-[var(--glass-border)]">
+          <RefreshCw className="mr-2 h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight">数据刷新</h3>
+            <p className="text-[11px] text-muted-foreground">配置系统监控数据自动刷新频率</p>
+          </div>
+        </div>
+        <div className="p-5">
           <div className="flex items-center justify-between">
             <div>
-              <Label>自动刷新间隔</Label>
-              <p className="text-sm text-muted-foreground">
-                仪表盘和系统监控数据的刷新频率
-              </p>
+              <Label className="text-xs font-medium">自动刷新间隔</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">仪表盘和系统监控数据的刷新频率</p>
             </div>
             <select
               value={String(settings.auto_refresh_interval)}
@@ -211,7 +226,7 @@ export default function SettingsPage() {
                   auto_refresh_interval: Number(e.target.value),
                 }))
               }
-              className="w-32 flex h-9 rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm"
+              className="w-28 h-9 text-xs flex rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 shadow-sm outline-none focus:border-primary/50 transition-all"
             >
               <option value="1">1 秒</option>
               <option value="3">3 秒</option>
@@ -220,25 +235,23 @@ export default function SettingsPage() {
               <option value="30">30 秒</option>
             </select>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* ========== 菜单栏设置 ========== */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center text-base">
-            <Menu className="mr-2 h-4 w-4" />
-            菜单栏
-          </CardTitle>
-          <CardDescription>macOS 菜单栏图标显示设置</CardDescription>
-        </CardHeader>
-        <CardContent>
+      {/* 菜单栏设置 */}
+      <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "150ms" }}>
+        <div className="flex items-center px-5 py-4 border-b border-[var(--glass-border)]">
+          <Menu className="mr-2 h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight">菜单栏</h3>
+            <p className="text-[11px] text-muted-foreground">macOS 菜单栏图标显示设置</p>
+          </div>
+        </div>
+        <div className="p-5">
           <div className="flex items-center justify-between">
             <div>
-              <Label>显示菜单栏图标</Label>
-              <p className="text-sm text-muted-foreground">
-                在 macOS 顶部菜单栏显示 MacOps 图标
-              </p>
+              <Label className="text-xs font-medium">显示菜单栏图标</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">在 macOS 顶部菜单栏显示 MacNest 图标</p>
             </div>
             <Switch
               checked={settings.show_menu_bar}
@@ -247,86 +260,80 @@ export default function SettingsPage() {
               }
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* ========== 数据管理 ========== */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center text-base">
-            <Database className="mr-2 h-4 w-4" />
-            数据管理
-          </CardTitle>
-          <CardDescription>导出、导入或重置配置数据</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      {/* 数据管理 */}
+      <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "200ms" }}>
+        <div className="flex items-center px-5 py-4 border-b border-[var(--glass-border)]">
+          <Database className="mr-2 h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight">数据管理</h3>
+            <p className="text-[11px] text-muted-foreground">导出、导入或重置配置数据</p>
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label>导出配置</Label>
-              <p className="text-sm text-muted-foreground">
-                将当前设置导出为 JSON 文件
-              </p>
+              <Label className="text-xs font-medium">导出配置</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">将当前设置导出为 JSON 文件</p>
             </div>
-            <Button variant="outline" size="sm" onClick={handleExport}>
-              <Download className="mr-2 h-4 w-4" />
+            <Button variant="outline" size="sm" className="btn-macos-secondary rounded-lg h-8 text-xs" onClick={handleExport}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />
               导出
             </Button>
           </div>
-          <Separator />
+          <div className="h-px bg-[var(--glass-border)]" />
           <div className="flex items-center justify-between">
             <div>
-              <Label>导入配置</Label>
-              <p className="text-sm text-muted-foreground">
-                从 JSON 文件导入设置
-              </p>
+              <Label className="text-xs font-medium">导入配置</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">从 JSON 文件导入设置</p>
             </div>
-            <Button variant="outline" size="sm" onClick={handleImport}>
-              <Upload className="mr-2 h-4 w-4" />
+            <Button variant="outline" size="sm" className="btn-macos-secondary rounded-lg h-8 text-xs" onClick={handleImport}>
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
               导入
             </Button>
           </div>
-          <Separator />
+          <div className="h-px bg-[var(--glass-border)]" />
           <div className="flex items-center justify-between">
             <div>
-              <Label className="text-destructive flex items-center gap-1">
+              <Label className="text-xs font-medium text-destructive flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3" />
                 重置所有数据
               </Label>
-              <p className="text-sm text-muted-foreground">
-                清除所有设置并恢复默认值
-              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">清除所有设置并恢复默认值</p>
             </div>
-            <Button variant="destructive" size="sm" onClick={handleReset}>
-              <Trash2 className="mr-2 h-4 w-4" />
+            <Button variant="destructive" size="sm" className="rounded-lg h-8 text-xs" onClick={handleReset}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
               重置
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* ========== 关于 ========== */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center text-base">
-            <Info className="mr-2 h-4 w-4" />
-            关于 MacOps
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* 关于 */}
+      <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "250ms" }}>
+        <div className="flex items-center px-5 py-4 border-b border-[var(--glass-border)]">
+          <Info className="mr-2 h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight">关于 MacNest</h3>
+          </div>
+        </div>
+        <div className="p-5">
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">应用名称</span>
-              <span className="font-medium">MacOps</span>
+              <span className="font-medium">MacNest</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">版本号</span>
-              <Badge variant="outline">0.1.0</Badge>
+              <Badge variant="outline" className="text-[10px] rounded-full glass">0.2.0</Badge>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">描述</span>
-              <span>macOS 本地运维面板</span>
+              <span className="text-muted-foreground">macOS 本地运维面板</span>
             </div>
-            <Separator />
+            <div className="h-px bg-[var(--glass-border)]" />
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Tauri</span>
               <span className="text-muted-foreground">v2.0</span>
@@ -340,8 +347,8 @@ export default function SettingsPage() {
               <span className="text-muted-foreground">v4.0</span>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

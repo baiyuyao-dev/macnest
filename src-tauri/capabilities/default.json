@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for MacOps",
+  "description": "Default capabilities for MacNest",
   "windows": ["main"],
   "permissions": [
     "core:default",

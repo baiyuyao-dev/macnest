@@ -10,6 +10,14 @@ export default defineConfig(async () => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        "tray-popup": path.resolve(__dirname, "tray-popup.html"),
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

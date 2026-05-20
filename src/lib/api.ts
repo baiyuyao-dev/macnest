@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-shell";
 import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection, SftpFile, TransferProgress } from "@/types";
+
+export async function openExternalUrl(url: string): Promise<void> {
+  await open(url);
+}
 
 // ===== 服务管理 =====
 
@@ -91,8 +96,8 @@ export async function getContainerStats(
 
 // ===== 分组管理 =====
 
-export async function listGroups(): Promise<Group[]> {
-  return invoke("list_groups");
+export async function listGroups(groupType: string): Promise<Group[]> {
+  return invoke("list_groups", { groupType });
 }
 
 export async function createGroup(

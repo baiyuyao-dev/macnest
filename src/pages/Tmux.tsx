@@ -8,10 +8,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Monitor,
@@ -22,6 +18,7 @@ import {
   Square,
   ExternalLink,
   Terminal as TerminalIcon,
+  ChevronRight,
 } from "lucide-react";
 import TmuxTerminal from "@/components/terminal/TmuxTerminal";
 import {
@@ -135,11 +132,13 @@ export default function Tmux() {
 
   if (!hasTmux) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <TerminalIcon className="mx-auto mb-4 h-16 w-16 text-muted-foreground" />
-          <h2 className="mb-2 text-xl font-semibold">未检测到 tmux</h2>
-          <p className="mb-4 text-muted-foreground">
+      <div className="flex h-full items-center justify-center animate-page-enter">
+        <div className="text-center card-macos p-10 max-w-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted mx-auto mb-5">
+            <TerminalIcon className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h2 className="mb-2 text-lg font-semibold tracking-tight">未检测到 tmux</h2>
+          <p className="text-sm text-muted-foreground">
             请先安装 tmux：brew install tmux
           </p>
         </div>
@@ -148,27 +147,21 @@ export default function Tmux() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col animate-page-enter">
       {/* 工具栏 */}
-      <div className="flex items-center justify-between border-b p-4">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--glass-border)]">
+        <div className="flex items-center gap-2.5">
           <Monitor className="h-5 w-5 text-primary" />
-          <h1 className="text-xl font-bold">Tmux 会话</h1>
-          <Badge variant="secondary">{sessions.length}</Badge>
+          <h1 className="text-lg font-bold tracking-tight">Tmux 会话</h1>
+          <Badge variant="secondary" className="text-[10px] rounded-full px-2">{sessions.length}</Badge>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={loadSessions}>
-            <RefreshCw className="mr-1 h-4 w-4" />
+          <Button variant="outline" size="sm" className="h-8 text-xs rounded-lg btn-macos-secondary" onClick={loadSessions}>
+            <RefreshCw className="mr-1 h-3.5 w-3.5" />
             刷新
           </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              setNewName("");
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="mr-1 h-4 w-4" />
+          <Button size="sm" className="h-8 text-xs rounded-lg btn-macos" onClick={() => { setNewName(""); setCreateOpen(true); }}>
+            <Plus className="mr-1 h-3.5 w-3.5" />
             新建会话
           </Button>
         </div>
@@ -177,100 +170,74 @@ export default function Tmux() {
       {/* 主内容 */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧：会话列表 */}
-        <div
-          className={`${activeSession ? "w-[320px]" : "flex-1"} overflow-auto border-r p-4`}
-        >
+        <div className={`${activeSession ? "w-[320px]" : "flex-1"} overflow-auto p-4`}>
           {sessions.length === 0 && !loading ? (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">
-                <TerminalIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-                <p className="mb-2 text-muted-foreground">没有 tmux 会话</p>
-                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted mx-auto mb-4">
+                  <TerminalIcon className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">没有 tmux 会话</p>
+                <Button size="sm" className="btn-macos" onClick={() => setCreateOpen(true)}>
                   创建第一个会话
                 </Button>
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              {sessions.map((s) => (
-                <Card
+            <div className="space-y-2.5">
+              {sessions.map((s, i) => (
+                <div
                   key={s.name}
-                  className={`cursor-pointer transition-colors ${
+                  className={`group card-macos p-4 cursor-pointer animate-slide-up ${
                     activeSession === s.name
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-accent"
+                      ? "border-primary/50 shadow-glass-lg"
+                      : ""
                   }`}
+                  style={{ animationDelay: `${i * 50}ms` }}
                   onClick={() => handleAttach(s.name)}
                 >
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-3 w-3 rounded-full bg-primary" />
-                        <div>
-                          <p className="font-semibold">{s.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {s.windows} 个窗口 · {s.created_at}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        {activeSession === s.name ? (
-                          <Button
-                            variant="destructive"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDetach();
-                            }}
-                          >
-                            <Square className="h-4 w-4" />
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleGhostty(s.name);
-                              }}
-                              title="Ghostty 中打开"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRenameTarget(s.name);
-                                setNewName(s.name);
-                                setRenameOpen(true);
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget(s.name);
-                                setDeleteOpen(true);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`h-2.5 w-2.5 rounded-full ${activeSession === s.name ? "bg-primary animate-pulse-dot" : "bg-emerald-500"}`} />
+                      <div>
+                        <p className="text-sm font-semibold">{s.name}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {s.windows} 个窗口 · {s.created_at}
+                        </p>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+                    <div className="flex gap-1">
+                      {activeSession === s.name ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
+                          onClick={(e) => { e.stopPropagation(); handleDetach(); }}
+                        >
+                          <Square className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary/60"
+                            onClick={(e) => { e.stopPropagation(); handleGhostty(s.name); }} title="Ghostty 中打开"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary/60"
+                            onClick={(e) => { e.stopPropagation(); setRenameTarget(s.name); setNewName(s.name); setRenameOpen(true); }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500"
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(s.name); setDeleteOpen(true); }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -278,28 +245,20 @@ export default function Tmux() {
 
         {/* 右侧：终端区域 */}
         {activeSession && (
-          <div className="flex flex-1 flex-col bg-[#0f0f1a]">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+          <div className="flex flex-1 flex-col bg-[#0f0f1a] m-3 rounded-2xl overflow-hidden border border-[var(--glass-border)]">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10">
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-green-500" />
-                <span className="text-sm font-medium text-white">
-                  {activeSession}
-                </span>
+                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse-dot" />
+                <span className="text-sm font-medium text-white">{activeSession}</span>
               </div>
               <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-white/70 hover:bg-white/10 hover:text-white"
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-white/70 hover:bg-white/10 hover:text-white rounded-lg"
                   onClick={() => handleGhostty(activeSession)}
                 >
                   <ExternalLink className="mr-1 h-3 w-3" />
                   Ghostty
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-red-400 hover:bg-white/10 hover:text-red-300"
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-red-400 hover:bg-white/10 hover:text-red-300 rounded-lg"
                   onClick={handleDetach}
                 >
                   <Square className="mr-1 h-3 w-3" />
@@ -308,11 +267,7 @@ export default function Tmux() {
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              <TmuxTerminal
-                key={activeSession}
-                sessionName={activeSession}
-                onDetach={handleDetach}
-              />
+              <TmuxTerminal key={activeSession} sessionName={activeSession} onDetach={handleDetach} />
             </div>
           </div>
         )}
@@ -320,27 +275,20 @@ export default function Tmux() {
 
       {/* 创建对话框 */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle>新建 tmux 会话</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">新建 tmux 会话</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 py-1">
             <div>
-              <Label>会话名称</Label>
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="如 frpc-dev"
-                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              <Label className="text-xs">会话名称</Label>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如 frpc-dev"
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos mt-1.5"
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setCreateOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleCreate} disabled={!newName.trim()}>
-                创建
-              </Button>
+              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setCreateOpen(false)}>取消</Button>
+              <Button size="sm" className="btn-macos rounded-lg" onClick={handleCreate} disabled={!newName.trim()}>创建</Button>
             </div>
           </div>
         </DialogContent>
@@ -348,26 +296,18 @@ export default function Tmux() {
 
       {/* 重命名对话框 */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle>重命名会话</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">重命名会话</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 py-1">
             <div>
-              <Label>新名称</Label>
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleRename()}
-              />
+              <Label className="text-xs">新名称</Label>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRename()} className="input-macos mt-1.5" />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setRenameOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleRename} disabled={!newName.trim()}>
-                重命名
-              </Button>
+              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setRenameOpen(false)}>取消</Button>
+              <Button size="sm" className="btn-macos rounded-lg" onClick={handleRename} disabled={!newName.trim()}>重命名</Button>
             </div>
           </div>
         </DialogContent>
@@ -375,20 +315,16 @@ export default function Tmux() {
 
       {/* 删除确认对话框 */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle>删除会话</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">删除会话</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground py-1">
             确定要销毁 tmux 会话 <strong>"{deleteTarget}"</strong> 吗？此操作不可恢复。
           </p>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              取消
-            </Button>
-            <Button variant="destructive" onClick={handleKill}>
-              删除
-            </Button>
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setDeleteOpen(false)}>取消</Button>
+            <Button variant="destructive" size="sm" className="rounded-lg" onClick={handleKill}>删除</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -24,9 +24,10 @@ import {
   ChevronDown,
   Search,
   Trash2,
-  Edit,
+  Pencil,
   Terminal as TerminalIcon,
   Play,
+  Loader2,
 } from "lucide-react";
 import XTerm, { type XTermHandle } from "@/components/terminal/XTerm";
 import SftpPanel from "@/components/terminal/SftpPanel";
@@ -53,7 +54,7 @@ interface TerminalGroupNode extends Omit<GroupNode, "children"> {
   children: TerminalGroupNode[];
 }
 
-const DEFAULT_SIDEBAR_WIDTH = 220;
+const DEFAULT_SIDEBAR_WIDTH = 280;
 
 function buildTerminalGroupTree(groups: Group[], connections: SshConnection[]): TerminalGroupNode[] {
   const tree = buildGroupTree(groups);
@@ -93,24 +94,28 @@ function SidebarTreeNode({
   expandedIds,
   toggleExpand,
   onConnect,
+  onSelectConnection,
   onEditConnection,
   onDeleteConnection,
   onNewConnection,
   onEditGroup,
   onDeleteGroup,
   activeConnectionId,
+  connectingId,
 }: {
   node: TerminalGroupNode;
   depth: number;
   expandedIds: Set<number>;
   toggleExpand: (id: number) => void;
   onConnect: (conn: SshConnection) => void;
+  onSelectConnection: (conn: SshConnection) => void;
   onEditConnection: (conn: SshConnection) => void;
   onDeleteConnection: (id: number) => void;
   onNewConnection: (groupId: number | null) => void;
   onEditGroup: (group: Group) => void;
   onDeleteGroup: (id: number) => void;
   activeConnectionId: number | null;
+  connectingId: number | null;
 }) {
   const isExpanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0 || node.connections.length > 0;
@@ -119,63 +124,60 @@ function SidebarTreeNode({
     <div>
       {/* Group row */}
       <div
-        className="group flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors cursor-pointer hover:bg-[#2a2a40]"
-        style={{ paddingLeft: `${8 + depth * 14}px` }}
+        onClick={() => hasChildren && toggleExpand(node.id)}
+        className="group flex items-center justify-between px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer hover:bg-accent/50"
+        style={{ paddingLeft: `${12 + depth * 16}px` }}
       >
         <div className="flex items-center gap-1 flex-1 min-w-0">
           {hasChildren ? (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleExpand(node.id);
-              }}
-              className="shrink-0 p-0.5 rounded hover:bg-[#333]"
-            >
+            <span className="shrink-0 p-0.5 rounded-md">
               {isExpanded ? (
-                <ChevronDown className="h-3 w-3 text-[#888]" />
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               ) : (
-                <ChevronRight className="h-3 w-3 text-[#888]" />
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
               )}
-            </button>
+            </span>
           ) : (
-            <span className="w-4 shrink-0" />
+            <span className="w-5 shrink-0" />
           )}
-          <Folder className="h-3.5 w-3.5 shrink-0 text-[#e5a000]" />
-          <span className="truncate text-[#ccc]">{node.name}</span>
-          <span className="text-[10px] text-[#666] ml-0.5">
+          <Folder className="h-4 w-4 shrink-0" />
+          <span className="truncate text-foreground">{node.name}</span>
+          <span className="text-xs text-muted-foreground ml-0.5 opacity-70">
             ({node.connections.length + node.children.reduce((sum, c) => sum + c.connections.length, 0)})
           </span>
         </div>
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
             onClick={(e) => {
               e.stopPropagation();
               onNewConnection(node.id);
             }}
-            className="p-0.5 rounded hover:bg-[#333] text-[#0dbc79]"
+            className="h-6 w-6 rounded-lg hover:bg-secondary/60 flex items-center justify-center text-emerald-500"
             title="新建连接"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onEditGroup(node);
             }}
-            className="p-0.5 rounded hover:bg-[#333] text-[#888]"
+            className="h-6 w-6 rounded-lg hover:bg-secondary/60 flex items-center justify-center"
             title="编辑分组"
           >
-            <Edit className="h-3 w-3" />
+            <Pencil className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onDeleteGroup(node.id);
             }}
-            className="p-0.5 rounded hover:bg-[#333] text-[#f14c4c]"
+            className="h-6 w-6 rounded-lg hover:bg-destructive/10 hover:text-destructive flex items-center justify-center text-destructive"
             title="删除分组"
           >
-            <Trash2 className="h-3 w-3" />
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -192,59 +194,68 @@ function SidebarTreeNode({
               expandedIds={expandedIds}
               toggleExpand={toggleExpand}
               onConnect={onConnect}
+              onSelectConnection={onSelectConnection}
               onEditConnection={onEditConnection}
               onDeleteConnection={onDeleteConnection}
               onNewConnection={onNewConnection}
               onEditGroup={onEditGroup}
               onDeleteGroup={onDeleteGroup}
               activeConnectionId={activeConnectionId}
+              connectingId={connectingId}
             />
           ))}
           {/* Connections in this group */}
           {node.connections.map((conn) => (
             <div
               key={conn.id}
+              onClick={() => onSelectConnection(conn)}
               onDoubleClick={() => onConnect(conn)}
-              className={`group flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors ${
+              className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
                 activeConnectionId === conn.id
-                  ? "bg-[#0dbc79]/20 text-[#0dbc79]"
-                  : "hover:bg-[#252540] text-[#999]"
+                  ? "bg-primary text-primary-foreground shadow-glass"
+                  : "hover:bg-accent/50 text-foreground"
               }`}
-              style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
+              style={{ paddingLeft: `${12 + (depth + 1) * 16}px` }}
             >
-              <TerminalIcon className="h-3 w-3 shrink-0" />
+              <TerminalIcon className="h-4 w-4 shrink-0" />
               <span className="truncate flex-1 cursor-default">{conn.name}</span>
-              <span className="text-[10px] text-[#666] shrink-0">{conn.host}</span>
+              <span className={`text-xs shrink-0 opacity-70 ${activeConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
               <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onConnect(conn);
-                  }}
-                  className="p-0.5 rounded hover:bg-[#333] text-[#0dbc79]"
-                  title="连接"
-                >
-                  <Play className="h-3 w-3" />
-                </button>
+                {connectingId === conn.id ? (
+                  <span className="h-6 w-6 flex items-center justify-center">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  </span>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onConnect(conn);
+                    }}
+                    className="h-6 w-6 rounded-lg flex items-center justify-center text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600"
+                    title="连接"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onEditConnection(conn);
                   }}
-                  className="p-0.5 rounded hover:bg-[#333] text-[#888]"
+                  className="h-6 w-6 rounded-lg hover:bg-secondary/60 flex items-center justify-center"
                   title="编辑"
                 >
-                  <Edit className="h-3 w-3" />
+                  <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onDeleteConnection(conn.id);
                   }}
-                  className="p-0.5 rounded hover:bg-[#333] text-[#f14c4c]"
+                  className="h-6 w-6 rounded-lg hover:bg-destructive/10 hover:text-destructive flex items-center justify-center text-destructive"
                   title="删除"
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
@@ -285,7 +296,7 @@ export default function Terminal() {
       e.preventDefault();
       if (isDraggingH.current && sidebarRef.current) {
         const delta = e.clientX - startXRef.current;
-        const w = Math.max(160, Math.min(400, startWidthRef.current + delta));
+        const w = Math.max(240, Math.min(420, startWidthRef.current + delta));
         sidebarRef.current.style.width = w + "px";
       }
       if (isDraggingV.current && termPanelRef.current && sftpPanelRef.current) {
@@ -353,8 +364,8 @@ export default function Terminal() {
   const [formGroupId, setFormGroupId] = useState<number | null>(null);
 
   // Group form
-  const [groupForm, setGroupForm] = useState({ name: "", parent_id: null as number | null });
-  const [editGroupForm, setEditGroupForm] = useState({ id: 0, name: "", parent_id: null as number | null });
+  const [groupForm, setGroupForm] = useState({ name: "", parent_id: null as number | null, group_type: "terminal" });
+  const [editGroupForm, setEditGroupForm] = useState({ id: 0, name: "", parent_id: null as number | null, group_type: "terminal" });
 
   const loadConnections = useCallback(async () => {
     try {
@@ -367,7 +378,7 @@ export default function Terminal() {
 
   const loadGroups = useCallback(async () => {
     try {
-      const data = await listGroups();
+      const data = await listGroups("terminal");
       setGroups(data);
     } catch (err) {
       console.error("Failed to load groups:", err);
@@ -419,6 +430,13 @@ export default function Terminal() {
       alert("连接失败: " + String(err));
     } finally {
       setConnectingId(null);
+    }
+  };
+
+  const handleSelectConnection = (conn: SshConnection) => {
+    const existing = tabs.find((t) => t.connectionId === conn.id);
+    if (existing) {
+      setActiveTab(existing.id);
     }
   };
 
@@ -543,8 +561,9 @@ export default function Terminal() {
         name: groupForm.name.trim(),
         parent_id: groupForm.parent_id,
         sort_order: groups.length,
+        group_type: "terminal",
       });
-      setGroupForm({ name: "", parent_id: null });
+      setGroupForm({ name: "", parent_id: null, group_type: "terminal" });
       setGroupDialogOpen(false);
       loadGroups();
     } catch (error) {
@@ -553,7 +572,7 @@ export default function Terminal() {
   };
 
   const handleEditGroup = (group: Group) => {
-    setEditGroupForm({ id: group.id, name: group.name, parent_id: group.parent_id });
+    setEditGroupForm({ id: group.id, name: group.name, parent_id: group.parent_id, group_type: group.group_type });
     setEditGroupDialogOpen(true);
   };
 
@@ -562,7 +581,7 @@ export default function Terminal() {
     try {
       const group = groups.find((g) => g.id === editGroupForm.id);
       if (!group) return;
-      await updateGroup({ ...group, name: editGroupForm.name.trim(), parent_id: editGroupForm.parent_id });
+      await updateGroup({ ...group, name: editGroupForm.name.trim(), parent_id: editGroupForm.parent_id, group_type: "terminal" });
       setEditGroupDialogOpen(false);
       loadGroups();
     } catch (error) {
@@ -636,66 +655,44 @@ export default function Terminal() {
   const connectionFormContent = (
     <div className="space-y-3 py-2">
       <div className="space-y-1">
-        <Label className="text-[#aaa] text-xs">名称</Label>
-        <Input
-          placeholder="例如：生产服务器"
-          value={formName}
-          onChange={(e) => setFormName(e.target.value)}
-          className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
-        />
+        <Label className="text-xs">名称</Label>
+        <Input placeholder="例如：生产服务器" value={formName} onChange={(e) => setFormName(e.target.value)} className="input-macos" />
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div className="col-span-2 space-y-1">
-          <Label className="text-[#aaa] text-xs">主机</Label>
-          <Input
-            placeholder="192.168.1.1"
-            value={formHost}
-            onChange={(e) => setFormHost(e.target.value)}
-            className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
-          />
+          <Label className="text-xs">主机</Label>
+          <Input placeholder="192.168.1.1" value={formHost} onChange={(e) => setFormHost(e.target.value)} className="input-macos" />
         </div>
         <div className="space-y-1">
-          <Label className="text-[#aaa] text-xs">端口</Label>
-          <Input
-            placeholder="22"
-            value={formPort}
-            onChange={(e) => setFormPort(e.target.value)}
-            className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
-          />
+          <Label className="text-xs">端口</Label>
+          <Input placeholder="22" value={formPort} onChange={(e) => setFormPort(e.target.value)} className="input-macos" />
         </div>
       </div>
       <div className="space-y-1">
-        <Label className="text-[#aaa] text-xs">用户名</Label>
-        <Input
-          placeholder="root"
-          value={formUsername}
-          onChange={(e) => setFormUsername(e.target.value)}
-          className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
-        />
+        <Label className="text-xs">用户名</Label>
+        <Input placeholder="root" value={formUsername} onChange={(e) => setFormUsername(e.target.value)} className="input-macos" />
       </div>
       <div className="space-y-1">
-        <Label className="text-[#aaa] text-xs">分组</Label>
-        <select
-          value={formGroupId?.toString() || ""}
-          onChange={(e) => setFormGroupId(e.target.value ? Number(e.target.value) : null)}
-          className="flex h-9 w-full rounded-md border border-[#333] bg-[#1a1a2e] px-3 py-1 text-sm text-[#ccc]"
+        <Label className="text-xs">分组</Label>
+        <select value={formGroupId?.toString() || ""} onChange={(e) => setFormGroupId(e.target.value ? Number(e.target.value) : null)}
+          className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 transition-all"
         >
           <option value="">未分组</option>
           {flatGroups.map((g) => (
             <option key={g.id} value={g.id}>
-              {"\u00A0".repeat(g.depth * 2)}
-              {g.name}
+              {"\u00A0".repeat(g.depth * 2)}{g.name}
             </option>
           ))}
         </select>
       </div>
       <div className="space-y-1">
-        <Label className="text-[#aaa] text-xs">认证方式</Label>
+        <Label className="text-xs">认证方式</Label>
         <Select value={formAuthType} onValueChange={(v) => setFormAuthType(v as "password" | "publickey")}>
-          <SelectTrigger className="bg-[#1a1a2e] border-[#333] text-[#ccc]">
+          <SelectTrigger className="input-macos h-10">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="bg-[#1e1e2e] border-[#333]">
+          <SelectContent className="glass-strong border-[var(--glass-border-strong)]"
+          >
             <SelectItem value="password">密码</SelectItem>
             <SelectItem value="publickey">公钥</SelectItem>
           </SelectContent>
@@ -703,58 +700,31 @@ export default function Terminal() {
       </div>
       {formAuthType === "password" ? (
         <div className="space-y-1">
-          <Label className="text-[#aaa] text-xs">密码</Label>
-          <Input
-            type="password"
-            value={formPassword}
-            onChange={(e) => setFormPassword(e.target.value)}
-            className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
-          />
+          <Label className="text-xs">密码</Label>
+          <Input type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} className="input-macos" />
         </div>
       ) : (
         <>
           <div className="space-y-1">
-            <Label className="text-[#aaa] text-xs">密钥路径</Label>
-            <Input
-              placeholder="~/.ssh/id_rsa"
-              value={formKeyPath}
-              onChange={(e) => setFormKeyPath(e.target.value)}
-              className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
-            />
+            <Label className="text-xs">密钥路径</Label>
+            <Input placeholder="~/.ssh/id_rsa" value={formKeyPath} onChange={(e) => setFormKeyPath(e.target.value)} className="input-macos" />
           </div>
           <div className="space-y-1">
-            <Label className="text-[#aaa] text-xs">密钥密码（可选）</Label>
-            <Input
-              type="password"
-              value={formKeyPassphrase}
-              onChange={(e) => setFormKeyPassphrase(e.target.value)}
-              className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
-            />
+            <Label className="text-xs">密钥密码（可选）</Label>
+            <Input type="password" value={formKeyPassphrase} onChange={(e) => setFormKeyPassphrase(e.target.value)} className="input-macos" />
           </div>
         </>
       )}
       <div className="flex justify-end gap-2 pt-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="border-[#444] text-[#ccc] hover:bg-[#333]"
-          onClick={() => {
-            if (editingConnection) {
-              setEditConnDialogOpen(false);
-              setEditingConnection(null);
-            } else {
-              setShowNewDialog(false);
-            }
-            resetForm();
-          }}
+        <Button variant="outline" size="sm" className="rounded-lg" onClick={() => {
+          if (editingConnection) { setEditConnDialogOpen(false); setEditingConnection(null); }
+          else { setShowNewDialog(false); }
+          resetForm();
+        }}
         >
           取消
         </Button>
-        <Button
-          size="sm"
-          className="bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
-          onClick={handleSaveConnection}
-          disabled={!formName || !formHost || !formUsername}
+        <Button size="sm" className="btn-macos rounded-lg" onClick={handleSaveConnection} disabled={!formName || !formHost || !formUsername}
         >
           {editingConnection ? "保存修改" : "保存连接"}
         </Button>
@@ -763,105 +733,131 @@ export default function Terminal() {
   );
 
   return (
-    <div className="flex h-full bg-[#1e1e2e]">
+    <div className="flex h-full bg-background animate-page-enter">
       {/* ── Sidebar ── */}
       <div
-        className="border-r border-[#333] flex flex-col shrink-0 bg-[#161622]"
+        className="border-r border-[var(--glass-border)] flex flex-col shrink-0 bg-muted/20"
         style={{ width: sidebarWidth }}
         ref={sidebarRef}
       >
-        <div className="px-3 py-2 border-b border-[#333] flex items-center justify-between">
-          <span className="text-[11px] font-bold text-[#888] uppercase tracking-wider">连接管理</span>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-6 w-6 text-[#0dbc79] hover:bg-[#252540]"
-            onClick={() => handleNewConnection(null)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
+        <div className="p-4 border-b border-[var(--glass-border)] flex items-center justify-between">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">连接管理</span>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 rounded-lg text-xs px-2.5 btn-macos"
+              onClick={() => handleNewConnection(null)}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              新增连接
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-lg text-xs px-2.5 btn-macos-secondary"
+              onClick={() => {
+                setGroupForm({ name: "", parent_id: null, group_type: "terminal" });
+                setGroupDialogOpen(true);
+              }}
+            >
+              <Folder className="h-3.5 w-3.5 mr-1" />
+              新建分组
+            </Button>
+          </div>
         </div>
 
         {/* Search */}
-        <div className="px-2 py-1.5 border-b border-[#333]">
+        <div className="p-3 border-b border-[var(--glass-border)]">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[#666]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="搜索分组或连接..."
               value={sidebarSearch}
               onChange={(e) => setSidebarSearch(e.target.value)}
-              className="h-7 text-xs pl-7 bg-[#1a1a2e] border-[#333] text-[#ccc] placeholder:text-[#555]"
+              className="h-8 text-xs pl-9 input-macos"
             />
           </div>
         </div>
 
         {/* Tree */}
-        <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {filteredTree.length === 0 && connections.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 px-4">
-              <Server className="h-8 w-8 text-[#444] mb-2" />
-              <p className="text-[11px] text-[#666] text-center">暂无连接</p>
+              <Server className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground text-center">暂无连接</p>
               <Button
                 size="sm"
-                variant="ghost"
-                className="mt-2 text-[10px] text-[#0dbc79] hover:bg-[#252540]"
+                className="mt-2 text-sm btn-macos rounded-lg h-8 px-3"
                 onClick={() => handleNewConnection(null)}
               >
-                <Plus className="h-3 w-3 mr-1" />
+                <Plus className="h-3.5 w-3.5 mr-1" />
                 添加连接
               </Button>
             </div>
           ) : (
             <>
+              {/* All connections header */}
+              <div className="px-3 py-1 text-xs text-muted-foreground font-medium">
+                全部 ({connections.length})
+              </div>
+
               {/* Ungrouped connections */}
               {connections.filter((c) => c.group_id == null).length > 0 && (
                 <div className="mb-1">
-                  <div className="px-2 py-1 text-[10px] text-[#666] font-medium">未分组</div>
+                  <div className="px-3 py-1 text-xs text-muted-foreground font-medium">未分组</div>
                   {connections
                     .filter((c) => c.group_id == null)
                     .map((conn) => (
                       <div
                         key={conn.id}
+                        onClick={() => handleSelectConnection(conn)}
                         onDoubleClick={() => handleConnect(conn)}
-                        className={`group flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors ${
+                        className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
                           activeConnectionId === conn.id
-                            ? "bg-[#0dbc79]/20 text-[#0dbc79]"
-                            : "hover:bg-[#252540] text-[#999]"
+                            ? "bg-primary text-primary-foreground shadow-glass"
+                            : "hover:bg-accent/50 text-foreground"
                         }`}
+                        style={{ paddingLeft: `${12 + 16}px` }}
                       >
-                        <TerminalIcon className="h-3 w-3 shrink-0" />
+                        <TerminalIcon className="h-4 w-4 shrink-0" />
                         <span className="truncate flex-1 cursor-default">{conn.name}</span>
-                        <span className="text-[10px] text-[#666] shrink-0">{conn.host}</span>
+                        <span className={`text-xs shrink-0 opacity-70 ${activeConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
                         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleConnect(conn);
-                            }}
-                            className="p-0.5 rounded hover:bg-[#333] text-[#0dbc79]"
-                            title="连接"
-                          >
-                            <Play className="h-3 w-3" />
-                          </button>
+                          {connectingId === conn.id ? (
+                            <span className="h-6 w-6 flex items-center justify-center">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleConnect(conn);
+                              }}
+                              className="h-6 w-6 rounded-lg flex items-center justify-center text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600"
+                              title="连接"
+                            >
+                              <Play className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleEditConnection(conn);
                             }}
-                            className="p-0.5 rounded hover:bg-[#333] text-[#888]"
+                            className="h-6 w-6 rounded-lg hover:bg-secondary/60 flex items-center justify-center"
                             title="编辑"
                           >
-                            <Edit className="h-3 w-3" />
+                            <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeleteConnection(conn.id);
                             }}
-                            className="p-0.5 rounded hover:bg-[#333] text-[#f14c4c]"
+                            className="h-6 w-6 rounded-lg hover:bg-destructive/10 hover:text-destructive flex items-center justify-center text-destructive"
                             title="删除"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
@@ -877,38 +873,25 @@ export default function Terminal() {
                   expandedIds={expandedIds}
                   toggleExpand={toggleExpand}
                   onConnect={handleConnect}
+                  onSelectConnection={handleSelectConnection}
                   onEditConnection={handleEditConnection}
                   onDeleteConnection={handleDeleteConnection}
                   onNewConnection={handleNewConnection}
                   onEditGroup={handleEditGroup}
                   onDeleteGroup={handleDeleteGroup}
                   activeConnectionId={activeConnectionId}
+                  connectingId={connectingId}
                 />
               ))}
             </>
           )}
         </div>
 
-        {/* Bottom: add group */}
-        <div className="px-2 py-1.5 border-t border-[#333]">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="w-full h-7 text-[10px] text-[#888] hover:bg-[#252540] hover:text-[#ccc] justify-start"
-            onClick={() => {
-              setGroupForm({ name: "", parent_id: null });
-              setGroupDialogOpen(true);
-            }}
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            新建分组
-          </Button>
-        </div>
       </div>
 
       {/* Horizontal splitter */}
       <div
-        className="w-[5px] bg-[#222] hover:bg-[#0dbc79] cursor-col-resize shrink-0 z-20 transition-colors"
+        className="w-[5px] bg-muted hover:bg-primary cursor-col-resize shrink-0 z-20 transition-colors"
         onMouseDown={(e) => {
           isDraggingH.current = true;
           startXRef.current = e.clientX;
@@ -923,15 +906,15 @@ export default function Terminal() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Tab bar */}
         {tabs.length > 0 && (
-          <div className="flex items-center border-b border-[#333] bg-[#1a1a2e] overflow-x-auto">
+          <div className="flex items-center border-b border-[var(--glass-border)] bg-muted/30 overflow-x-auto">
             {tabs.map((tab) => (
               <div
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`group flex items-center gap-1.5 px-3 py-2 text-xs cursor-pointer border-r border-[#333] shrink-0 transition-colors min-w-0 ${
+                className={`group flex items-center gap-1.5 px-3 py-2 text-xs cursor-pointer border-r border-[var(--glass-border)] shrink-0 transition-colors min-w-0 ${
                   activeTabId === tab.id
-                    ? "bg-[#1e1e2e] text-[#0dbc79] border-t-2 border-t-[#0dbc79]"
-                    : "bg-[#161622] text-[#888] hover:bg-[#1e1e2e] hover:text-[#ccc]"
+                    ? "bg-card text-emerald-500 border-t-2 border-t-emerald-500"
+                    : "bg-muted/50 text-muted-foreground hover:bg-card hover:text-foreground"
                 }`}
               >
                 <TerminalIcon className="h-3 w-3 shrink-0" />
@@ -941,8 +924,8 @@ export default function Terminal() {
                     e.stopPropagation();
                     handleCloseTab(tab.id);
                   }}
-                  className={`p-0.5 rounded hover:bg-[#333] shrink-0 ${
-                    activeTabId === tab.id ? "text-[#888]" : "text-[#555]"
+                  className={`p-0.5 rounded hover:bg-secondary/60 shrink-0 ${
+                    activeTabId === tab.id ? "text-muted-foreground" : "text-muted-foreground/60"
                   }`}
                 >
                   <X className="h-3 w-3" />
@@ -956,11 +939,11 @@ export default function Terminal() {
         <div className="flex-1 relative overflow-hidden">
           {tabs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full">
-              <Server className="h-16 w-16 text-[#333] mb-4" />
-              <h3 className="text-lg font-semibold text-[#666]">未打开任何会话</h3>
-              <p className="mt-2 text-sm text-[#555]">双击左侧连接或点击连接按钮，或新建一个连接</p>
+              <Server className="h-16 w-16 text-muted-foreground/30 mb-4" />
+              <h3 className="text-lg font-semibold text-muted-foreground/50">未打开任何会话</h3>
+              <p className="mt-2 text-sm text-muted-foreground/40">双击左侧连接或点击连接按钮，或新建一个连接</p>
               <Button
-                className="mt-6 bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
+                className="mt-6 btn-macos"
                 onClick={() => handleNewConnection(null)}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -977,15 +960,15 @@ export default function Terminal() {
                 }}
               >
                 {/* Status bar */}
-                <div className="flex items-center justify-between px-3 py-1 border-b border-[#333] bg-[#1a1a2e] shrink-0">
-                  <span className="text-[10px] text-[#0dbc79] flex items-center gap-1">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#0dbc79] animate-pulse" />
+                <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--glass-border)] bg-muted/30 shrink-0">
+                  <span className="text-[10px] text-emerald-500 flex items-center gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     {tab.name} — {tab.websocketUrl}
                   </span>
                 </div>
                 {/* Terminal + SFTP */}
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  <div className="overflow-hidden bg-[#1a1a2e]" ref={termPanelRef} style={{ flex: terminalHeight }}>
+                  <div className="overflow-hidden bg-muted/30" ref={termPanelRef} style={{ flex: terminalHeight }}>
                     <XTerm
                       ref={(el) => {
                         if (el) xtermRefs.current.set(tab.id, el);
@@ -997,7 +980,7 @@ export default function Terminal() {
                   </div>
                   {/* Vertical splitter */}
                   <div
-                    className="h-[5px] bg-[#222] hover:bg-[#0dbc79] cursor-row-resize shrink-0 z-10 transition-colors"
+                    className="h-[5px] bg-muted hover:bg-primary cursor-row-resize shrink-0 z-10 transition-colors"
                     onMouseDown={(e) => {
                       isDraggingV.current = true;
                       startYRef.current = e.clientY;
@@ -1032,9 +1015,9 @@ export default function Terminal() {
 
       {/* ── New Connection Dialog ── */}
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
-        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-md">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-[#eee]">新建 SSH 连接</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">新建 SSH 连接</DialogTitle>
           </DialogHeader>
           {connectionFormContent}
         </DialogContent>
@@ -1042,9 +1025,9 @@ export default function Terminal() {
 
       {/* ── Edit Connection Dialog ── */}
       <Dialog open={editConnDialogOpen} onOpenChange={setEditConnDialogOpen}>
-        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-md">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-[#eee]">编辑 SSH 连接</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">编辑 SSH 连接</DialogTitle>
           </DialogHeader>
           {connectionFormContent}
         </DialogContent>
@@ -1052,13 +1035,13 @@ export default function Terminal() {
 
       {/* ── New Group Dialog ── */}
       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
-        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-[#eee]">新建分组</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">新建分组</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1">
-              <Label className="text-[#aaa] text-xs">分组名称</Label>
+              <Label className="text-xs">分组名称</Label>
               <Input
                 value={groupForm.name}
                 onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })}
@@ -1067,15 +1050,15 @@ export default function Terminal() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && groupForm.name.trim()) handleCreateGroup();
                 }}
-                className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+                className="input-macos"
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[#aaa] text-xs">上级分组</Label>
+              <Label className="text-xs">上级分组</Label>
               <select
                 value={groupForm.parent_id?.toString() || ""}
                 onChange={(e) => setGroupForm({ ...groupForm, parent_id: e.target.value ? Number(e.target.value) : null })}
-                className="flex h-9 w-full rounded-md border border-[#333] bg-[#1a1a2e] px-3 py-1 text-sm text-[#ccc]"
+                className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 transition-all"
               >
                 <option value="">一级分组</option>
                 {flatGroups.map((g) => (
@@ -1090,14 +1073,14 @@ export default function Terminal() {
               <Button
                 variant="outline"
                 size="sm"
-                className="border-[#444] text-[#ccc] hover:bg-[#333]"
+                className="rounded-lg"
                 onClick={() => setGroupDialogOpen(false)}
               >
                 取消
               </Button>
               <Button
                 size="sm"
-                className="bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
+                className="btn-macos rounded-lg"
                 onClick={handleCreateGroup}
                 disabled={!groupForm.name.trim()}
               >
@@ -1110,13 +1093,13 @@ export default function Terminal() {
 
       {/* ── Edit Group Dialog ── */}
       <Dialog open={editGroupDialogOpen} onOpenChange={setEditGroupDialogOpen}>
-        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-[#eee]">编辑分组</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">编辑分组</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1">
-              <Label className="text-[#aaa] text-xs">分组名称</Label>
+              <Label className="text-xs">分组名称</Label>
               <Input
                 value={editGroupForm.name}
                 onChange={(e) => setEditGroupForm({ ...editGroupForm, name: e.target.value })}
@@ -1125,15 +1108,15 @@ export default function Terminal() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && editGroupForm.name.trim()) handleSaveGroup();
                 }}
-                className="bg-[#1a1a2e] border-[#333] text-[#ccc]"
+                className="input-macos"
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[#aaa] text-xs">上级分组</Label>
+              <Label className="text-xs">上级分组</Label>
               <select
                 value={editGroupForm.parent_id?.toString() || ""}
                 onChange={(e) => setEditGroupForm({ ...editGroupForm, parent_id: e.target.value ? Number(e.target.value) : null })}
-                className="flex h-9 w-full rounded-md border border-[#333] bg-[#1a1a2e] px-3 py-1 text-sm text-[#ccc]"
+                className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 transition-all"
               >
                 <option value="">一级分组</option>
                 {flatGroups
@@ -1150,14 +1133,14 @@ export default function Terminal() {
               <Button
                 variant="outline"
                 size="sm"
-                className="border-[#444] text-[#ccc] hover:bg-[#333]"
+                className="rounded-lg"
                 onClick={() => setEditGroupDialogOpen(false)}
               >
                 取消
               </Button>
               <Button
                 size="sm"
-                className="bg-[#0dbc79] hover:bg-[#0dbc79]/90 text-black"
+                className="btn-macos rounded-lg"
                 onClick={handleSaveGroup}
                 disabled={!editGroupForm.name.trim()}
               >
@@ -1170,18 +1153,18 @@ export default function Terminal() {
 
       {/* ── Group Delete Confirmation ── */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-[#eee]">确认删除分组</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">确认删除分组</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-[#999] py-2">
+          <p className="text-sm text-muted-foreground py-2">
             确定要删除该分组吗？该分组下的连接将变为未分组，子分组将提升为一级分组。
           </p>
           <div className="flex justify-end gap-2 mt-4">
             <Button
               variant="outline"
               size="sm"
-              className="border-[#444] text-[#ccc] hover:bg-[#333]"
+              className="rounded-lg"
               onClick={() => {
                 setDeleteConfirmOpen(false);
                 setDeleteTargetId(null);
@@ -1192,7 +1175,7 @@ export default function Terminal() {
             <Button
               size="sm"
               variant="destructive"
-              className="bg-[#c0392b] hover:bg-[#e74c3c]"
+              className="rounded-lg"
               onClick={confirmDeleteGroup}
             >
               删除
@@ -1203,16 +1186,16 @@ export default function Terminal() {
 
       {/* ── Connection Delete Confirmation ── */}
       <Dialog open={connDeleteConfirmOpen} onOpenChange={setConnDeleteConfirmOpen}>
-        <DialogContent className="bg-[#1e1e2e] border-[#333] text-[#ccc] max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-[#eee]">确认删除连接</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">确认删除连接</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-[#999] py-2">确定要删除该 SSH 连接吗？此操作不可撤销。</p>
+          <p className="text-sm text-muted-foreground py-2">确定要删除该 SSH 连接吗？此操作不可撤销。</p>
           <div className="flex justify-end gap-2 mt-4">
             <Button
               variant="outline"
               size="sm"
-              className="border-[#444] text-[#ccc] hover:bg-[#333]"
+              className="rounded-lg"
               onClick={() => {
                 setConnDeleteConfirmOpen(false);
                 setConnDeleteTargetId(null);
@@ -1223,7 +1206,7 @@ export default function Terminal() {
             <Button
               size="sm"
               variant="destructive"
-              className="bg-[#c0392b] hover:bg-[#e74c3c]"
+              className="rounded-lg"
               onClick={confirmDeleteConnection}
             >
               删除

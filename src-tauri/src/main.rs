@@ -14,7 +14,7 @@ use ssh::session::SshSessionManager;
 use ssh::types::TransferProgress;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Listener, Manager};
 
 pub struct AppState {
     db: Database,
@@ -54,9 +54,9 @@ fn main() {
                         if let Some(pid) = svc.pid {
                             if let Ok(pm) = process_manager.lock() {
                                 if pm.recover_service(svc.id, pid as u32) {
-                                    eprintln!("[macops] Recovered service '{}' (id={}, pid={})", svc.name, svc.id, pid);
+                                    eprintln!("[macnest] Recovered service '{}' (id={}, pid={})", svc.name, svc.id, pid);
                                 } else {
-                                    eprintln!("[macops] Stale service '{}' (id={}, pid={}) — process no longer alive, marking stopped", svc.name, svc.id, pid);
+                                    eprintln!("[macnest] Stale service '{}' (id={}, pid={}) — process no longer alive, marking stopped", svc.name, svc.id, pid);
                                     let _ = db.update_service_status(svc.id, "stopped", None, "");
                                 }
                             }
@@ -73,6 +73,33 @@ fn main() {
                 tmux_pty_sessions: Mutex::new(HashMap::new()),
             };
             app.manage(state);
+
+            // Listen for tray navigation events
+            let app_handle = app.handle().clone();
+            app.listen("tray-navigate", move |event| {
+                if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                    if let Some(path) = payload.get("path").and_then(|v| v.as_str()) {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.emit("navigate-to", path);
+                        }
+                    }
+                }
+            });
+
+            // Create tray popup window (hidden by default)
+            let _popup = tauri::WebviewWindowBuilder::new(
+                app,
+                "tray-popup",
+                tauri::WebviewUrl::App("tray-popup.html".into()),
+            )
+            .title("MacNest")
+            .inner_size(260.0, 340.0)
+            .visible(false)
+            .decorations(false)
+            .resizable(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .build()?;
 
             // Setup tray icon
             setup_tray(app)?;
@@ -141,7 +168,7 @@ fn main() {
             commands::sftp_get_progress,
             commands::sftp_cancel_transfer,
             commands::sftp_clear_completed,
-            // Tmux 命令
+            // Tmux commands
             commands::tmux_list_sessions,
             commands::tmux_create_session,
             commands::tmux_kill_session,
@@ -153,6 +180,8 @@ fn main() {
             commands::tmux_pty_close,
             commands::tmux_open_in_ghostty,
             commands::tmux_generate_config,
+            // App commands
+            commands::exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -160,15 +189,17 @@ fn main() {
 
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::TrayIconBuilder;
+    use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 
     let show_i = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
     let _tray = TrayIconBuilder::new()
-        .tooltip("MacOps")
+        .tooltip("MacNest")
+        .icon_as_template(true)
         .menu(&menu)
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {
@@ -180,6 +211,32 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 app.exit(0);
             }
             _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            eprintln!("[macnest] Tray icon event: {:?}", std::mem::discriminant(&event));
+            if let TrayIconEvent::Click { id: _, position, rect: _, .. } = event {
+                eprintln!("[macnest] Tray click at position: {:?}", position);
+                let app = tray.app_handle();
+                match app.get_webview_window("tray-popup") {
+                    Some(popup) => {
+                        let is_visible = popup.is_visible().unwrap_or(false);
+                        eprintln!("[macnest] Popup visible: {}", is_visible);
+                        if is_visible {
+                            let _ = popup.hide();
+                        } else {
+                            let x = position.x;
+                            let y = position.y + 10.0;
+                            eprintln!("[macnest] Showing popup at: x={}, y={}", x, y);
+                            let _ = popup.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                            let _ = popup.show();
+                            let _ = popup.set_focus();
+                        }
+                    }
+                    None => {
+                        eprintln!("[macnest] ERROR: tray-popup window not found!");
+                    }
+                }
+            }
         })
         .build(app)?;
 
