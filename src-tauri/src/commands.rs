@@ -415,6 +415,44 @@ pub async fn get_container_stats(container_id: String) -> Result<docker::Contain
     docker::get_container_stats(&container_id).await
 }
 
+// === Docker Terminal Commands ===
+
+#[tauri::command]
+pub async fn docker_detect_shells(container_id: String) -> Result<Vec<String>, String> {
+    crate::docker_terminal::detect_shells(&container_id).await
+}
+
+#[derive(Debug, Serialize)]
+pub struct DockerTerminalConnectResponse {
+    pub session_id: String,
+    pub websocket_url: String,
+}
+
+#[tauri::command]
+pub async fn docker_terminal_connect(
+    state: State<'_, AppState>,
+    container_id: String,
+    container_name: String,
+    shell: String,
+) -> Result<DockerTerminalConnectResponse, String> {
+    let info = state
+        .docker_terminal_manager
+        .create_session(&container_id, &container_name, &shell)
+        .await?;
+    Ok(DockerTerminalConnectResponse {
+        session_id: info.session_id,
+        websocket_url: info.websocket_url,
+    })
+}
+
+#[tauri::command]
+pub async fn docker_terminal_disconnect(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state.docker_terminal_manager.close_session(&session_id).await
+}
+
 // === Group Commands ===
 
 #[derive(Debug, Deserialize)]
@@ -496,7 +534,6 @@ pub struct CreateBookmarkRequest {
     pub group_id: Option<i64>,
     pub icon: String,
     pub service_id: Option<i64>,
-    pub health_check_url: String,
 }
 
 #[tauri::command]
@@ -513,7 +550,6 @@ pub fn create_bookmark(
             req.group_id,
             &req.icon,
             req.service_id,
-            &req.health_check_url,
         )
         .map_err(|e| e.to_string())
 }
@@ -526,7 +562,6 @@ pub struct UpdateBookmarkRequest {
     pub description: String,
     pub group_id: Option<i64>,
     pub icon: String,
-    pub health_check_url: String,
 }
 
 #[tauri::command]
@@ -543,7 +578,6 @@ pub fn update_bookmark(
             &req.description,
             req.group_id,
             &req.icon,
-            &req.health_check_url,
         )
         .map_err(|e| e.to_string())
 }

@@ -3,6 +3,7 @@
 mod commands;
 mod database;
 mod docker;
+mod docker_terminal;
 mod error;
 mod process;
 mod security;
@@ -11,6 +12,7 @@ mod ssh;
 mod tmux;
 
 use database::Database;
+use docker_terminal::DockerTerminalManager;
 use process::ProcessManager;
 use ssh::session::SshSessionManager;
 use ssh::types::TransferProgress;
@@ -22,6 +24,7 @@ pub struct AppState {
     db: Database,
     process_manager: Mutex<ProcessManager>,
     ssh_session_manager: SshSessionManager,
+    docker_terminal_manager: DockerTerminalManager,
     pub transfer_progress: Arc<Mutex<HashMap<String, TransferProgress>>>,
     pub tmux_pty_sessions: Mutex<HashMap<String, crate::tmux::pty::TmuxPtySession>>,
 }
@@ -71,22 +74,11 @@ fn main() {
                 db,
                 process_manager,
                 ssh_session_manager: SshSessionManager::new(),
+                docker_terminal_manager: DockerTerminalManager::new(),
                 transfer_progress: Arc::new(Mutex::new(HashMap::new())),
                 tmux_pty_sessions: Mutex::new(HashMap::new()),
             };
             app.manage(state);
-
-            // Listen for tray navigation events
-            let app_handle = app.handle().clone();
-            app.listen("tray-navigate", move |event| {
-                if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
-                    if let Some(path) = payload.get("path").and_then(|v| v.as_str()) {
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.emit("navigate-to", path);
-                        }
-                    }
-                }
-            });
 
             // Create tray popup window (hidden by default)
             let _popup = tauri::WebviewWindowBuilder::new(
@@ -134,6 +126,10 @@ fn main() {
             commands::remove_container,
             commands::get_container_logs,
             commands::get_container_stats,
+            // Docker terminal commands
+            commands::docker_detect_shells,
+            commands::docker_terminal_connect,
+            commands::docker_terminal_disconnect,
             // Bookmark commands
             commands::create_bookmark,
             commands::update_bookmark,

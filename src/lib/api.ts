@@ -131,6 +131,24 @@ export async function getContainerStats(
   return invokeSafe("get_container_stats", { containerId });
 }
 
+// ===== Docker 容器终端 =====
+
+export async function dockerDetectShells(containerId: string): Promise<string[]> {
+  return invokeSafe("docker_detect_shells", { containerId });
+}
+
+export async function dockerTerminalConnect(
+  containerId: string,
+  containerName: string,
+  shell: string
+): Promise<{ session_id: string; websocket_url: string }> {
+  return invokeSafe("docker_terminal_connect", { containerId, containerName, shell });
+}
+
+export async function dockerTerminalDisconnect(sessionId: string): Promise<void> {
+  return invokeSafe("docker_terminal_disconnect", { sessionId });
+}
+
 // ===== 分组管理 =====
 
 export async function listGroups(groupType: string): Promise<Group[]> {

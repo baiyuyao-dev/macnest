@@ -575,12 +575,11 @@ impl Database {
         group_id: Option<i64>,
         icon: &str,
         service_id: Option<i64>,
-        health_check_url: &str,
     ) -> Result<i64> {
         let conn = self.conn()?;
         conn.execute(
-            "INSERT INTO bookmarks (name, url, description, group_id, icon, service_id, health_check_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![name, url, description, group_id, icon, service_id, health_check_url],
+            "INSERT INTO bookmarks (name, url, description, group_id, icon, service_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![name, url, description, group_id, icon, service_id],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -641,11 +640,10 @@ impl Database {
         description: &str,
         group_id: Option<i64>,
         icon: &str,
-        health_check_url: &str,
     ) -> Result<()> {
         self.conn()?.execute(
-            "UPDATE bookmarks SET name = ?1, url = ?2, description = ?3, group_id = ?4, icon = ?5, health_check_url = ?6, updated_at = CURRENT_TIMESTAMP WHERE id = ?7",
-            params![name, url, description, group_id, icon, health_check_url, id],
+            "UPDATE bookmarks SET name = ?1, url = ?2, description = ?3, group_id = ?4, icon = ?5, updated_at = CURRENT_TIMESTAMP WHERE id = ?6",
+            params![name, url, description, group_id, icon, id],
         )?;
         Ok(())
     }

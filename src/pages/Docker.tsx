@@ -16,6 +16,7 @@ import {
   ArrowRight,
   AlertTriangle,
   Loader2,
+  Terminal,
 } from "lucide-react";
 import type { DockerContainer } from "@/types";
 import {
@@ -25,7 +26,11 @@ import {
   restartContainer,
   removeContainer,
   getContainerStats,
+  dockerDetectShells,
+  dockerTerminalConnect,
+  dockerTerminalDisconnect,
 } from "@/lib/api";
+import DockerTerminalDialog, { type DockerTerminalTab } from "@/components/terminal/DockerTerminalDialog";
 
 type ContainerState = "all" | "running" | "stopped" | "paused";
 type PendingAction = "starting" | "stopping" | "restarting" | "removing";
@@ -125,6 +130,15 @@ export default function Docker() {
   // Delete confirm states
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [containerToDelete, setContainerToDelete] = useState<DockerContainer | null>(null);
+
+  // Terminal states
+  const [terminalTabs, setTerminalTabs] = useState<DockerTerminalTab[]>([]);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [terminalDialogOpen, setTerminalDialogOpen] = useState(false);
+  const [shellSelectorOpen, setShellSelectorOpen] = useState(false);
+  const [shellSelectorContainer, setShellSelectorContainer] = useState<DockerContainer | null>(null);
+  const [availableShells, setAvailableShells] = useState<string[]>([]);
+  const [shellLoading, setShellLoading] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -289,6 +303,86 @@ export default function Docker() {
     }
   };
 
+  // ─── Terminal handlers ────────────────────────────────────
+  const handleOpenTerminal = async (container: DockerContainer) => {
+    // If already has a tab for this container, switch to it
+    const existing = terminalTabs.find((t) => t.containerId === container.container_id);
+    if (existing) {
+      setActiveTerminalId(existing.id);
+      setTerminalDialogOpen(true);
+      return;
+    }
+    // Detect available shells
+    setShellLoading(true);
+    try {
+      const shells = await dockerDetectShells(container.container_id);
+      setAvailableShells(shells);
+      if (shells.length <= 1) {
+        // Only one shell (or fallback to /bin/sh), connect directly
+        await connectTerminal(container, shells[0] || "/bin/sh");
+      } else {
+        // Show shell selector
+        setShellSelectorContainer(container);
+        setShellSelectorOpen(true);
+      }
+    } catch {
+      // Fallback to /bin/sh
+      await connectTerminal(container, "/bin/sh");
+    } finally {
+      setShellLoading(false);
+    }
+  };
+
+  const connectTerminal = async (container: DockerContainer, shell: string) => {
+    try {
+      const res = await dockerTerminalConnect(
+        container.container_id,
+        container.name,
+        shell
+      );
+      const tab: DockerTerminalTab = {
+        id: res.session_id,
+        containerId: container.container_id,
+        containerName: container.name,
+        shell,
+        websocketUrl: res.websocket_url,
+      };
+      setTerminalTabs((prev) => [...prev, tab]);
+      setActiveTerminalId(tab.id);
+      setTerminalDialogOpen(true);
+      setShellSelectorOpen(false);
+    } catch (error) {
+      console.error("Failed to connect terminal:", error);
+    }
+  };
+
+  const handleCloseTerminalTab = async (tabId: string) => {
+    try {
+      await dockerTerminalDisconnect(tabId);
+    } catch {
+      // ignore disconnect errors
+    }
+    setTerminalTabs((prev) => {
+      const next = prev.filter((t) => t.id !== tabId);
+      if (activeTerminalId === tabId) {
+        setActiveTerminalId(next.length > 0 ? next[next.length - 1].id : null);
+      }
+      return next;
+    });
+  };
+
+  const handleTerminalDialogClose = (open: boolean) => {
+    setTerminalDialogOpen(open);
+    if (!open) {
+      // Disconnect all sessions when dialog closes
+      for (const tab of terminalTabs) {
+        dockerTerminalDisconnect(tab.id).catch(() => {});
+      }
+      setTerminalTabs([]);
+      setActiveTerminalId(null);
+    }
+  };
+
 
   return (
     <div className="p-6 space-y-5 animate-page-enter">
@@ -401,6 +495,13 @@ export default function Docker() {
                 </div>
                 <div className="text-sm">{container.state === "running" ? <ResourceCell containerId={container.container_id} statsMap={statsMap} /> : "-"}</div>
                 <div className="flex items-center justify-end gap-0.5">
+                  {container.state === "running" && (
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-secondary/60" title="终端"
+                      disabled={shellLoading} onClick={() => handleOpenTerminal(container)}
+                    >
+                      {shellLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Terminal className="h-4 w-4" />}
+                    </Button>
+                  )}
                   {container.state === "running" ? (
                     <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" title="停止"
                       disabled={!!pendingActions[container.container_id]} onClick={() => handleStop(container.container_id)}
@@ -457,6 +558,40 @@ export default function Docker() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Shell Selector Dialog ─────────────────────────── */}
+      <Dialog open={shellSelectorOpen} onOpenChange={setShellSelectorOpen}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              <Terminal className="h-4 w-4" />
+              选择 Shell — {shellSelectorContainer?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5 py-2">
+            {availableShells.map((shell) => (
+              <Button
+                key={shell}
+                variant="outline"
+                className="w-full justify-start text-xs rounded-lg font-mono"
+                onClick={() => shellSelectorContainer && connectTerminal(shellSelectorContainer, shell)}
+              >
+                {shell}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Docker Terminal Dialog ────────────────────────── */}
+      <DockerTerminalDialog
+        open={terminalDialogOpen}
+        onOpenChange={handleTerminalDialogClose}
+        tabs={terminalTabs}
+        activeTabId={activeTerminalId}
+        onActiveTabChange={setActiveTerminalId}
+        onCloseTab={handleCloseTerminalTab}
+      />
     </div>
   );
 }
