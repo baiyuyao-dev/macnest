@@ -198,7 +198,7 @@ export default function Tmux() {
               {sessions.map((s, i) => (
                 <div
                   key={s.name}
-                  className={`group card-macos p-4 cursor-pointer animate-slide-up ${
+                  className={`group card-macos p-4 cursor-pointer transition-all duration-300 hover:shadow-glass-lg animate-slide-up ${
                     activeSession === s.name
                       ? "border-primary/50 shadow-glass-lg"
                       : ""
