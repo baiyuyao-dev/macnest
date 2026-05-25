@@ -468,15 +468,10 @@
 /* ── xterm.js Override ── */
 .xterm {
   height: 100% !important;
-  padding: 12px;
 }
 
 .xterm-viewport {
   background-color: transparent !important;
-}
-
-.xterm-screen {
-  width: 100% !important;
 }
 
 .xterm-viewport::-webkit-scrollbar {

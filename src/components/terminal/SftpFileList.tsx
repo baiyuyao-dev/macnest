@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { Folder, FileText, ArrowUp, ArrowDown, Trash2, FolderPlus, Pencil, RefreshCw, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +47,19 @@ export default function SftpFileList({
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    if (!toolbarRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setCompact(entry.contentRect.width < 520);
+      }
+    });
+    ro.observe(toolbarRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   const breadcrumbs = useMemo(() =>
     currentPath === "/"
@@ -113,29 +126,29 @@ export default function SftpFileList({
       </div>
 
       {/* 工具栏 */}
-      <div className="flex gap-1 px-2 py-1 bg-muted/30 border-b border-[var(--glass-border)]">
-        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={onUpload}>
-          <ArrowUp className="h-3.5 w-3.5 mr-1" />上传
+      <div ref={toolbarRef} className="flex gap-1 px-2 py-1 bg-muted/30 border-b border-[var(--glass-border)]">
+        <Button size="sm" variant="ghost" title="上传" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 shrink-0" onClick={onUpload}>
+          <ArrowUp className={`h-3.5 w-3.5 ${compact ? "" : "mr-1"}`} />{!compact && "上传"}
         </Button>
-        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={onDownload}>
-          <ArrowDown className="h-3.5 w-3.5 mr-1" />下载
+        <Button size="sm" variant="ghost" title="下载" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 shrink-0" onClick={onDownload}>
+          <ArrowDown className={`h-3.5 w-3.5 ${compact ? "" : "mr-1"}`} />{!compact && "下载"}
         </Button>
-        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={handleDelete}>
-          <Trash2 className="h-3.5 w-3.5 mr-1" />删除
+        <Button size="sm" variant="ghost" title="删除" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 shrink-0" onClick={handleDelete}>
+          <Trash2 className={`h-3.5 w-3.5 ${compact ? "" : "mr-1"}`} />{!compact && "删除"}
         </Button>
-        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={() => setShowMkdirDialog(true)}>
-          <FolderPlus className="h-3.5 w-3.5 mr-1" />新建
+        <Button size="sm" variant="ghost" title="新建文件夹" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 shrink-0" onClick={() => setShowMkdirDialog(true)}>
+          <FolderPlus className={`h-3.5 w-3.5 ${compact ? "" : "mr-1"}`} />{!compact && "新建"}
         </Button>
-        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40" onClick={openRename}>
-          <Pencil className="h-3.5 w-3.5 mr-1" />重命名
+        <Button size="sm" variant="ghost" title="重命名" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 shrink-0" onClick={openRename}>
+          <Pencil className={`h-3.5 w-3.5 ${compact ? "" : "mr-1"}`} />{!compact && "重命名"}
         </Button>
         {onSyncToTerminal && (
-          <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-emerald-500 hover:bg-accent/40" onClick={onSyncToTerminal}>
-            <Terminal className="h-3.5 w-3.5 mr-1" />同步到终端
+          <Button size="sm" variant="ghost" title="同步到终端" className="h-7 text-xs px-2 text-primary hover:bg-accent/40 shrink-0" onClick={onSyncToTerminal}>
+            <Terminal className={`h-3.5 w-3.5 ${compact ? "" : "mr-1"}`} />{!compact && "同步到终端"}
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 ml-auto" onClick={onRefresh}>
-          <RefreshCw className="h-3.5 w-3.5 mr-1" />刷新
+        <Button size="sm" variant="ghost" title="刷新" className="h-7 text-xs px-2 text-muted-foreground hover:bg-accent/40 ml-auto shrink-0" onClick={onRefresh}>
+          <RefreshCw className={`h-3.5 w-3.5 ${compact ? "" : "mr-1"}`} />{!compact && "刷新"}
         </Button>
       </div>
 

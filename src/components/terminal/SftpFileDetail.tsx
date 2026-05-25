@@ -47,19 +47,19 @@ export default function SftpFileDetail({ file, transfers, onCancelTransfer }: Sf
 
             return (
               <div key={t.id} className="px-2 py-1.5 text-[11px] border-b border-[var(--glass-border)]">
-                <div className={isDone ? "text-emerald-500" : isFailed ? "text-red-500" : "text-amber-500"}>
+                <div className={isDone ? "text-primary" : isFailed ? "text-red-500" : "text-amber-500"}>
                   {t.direction === "upload" ? "⬆" : "⬇"} {t.file_name}
                 </div>
                 <div className="h-[3px] bg-muted rounded mt-1 overflow-hidden">
                   <div
                     className={`h-full rounded transition-all duration-200 ${
-                      isDone ? "bg-emerald-500" : isFailed ? "bg-red-500" : "bg-amber-500"
+                      isDone ? "bg-primary" : isFailed ? "bg-red-500" : "bg-amber-500"
                     }`}
                     style={{ width: isActive ? `${percent}%` : "100%" }}
                   />
                 </div>
                 <div className="mt-0.5 flex items-center justify-between">
-                  <span className={isDone ? "text-emerald-500" : isFailed ? "text-red-500" : "text-muted-foreground"}>
+                  <span className={isDone ? "text-primary" : isFailed ? "text-red-500" : "text-muted-foreground"}>
                     {isDone
                       ? `${formatSize(t.total_bytes)} | 已完成`
                       : isFailed

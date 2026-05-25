@@ -32,6 +32,7 @@ export default function BaseTerminal({
     let lastWidth = 0;
     let lastHeight = 0;
     let initialized = false;
+    let lastFitCols = 0;
 
     const initTerminal = () => {
       if (initialized) return;
@@ -84,6 +85,11 @@ export default function BaseTerminal({
 
       term.open(container);
       fitAddon.fit();
+      // 防止亚像素渲染导致最右侧截断（tmux 状态栏时间等贴边内容）
+      if (term.cols > 1) {
+        lastFitCols = term.cols;
+        term.resize(term.cols - 1, term.rows);
+      }
       term.focus();
       term.refresh(0, term.rows - 1);
 
@@ -118,6 +124,10 @@ export default function BaseTerminal({
 
         if (initialized && width > 0 && height > 0) {
           fitAddon?.fit();
+          if (term && term.cols > 1 && term.cols !== lastFitCols) {
+            lastFitCols = term.cols;
+            term.resize(term.cols - 1, term.rows);
+          }
           if (lastWidth === 0 || lastHeight === 0) {
             requestAnimationFrame(() => {
               term?.refresh(0, term.rows - 1);
@@ -138,6 +148,10 @@ export default function BaseTerminal({
           if (entry.isIntersecting && initialized) {
             requestAnimationFrame(() => {
               fitAddon?.fit();
+              if (term && term.cols > 1 && term.cols !== lastFitCols) {
+                lastFitCols = term.cols;
+                term.resize(term.cols - 1, term.rows);
+              }
               term?.refresh(0, term.rows - 1);
             });
             onVisibilityChange?.(true);

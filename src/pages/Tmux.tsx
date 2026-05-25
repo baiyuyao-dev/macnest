@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,12 +13,12 @@ import {
   Monitor,
   Plus,
   RefreshCw,
-  Trash2,
-  Pencil,
   Square,
   ExternalLink,
   Terminal as TerminalIcon,
   Copy,
+  Pencil,
+  Trash2,
   FolderOpen,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -47,6 +47,41 @@ export default function Tmux() {
   const [editName, setEditName] = useState("");
   const [editCwd, setEditCwd] = useState("");
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(400);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(400);
+  const [dragOverlay, setDragOverlay] = useState<"col-resize" | null>(null);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      e.preventDefault();
+      if (isDragging.current && sidebarRef.current && containerRef.current) {
+        const delta = e.clientX - startXRef.current;
+        const containerWidth = containerRef.current.offsetWidth;
+        const minWidth = 220;
+        const maxWidth = containerWidth * 0.6;
+        const w = Math.max(minWidth, Math.min(maxWidth, startWidthRef.current + delta));
+        sidebarRef.current.style.width = w + "px";
+      }
+    };
+    const handleUp = () => {
+      if (isDragging.current) {
+        isDragging.current = false;
+        const w = sidebarRef.current?.offsetWidth ?? 400;
+        setSidebarWidth(w);
+      }
+      setDragOverlay(null);
+    };
+    window.addEventListener("mousemove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, []);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -277,10 +312,22 @@ export default function Tmux() {
         </div>
       </div>
 
+      {/* 拖动时全屏透明覆盖层，防止 xterm 拦截鼠标事件 */}
+      {dragOverlay && (
+        <div
+          className="fixed inset-0 z-[9999]"
+          style={{ cursor: dragOverlay }}
+        />
+      )}
+
       {/* 主内容 */}
-      <div className="flex flex-1 overflow-hidden">
+      <div ref={containerRef} className="flex flex-1 overflow-hidden">
         {/* 左侧：会话列表 */}
-        <div className={`${activeSession ? "w-[320px]" : "flex-1"} overflow-auto p-4`}>
+        <div
+          ref={sidebarRef}
+          className="overflow-auto p-4 shrink-0"
+          style={{ width: activeSession ? sidebarWidth : undefined, flex: activeSession ? undefined : 1 }}
+        >
           {sessions.length === 0 && !loading ? (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">
@@ -306,12 +353,12 @@ export default function Tmux() {
                   style={{ animationDelay: `${i * 50}ms` }}
                   onClick={() => handleAttach(s.name)}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-2.5 w-2.5 rounded-full ${activeSession === s.name ? "bg-primary animate-pulse-dot" : "bg-emerald-500"}`} />
-                      <div>
-                        <p className="text-sm font-semibold">{s.display_name}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`shrink-0 h-2.5 w-2.5 rounded-full ${activeSession === s.name ? "bg-primary animate-pulse-dot" : "bg-emerald-500"}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{s.display_name}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                           {s.windows} 个窗口 · {s.created_at}
                           {s.start_directory && (
                             <span className="ml-1.5 text-[10px] opacity-70">· {s.start_directory}</span>
@@ -319,16 +366,24 @@ export default function Tmux() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 shrink-0">
                       {activeSession === s.name ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
-                          onClick={(e) => { e.stopPropagation(); handleDetach(); }}
-                        >
-                          <Square className="h-4 w-4" />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
+                            onClick={(e) => { e.stopPropagation(); handleDetach(); }}
+                            title="断开"
+                          >
+                            <Square className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
+                            onClick={(e) => { e.stopPropagation(); handleCopy(s); }} title="复制配置新建"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
                       ) : (
                         <>
                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
@@ -355,6 +410,7 @@ export default function Tmux() {
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(s.display_name); setDeleteOpen(true); }}
+                            title="删除"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -367,6 +423,23 @@ export default function Tmux() {
             </div>
           )}
         </div>
+
+        {/* Horizontal splitter */}
+        {activeSession && (
+          <div
+            className="w-2 shrink-0 z-20 group relative cursor-col-resize"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isDragging.current = true;
+              startXRef.current = e.clientX;
+              startWidthRef.current = sidebarRef.current?.offsetWidth ?? 400;
+              setDragOverlay("col-resize");
+            }}
+          >
+            <div className="absolute inset-0 -left-1 -right-1" />
+            <div className="w-[3px] h-full mx-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
+          </div>
+        )}
 
         {/* 右侧：终端区域 */}
         {activeSession && (

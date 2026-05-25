@@ -199,7 +199,7 @@ function SidebarTreeNode({
   onNewConnection,
   onEditGroup,
   onDeleteGroup,
-  activeConnectionId,
+  selectedConnectionId,
   connectingId,
 }: {
   node: TerminalGroupNode;
@@ -213,7 +213,7 @@ function SidebarTreeNode({
   onNewConnection: (groupId: number | null) => void;
   onEditGroup: (group: Group) => void;
   onDeleteGroup: (id: number) => void;
-  activeConnectionId: number | null;
+  selectedConnectionId: number | null;
   connectingId: number | null;
 }) {
   const isExpanded = expandedIds.has(node.id);
@@ -253,7 +253,7 @@ function SidebarTreeNode({
               e.stopPropagation();
               onNewConnection(node.id);
             }}
-            className="h-6 w-6 rounded-lg hover:bg-secondary/60 flex items-center justify-center text-emerald-500"
+            className="h-6 w-6 rounded-lg hover:bg-secondary/60 flex items-center justify-center text-primary"
             title="新建连接"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -299,7 +299,7 @@ function SidebarTreeNode({
               onNewConnection={onNewConnection}
               onEditGroup={onEditGroup}
               onDeleteGroup={onDeleteGroup}
-              activeConnectionId={activeConnectionId}
+              selectedConnectionId={selectedConnectionId}
               connectingId={connectingId}
             />
           ))}
@@ -310,7 +310,7 @@ function SidebarTreeNode({
               onClick={() => onSelectConnection(conn)}
               onDoubleClick={() => onConnect(conn)}
               className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
-                activeConnectionId === conn.id
+                selectedConnectionId === conn.id
                   ? "bg-primary text-primary-foreground shadow-glass"
                   : "hover:bg-accent/50 text-foreground"
               }`}
@@ -318,7 +318,7 @@ function SidebarTreeNode({
             >
               <TerminalIcon className="h-4 w-4 shrink-0" />
               <span className="truncate flex-1 cursor-default">{conn.name}</span>
-              <span className={`text-xs shrink-0 opacity-70 ${activeConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
+              <span className={`text-xs shrink-0 opacity-70 ${selectedConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
               <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 {connectingId === conn.id ? (
                   <span className="h-6 w-6 flex items-center justify-center">
@@ -330,7 +330,11 @@ function SidebarTreeNode({
                       e.stopPropagation();
                       onConnect(conn);
                     }}
-                    className="h-6 w-6 rounded-lg flex items-center justify-center text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600"
+                    className={`h-6 w-6 rounded-lg flex items-center justify-center ${
+                      selectedConnectionId === conn.id
+                        ? "text-primary-foreground hover:bg-white/20"
+                        : "text-emerald-400 hover:bg-emerald-500/25 hover:text-white"
+                    }`}
                     title="连接"
                   >
                     <Play className="h-3.5 w-3.5" />
@@ -413,6 +417,7 @@ export default function Terminal() {
   // Sidebar state
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [sidebarSearch, setSidebarSearch] = useState("");
+  const [selectedConnectionId, setSelectedConnectionId] = useState<number | null>(null);
 
   // Dialogs
   const [showNewDialog, setShowNewDialog] = useState(false);
@@ -475,6 +480,12 @@ export default function Terminal() {
     return activeTab?.connectionId ?? null;
   }, [tabs, activeTabId]);
 
+  useEffect(() => {
+    if (activeConnectionId != null) {
+      setSelectedConnectionId(activeConnectionId);
+    }
+  }, [activeConnectionId]);
+
   const toggleExpand = (id: number) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -510,6 +521,7 @@ export default function Terminal() {
   };
 
   const handleSelectConnection = (conn: SshConnection) => {
+    setSelectedConnectionId(conn.id);
     const existing = tabs.find((t) => t.connectionId === conn.id);
     if (existing) {
       setActiveTab(existing.id);
@@ -896,7 +908,7 @@ export default function Terminal() {
                         onClick={() => handleSelectConnection(conn)}
                         onDoubleClick={() => handleConnect(conn)}
                         className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
-                          activeConnectionId === conn.id
+                          selectedConnectionId === conn.id
                             ? "bg-primary text-primary-foreground shadow-glass"
                             : "hover:bg-accent/50 text-foreground"
                         }`}
@@ -904,7 +916,7 @@ export default function Terminal() {
                       >
                         <TerminalIcon className="h-4 w-4 shrink-0" />
                         <span className="truncate flex-1 cursor-default">{conn.name}</span>
-                        <span className={`text-xs shrink-0 opacity-70 ${activeConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
+                        <span className={`text-xs shrink-0 opacity-70 ${selectedConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
                         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                           {connectingId === conn.id ? (
                             <span className="h-6 w-6 flex items-center justify-center">
@@ -916,7 +928,9 @@ export default function Terminal() {
                                 e.stopPropagation();
                                 handleConnect(conn);
                               }}
-                              className="h-6 w-6 rounded-lg flex items-center justify-center text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600"
+                              className={`h-6 w-6 rounded-lg flex items-center justify-center ${
+                                "text-white hover:bg-white/20"
+                              }`}
                               title="连接"
                             >
                               <Play className="h-3.5 w-3.5" />
@@ -962,7 +976,7 @@ export default function Terminal() {
                   onNewConnection={handleNewConnection}
                   onEditGroup={handleEditGroup}
                   onDeleteGroup={handleDeleteGroup}
-                  activeConnectionId={activeConnectionId}
+                  selectedConnectionId={selectedConnectionId}
                   connectingId={connectingId}
                 />
               ))}
@@ -998,7 +1012,7 @@ export default function Terminal() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`group flex items-center gap-1.5 px-3 py-2 text-xs cursor-pointer border-r border-[var(--glass-border)] shrink-0 transition-colors min-w-0 ${
                   activeTabId === tab.id
-                    ? "bg-card text-emerald-500 border-t-2 border-t-emerald-500"
+                    ? "bg-card text-primary border-t-2 border-t-primary"
                     : "bg-muted/50 text-muted-foreground hover:bg-card hover:text-foreground"
                 }`}
               >
@@ -1046,8 +1060,8 @@ export default function Terminal() {
               >
                 {/* Status bar */}
                 <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--glass-border)] bg-muted/30 shrink-0">
-                  <span className="text-[10px] text-emerald-500 flex items-center gap-1">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] text-primary flex items-center gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
                     {tab.name} — {tab.websocketUrl}
                   </span>
                 </div>
