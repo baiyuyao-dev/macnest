@@ -22,7 +22,6 @@ export default function BaseTerminal({
 }: BaseTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -34,15 +33,6 @@ export default function BaseTerminal({
     let lastHeight = 0;
     let initialized = false;
 
-    // 复制快捷键处理：通过 termRef 访问终端实例
-    const handleCopyKeyDown = (e: KeyboardEvent) => {
-      const t = termRef.current;
-      if ((e.metaKey || e.ctrlKey) && e.key === "c" && t && t.hasSelection()) {
-        e.preventDefault();
-        navigator.clipboard.writeText(t.getSelection()).catch(() => {});
-      }
-    };
-
     const initTerminal = () => {
       if (initialized) return;
       initialized = true;
@@ -53,11 +43,12 @@ export default function BaseTerminal({
         fontFamily: 'Menlo, "DejaVu Sans Mono", "Courier New", monospace',
         fontSize: 14,
         allowProposedApi: true,
+        macOptionClickForcesSelection: true,
         theme: {
           background: "#1a1a2e",
           foreground: "#e0e0e0",
           cursor: "#10b981",
-          selectionBackground: "#264f78",
+          selectionBackground: "#3b82f6",
           black: "#000000",
           red: "#cd3131",
           green: "#0dbc79",
@@ -77,8 +68,16 @@ export default function BaseTerminal({
         },
       });
 
-      // 监听复制快捷键：Cmd+C / Ctrl+C
-      container.addEventListener("keydown", handleCopyKeyDown);
+      // Cmd+C 复制选中文本
+      const localTerm = term;
+      localTerm.attachCustomKeyEventHandler((e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "c" && localTerm.hasSelection()) {
+          e.preventDefault();
+          navigator.clipboard.writeText(localTerm.getSelection()).catch(() => {});
+          return false;
+        }
+        return true;
+      });
 
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
@@ -97,7 +96,6 @@ export default function BaseTerminal({
       });
 
       termRef.current = term;
-      fitAddonRef.current = fitAddon;
 
       onResize?.(term.cols, term.rows);
       onReady(term);
@@ -134,7 +132,6 @@ export default function BaseTerminal({
     resizeObserver.observe(container);
 
     // IntersectionObserver：检测从 visibility:hidden 恢复后的刷新
-    // React 通过修改 CSS property（非 attribute）设置 visibility，MutationObserver 监听不到
     const intersectionObserver = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -154,7 +151,6 @@ export default function BaseTerminal({
     intersectionObserver.observe(container);
 
     return () => {
-      container.removeEventListener("keydown", handleCopyKeyDown);
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       term?.dispose();
