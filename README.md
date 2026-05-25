@@ -60,7 +60,7 @@ MacNest 是一款基于 **Tauri v2 + Rust + React** 构建的 macOS 桌面应用
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/yourusername/macnest.git
+git clone https://github.com/baiyuyao-dev/macnest.git
 cd macnest
 ```
 
