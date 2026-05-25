@@ -47,7 +47,7 @@ function GridView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
             title={bookmark.description || bookmark.name}
             style={{ animationDelay: `${index * 30}ms` }}
           >
-            <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+            <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
               <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-secondary/60"
                 onClick={(e) => { e.stopPropagation(); onOpen(bookmark.url); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
               <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-secondary/60"
@@ -101,7 +101,7 @@ function ListView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
                 <Badge variant="secondary" className="text-[10px] rounded-full">{groupName}</Badge>
               </div>
               <div className="hidden lg:block flex-1 min-w-0 max-w-xs"><span className="text-[11px] text-muted-foreground truncate block">{bookmark.description || "-"}</span></div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1">
                 <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-secondary/60"
                   onClick={(e) => { e.stopPropagation(); onOpen(bookmark.url); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
                 <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-secondary/60"
@@ -432,7 +432,7 @@ export default function BookmarksPage() {
           <div className="flex items-center gap-1 shrink-0 ml-1">
             <span className="text-xs opacity-70">{count}</span>
             <div
-              className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="flex items-center gap-0.5"
               onClick={(e) => e.stopPropagation()}
             >
               <Button

@@ -228,17 +228,17 @@ export default function Tmux() {
                         </Button>
                       ) : (
                         <>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary/60"
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
                             onClick={(e) => { e.stopPropagation(); handleGhostty(s.display_name); }} title="Ghostty 中打开"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary/60"
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
                             onClick={(e) => { e.stopPropagation(); setRenameTarget(s.display_name); setNewName(s.display_name); setRenameOpen(true); }}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500"
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(s.display_name); setDeleteOpen(true); }}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -255,20 +255,20 @@ export default function Tmux() {
 
         {/* 右侧：终端区域 */}
         {activeSession && (
-          <div className="flex flex-1 flex-col bg-[#0f0f1a] m-3 rounded-2xl overflow-hidden border border-[var(--glass-border)]">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10">
+          <div className="flex flex-1 flex-col bg-muted m-3 rounded-2xl overflow-hidden border border-[var(--glass-border)]">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--glass-border)]">
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse-dot" />
-                <span className="text-sm font-medium text-white">{activeDisplayName}</span>
+                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse-dot" />
+                <span className="text-sm font-medium">{activeDisplayName}</span>
               </div>
               <div className="flex gap-2">
-                <Button variant="ghost" size="sm" className="h-7 text-xs text-white/70 hover:bg-white/10 hover:text-white rounded-lg"
+                <Button variant="ghost" size="sm" className="h-7 text-xs rounded-lg hover:bg-secondary/60"
                   onClick={() => handleGhostty(activeDisplayName)}
                 >
                   <ExternalLink className="mr-1 h-3 w-3" />
                   Ghostty
                 </Button>
-                <Button variant="ghost" size="sm" className="h-7 text-xs text-red-400 hover:bg-white/10 hover:text-red-300 rounded-lg"
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500 hover:bg-red-500/10 hover:text-red-600 rounded-lg"
                   onClick={handleDetach}
                 >
                   <Square className="mr-1 h-3 w-3" />
