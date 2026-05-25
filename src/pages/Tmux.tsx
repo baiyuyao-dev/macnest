@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,8 +18,10 @@ import {
   Square,
   ExternalLink,
   Terminal as TerminalIcon,
+  Copy,
 } from "lucide-react";
 import TmuxTerminal from "@/components/terminal/TmuxTerminal";
+import type { TmuxTerminalHandle } from "@/components/terminal/TmuxTerminal";
 import {
   tmuxListSessions,
   tmuxCreateSession,
@@ -41,6 +43,8 @@ export default function Tmux() {
   const [renameTarget, setRenameTarget] = useState("");
   const [newCwd, setNewCwd] = useState("");
   const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const terminalRef = useRef<TmuxTerminalHandle>(null);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -270,6 +274,18 @@ export default function Tmux() {
                 <span className="text-sm font-medium">{activeDisplayName}</span>
               </div>
               <div className="flex gap-2">
+                <Button
+                  variant={selectionMode ? "default" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs rounded-lg"
+                  onClick={() => {
+                    const next = terminalRef.current?.toggleSelectionMode() ?? false;
+                    setSelectionMode(next);
+                  }}
+                >
+                  <Copy className="mr-1 h-3 w-3" />
+                  {selectionMode ? "选区中" : "选区"}
+                </Button>
                 <Button variant="ghost" size="sm" className="h-7 text-xs rounded-lg hover:bg-secondary/60"
                   onClick={() => handleGhostty(activeDisplayName)}
                 >
@@ -285,7 +301,7 @@ export default function Tmux() {
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              <TmuxTerminal key={activeSession} sessionName={activeSession} onDetach={handleDetach} />
+              <TmuxTerminal ref={terminalRef} key={activeSession} sessionName={activeSession} onDetach={handleDetach} />
             </div>
           </div>
         )}
