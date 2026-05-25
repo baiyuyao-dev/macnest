@@ -130,7 +130,12 @@ export default function Tmux() {
     try {
       await tmuxOpenInGhostty(displayName);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+            ? String((e as { message: unknown }).message)
+            : String(e);
       alert(`Ghostty 打开失败: ${msg}`);
     }
   };
