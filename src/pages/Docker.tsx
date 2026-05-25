@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Loader2,
   Terminal,
+  Hammer,
 } from "lucide-react";
 import type { DockerContainer } from "@/types";
 import {
@@ -25,6 +26,7 @@ import {
   stopContainer,
   restartContainer,
   removeContainer,
+  recreateContainer,
   getContainerStats,
   dockerDetectShells,
   dockerTerminalConnect,
@@ -33,7 +35,7 @@ import {
 import DockerTerminalDialog, { type DockerTerminalTab } from "@/components/terminal/DockerTerminalDialog";
 
 type ContainerState = "all" | "running" | "stopped" | "paused";
-type PendingAction = "starting" | "stopping" | "restarting" | "removing";
+type PendingAction = "starting" | "stopping" | "restarting" | "removing" | "recreating";
 
 interface ContainerStats {
   containerId: string;
@@ -130,6 +132,10 @@ export default function Docker() {
   // Delete confirm states
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [containerToDelete, setContainerToDelete] = useState<DockerContainer | null>(null);
+
+  // Recreate confirm states
+  const [recreateConfirmOpen, setRecreateConfirmOpen] = useState(false);
+  const [containerToRecreate, setContainerToRecreate] = useState<DockerContainer | null>(null);
 
   // Terminal states
   const [terminalTabs, setTerminalTabs] = useState<DockerTerminalTab[]>([]);
@@ -234,7 +240,7 @@ export default function Docker() {
     return map;
   }, [containers]);
 
-  const setPending = (id: string, action: "starting" | "stopping" | "restarting" | "removing" | null) => {
+  const setPending = (id: string, action: PendingAction | null) => {
     setPendingActions((prev) => {
       const next = { ...prev };
       if (action) next[id] = action;
@@ -277,6 +283,27 @@ export default function Docker() {
       await loadContainers();
     } catch (error) {
       console.error("Failed to restart container:", error);
+    } finally {
+      setPending(id, null);
+    }
+  };
+
+  const openRecreateConfirm = (container: DockerContainer) => {
+    setContainerToRecreate(container);
+    setRecreateConfirmOpen(true);
+  };
+
+  const handleRecreate = async () => {
+    if (!containerToRecreate) return;
+    const id = containerToRecreate.container_id;
+    setRecreateConfirmOpen(false);
+    setContainerToRecreate(null);
+    setPending(id, "recreating");
+    try {
+      await recreateContainer(id);
+      await loadContainers();
+    } catch (error) {
+      console.error("Failed to recreate container:", error);
     } finally {
       setPending(id, null);
     }
@@ -520,6 +547,11 @@ export default function Docker() {
                   >
                     {pendingActions[container.container_id] === "restarting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-blue-500 hover:bg-blue-500/10 hover:text-blue-600" title="重建"
+                    disabled={!!pendingActions[container.container_id]} onClick={() => openRecreateConfirm(container)}
+                  >
+                    {pendingActions[container.container_id] === "recreating" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hammer className="h-4 w-4" />}
+                  </Button>
                   <Button variant="ghost" size="icon"
                     className={`h-8 w-8 rounded-lg ${container.state === "running" ? "text-muted-foreground opacity-50 cursor-not-allowed" : "text-destructive hover:text-destructive hover:bg-destructive/10"}`}
                     title={container.state === "running" ? "请先停止容器" : "删除"}
@@ -534,6 +566,33 @@ export default function Docker() {
           </div>
         </div>
       )}
+
+      {/* ─── Recreate Confirm Dialog ───────────────────────── */}
+      <Dialog open={recreateConfirmOpen} onOpenChange={setRecreateConfirmOpen}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-500 text-sm font-semibold">
+              <Hammer className="h-4 w-4" />
+              确认重建容器
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground">
+              确定要重建容器 <span className="font-medium text-foreground">{containerToRecreate?.name}</span> 吗？
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              容器将被停止、删除，拉取最新镜像后重新创建。原有数据卷会保留。
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setRecreateConfirmOpen(false)}>取消</Button>
+            <Button variant="default" size="sm" className="rounded-lg bg-blue-500 hover:bg-blue-600 text-white" onClick={handleRecreate}>
+              <Hammer className="mr-1.5 h-3.5 w-3.5" />
+              确认重建
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Delete Confirm Dialog ─────────────────────────── */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>

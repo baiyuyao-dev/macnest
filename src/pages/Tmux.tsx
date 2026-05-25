@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,7 +18,6 @@ import {
   Square,
   ExternalLink,
   Terminal as TerminalIcon,
-  ChevronRight,
 } from "lucide-react";
 import TmuxTerminal from "@/components/terminal/TmuxTerminal";
 import {
@@ -65,6 +64,12 @@ export default function Tmux() {
     loadSessions();
   }, [loadSessions]);
 
+  // 当前激活会话的展示名
+  const activeDisplayName = useMemo(() => {
+    if (!activeSession) return "";
+    return sessions.find((s) => s.name === activeSession)?.display_name || activeSession;
+  }, [activeSession, sessions]);
+
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
@@ -82,7 +87,9 @@ export default function Tmux() {
     if (!deleteTarget) return;
     try {
       await tmuxKillSession(deleteTarget);
-      if (activeSession === deleteTarget) {
+      // 检查是否删除了当前激活的会话
+      const deleted = sessions.find((s) => s.display_name === deleteTarget);
+      if (deleted && activeSession === deleted.name) {
         setActiveSession(null);
       }
       setDeleteOpen(false);
@@ -103,9 +110,7 @@ export default function Tmux() {
       });
       setNewName("");
       setRenameOpen(false);
-      if (activeSession === renameTarget) {
-        setActiveSession(newName.trim());
-      }
+      setRenameTarget("");
       loadSessions();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -121,9 +126,9 @@ export default function Tmux() {
     setActiveSession(null);
   };
 
-  const handleGhostty = async (name: string) => {
+  const handleGhostty = async (displayName: string) => {
     try {
-      await tmuxOpenInGhostty(name);
+      await tmuxOpenInGhostty(displayName);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       alert(`Ghostty 打开失败: ${msg}`);
@@ -200,7 +205,7 @@ export default function Tmux() {
                     <div className="flex items-center gap-3">
                       <div className={`h-2.5 w-2.5 rounded-full ${activeSession === s.name ? "bg-primary animate-pulse-dot" : "bg-emerald-500"}`} />
                       <div>
-                        <p className="text-sm font-semibold">{s.name}</p>
+                        <p className="text-sm font-semibold">{s.display_name}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
                           {s.windows} 个窗口 · {s.created_at}
                         </p>
@@ -219,17 +224,17 @@ export default function Tmux() {
                       ) : (
                         <>
                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary/60"
-                            onClick={(e) => { e.stopPropagation(); handleGhostty(s.name); }} title="Ghostty 中打开"
+                            onClick={(e) => { e.stopPropagation(); handleGhostty(s.display_name); }} title="Ghostty 中打开"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary/60"
-                            onClick={(e) => { e.stopPropagation(); setRenameTarget(s.name); setNewName(s.name); setRenameOpen(true); }}
+                            onClick={(e) => { e.stopPropagation(); setRenameTarget(s.display_name); setNewName(s.display_name); setRenameOpen(true); }}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500"
-                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(s.name); setDeleteOpen(true); }}
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(s.display_name); setDeleteOpen(true); }}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -249,11 +254,11 @@ export default function Tmux() {
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10">
               <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse-dot" />
-                <span className="text-sm font-medium text-white">{activeSession}</span>
+                <span className="text-sm font-medium text-white">{activeDisplayName}</span>
               </div>
               <div className="flex gap-2">
                 <Button variant="ghost" size="sm" className="h-7 text-xs text-white/70 hover:bg-white/10 hover:text-white rounded-lg"
-                  onClick={() => handleGhostty(activeSession)}
+                  onClick={() => handleGhostty(activeDisplayName)}
                 >
                   <ExternalLink className="mr-1 h-3 w-3" />
                   Ghostty
@@ -282,7 +287,7 @@ export default function Tmux() {
           <div className="space-y-4 py-1">
             <div>
               <Label className="text-xs">会话名称</Label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如 frpc-dev"
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如 my-project、web-server"
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos mt-1.5"
               />
             </div>

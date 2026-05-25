@@ -35,6 +35,8 @@ pub fn attach_session_pty(
     cmd.arg("-t");
     cmd.arg(session_name);
     cmd.env("TERM", "xterm-256color");
+    cmd.env("LANG", "en_US.UTF-8");
+    cmd.env("LC_ALL", "en_US.UTF-8");
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
 

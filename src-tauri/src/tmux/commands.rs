@@ -1,9 +1,11 @@
 use std::process::Command;
 
+use crate::database::Database;
 use crate::tmux::types::{CreateTmuxSessionRequest, RenameTmuxSessionRequest, TmuxSession};
 
-/// 列出所有 tmux 会话
-pub fn list_sessions() -> Result<Vec<TmuxSession>, String> {
+/// 列出所有 tmux 会话，并与数据库映射合并返回 display_name
+pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
+    // 1. 从 tmux 获取原始会话列表
     let tmux = crate::tmux::get_tmux_path();
     let output = Command::new(&tmux)
         .args([
@@ -25,13 +27,26 @@ pub fn list_sessions() -> Result<Vec<TmuxSession>, String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let now = chrono::Utc::now().timestamp();
 
+    // 2. 从数据库获取映射关系
+    let db_sessions = db.list_tmux_sessions().unwrap_or_default();
+    let name_map: std::collections::HashMap<String, String> = db_sessions
+        .into_iter()
+        .map(|r| (r.tmux_name, r.display_name))
+        .collect();
+
     let sessions = stdout
         .lines()
         .filter(|line| !line.is_empty())
         .map(|line| {
             let parts: Vec<&str> = line.split('|').collect();
+            let tmux_name = parts.get(0).unwrap_or(&"").to_string();
+            let display_name = name_map
+                .get(&tmux_name)
+                .cloned()
+                .unwrap_or_else(|| tmux_name.clone());
             TmuxSession {
-                name: parts.get(0).unwrap_or(&"").to_string(),
+                name: tmux_name,
+                display_name,
                 windows: parts.get(1).unwrap_or(&"0").parse().unwrap_or(0),
                 attached: parts.get(2).unwrap_or(&"0") == &"1",
                 created_at: format_timestamp(parts.get(3).unwrap_or(&"0"), now),
@@ -43,31 +58,66 @@ pub fn list_sessions() -> Result<Vec<TmuxSession>, String> {
     Ok(sessions)
 }
 
-/// 验证 tmux 会话名称合法性
-fn validate_session_name(name: &str) -> Result<(), String> {
+/// 从 display_name 生成唯一的 tmux 会话名
+fn generate_tmux_name(display_name: &str) -> String {
+    let prefix: String = display_name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_lowercase()
+        .trim()
+        .to_string();
+
+    let prefix = if prefix.is_empty() {
+        "session".to_string()
+    } else {
+        prefix
+    };
+    let timestamp = chrono::Local::now().timestamp_millis();
+    format!("{}-{}", prefix, timestamp)
+}
+
+/// 验证 tmux 底层会话名称合法性（仅用于自动生成的 tmux_name）
+fn validate_tmux_name(name: &str) -> Result<(), String> {
     if name.is_empty() || name.len() > 64 {
-        return Err("会话名称长度必须在1-64字符之间".to_string());
+        return Err("tmux 会话名长度必须在1-64字符之间".to_string());
     }
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
-        return Err("会话名称只能包含字母、数字、下划线、连字符和点".to_string());
+    if !name.is_ascii() {
+        return Err("tmux 会话名必须是 ASCII".to_string());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+    {
+        return Err("tmux 会话名只能包含字母、数字、下划线、连字符和点".to_string());
     }
     if name.starts_with('.') || name.starts_with('-') {
-        return Err("会话名称不能以 . 或 - 开头".to_string());
+        return Err("tmux 会话名不能以 . 或 - 开头".to_string());
     }
     Ok(())
 }
 
 /// 创建新会话（detached 模式）
-pub fn create_session(req: &CreateTmuxSessionRequest) -> Result<(), String> {
-    validate_session_name(&req.name)?;
+pub fn create_session(db: &Database, req: &CreateTmuxSessionRequest) -> Result<(), String> {
+    let display_name = req.name.trim();
+    if display_name.is_empty() {
+        return Err("会话名称不能为空".to_string());
+    }
+
+    let tmux_name = generate_tmux_name(display_name);
+    validate_tmux_name(&tmux_name)?;
 
     let tmux = crate::tmux::get_tmux_path();
     let mut cmd = Command::new(&tmux);
-    cmd.args(["new-session", "-d", "-s", &req.name]);
+    cmd.args(["new-session", "-d", "-s", &tmux_name]);
 
-    if let Some(ref dir) = req.start_directory {
-        cmd.args(["-c", dir]);
-    }
+    let start_dir = req
+        .start_directory
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
+    cmd.args(["-c", &start_dir]);
 
     if let Some(ref command) = req.command {
         cmd.arg(command);
@@ -82,14 +132,32 @@ pub fn create_session(req: &CreateTmuxSessionRequest) -> Result<(), String> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
+
+    // 存入数据库映射
+    let command_str = req.command.as_deref().unwrap_or("");
+    db.create_tmux_session(&tmux_name, display_name, &start_dir, command_str)
+        .map_err(|e| format!("保存会话映射失败: {}", e))?;
+
     Ok(())
 }
 
-/// Kill 会话
-pub fn kill_session(name: &str) -> Result<(), String> {
+/// Kill 会话（通过 display_name 查找 tmux_name）
+pub fn kill_session(db: &Database, display_name: &str) -> Result<(), String> {
+    // 先从数据库查找 tmux_name
+    let tmux_name = match db
+        .get_tmux_session_by_display_name(display_name)
+        .map_err(|e| e.to_string())?
+    {
+        Some(record) => record.tmux_name,
+        None => {
+            // 数据库中没有记录，直接尝试用 display_name 作为 tmux_name（兼容外部创建的会话）
+            display_name.to_string()
+        }
+    };
+
     let tmux = crate::tmux::get_tmux_path();
     let output = Command::new(&tmux)
-        .args(["kill-session", "-t", name])
+        .args(["kill-session", "-t", &tmux_name])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -97,26 +165,60 @@ pub fn kill_session(name: &str) -> Result<(), String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         // 如果 tmux server 已退出，会话自然也不存在了，当作成功处理
         if stderr.contains("no server running") || stderr.contains("no sessions") {
+            // 仍然尝试删除数据库记录
+            let _ = db.delete_tmux_session_by_tmux_name(&tmux_name);
             return Ok(());
         }
         return Err(stderr.to_string());
     }
+
+    // 删除数据库记录
+    let _ = db.delete_tmux_session_by_tmux_name(&tmux_name);
     Ok(())
 }
 
-/// 重命名会话
-pub fn rename_session(req: &RenameTmuxSessionRequest) -> Result<(), String> {
-    validate_session_name(&req.new_name)?;
+/// 重命名会话（只更新数据库中的 display_name，tmux_name 不变）
+pub fn rename_session(
+    db: &Database,
+    req: &RenameTmuxSessionRequest,
+) -> Result<(), String> {
+    let old_display_name = req.old_name.trim();
+    let new_display_name = req.new_name.trim();
 
-    let tmux = crate::tmux::get_tmux_path();
-    let output = Command::new(&tmux)
-        .args(["rename-session", "-t", &req.old_name, &req.new_name])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    if new_display_name.is_empty() {
+        return Err("新名称不能为空".to_string());
     }
+
+    // 查找旧的映射记录
+    let record = db
+        .get_tmux_session_by_display_name(old_display_name)
+        .map_err(|e| e.to_string());
+
+    match record {
+        Ok(Some(r)) => {
+            // 更新数据库中的 display_name
+            db.update_tmux_session_display_name(&r.tmux_name, new_display_name)
+                .map_err(|e| format!("更新显示名失败: {}", e))?;
+        }
+        _ => {
+            // 数据库中没有记录，尝试重命名 tmux 会话本身（兼容外部创建的会话）
+            let tmux = crate::tmux::get_tmux_path();
+            let output = Command::new(&tmux)
+                .args([
+                    "rename-session",
+                    "-t",
+                    old_display_name,
+                    new_display_name,
+                ])
+                .output()
+                .map_err(|e| e.to_string())?;
+
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).to_string());
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -128,6 +230,20 @@ pub fn is_tmux_available() -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+/// 通过 display_name 获取 tmux_name
+pub fn resolve_tmux_name(db: &Database, display_name: &str) -> Result<String, String> {
+    match db
+        .get_tmux_session_by_display_name(display_name)
+        .map_err(|e| e.to_string())?
+    {
+        Some(record) => Ok(record.tmux_name),
+        None => {
+            // 未找到映射，直接返回原名称（兼容外部会话）
+            Ok(display_name.to_string())
+        }
+    }
 }
 
 /// 生成 ~/.tmux.conf
@@ -173,8 +289,9 @@ set -g history-limit 50000
 # 聚焦事件
 set -g focus-events on
 
-# 256 色支持
+# 终端类型与功能键支持（解决 Delete/Backspace 异常）
 set -g default-terminal "xterm-256color"
+set -g xterm-keys on
 set -ga terminal-overrides ",*256col*:Tc"
 "#;
 

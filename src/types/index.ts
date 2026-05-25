@@ -14,6 +14,7 @@ export interface Service {
   ports: string;
   cpu_percent: number;
   memory_mb: number;
+  start_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +51,7 @@ export interface Bookmark {
   group_id: number | null;
   icon: string;
   service_id: number | null;
+  click_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -165,6 +167,7 @@ export interface TransferProgress {
 
 export interface TmuxSession {
   name: string;
+  display_name: string;
   windows: number;
   attached: boolean;
   created_at: string;

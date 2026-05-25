@@ -11,7 +11,7 @@ fn get_or_create_key() -> [u8; 32] {
     // 使用 hostname + username 派生固定密钥
     let hostname = std::env::var("HOSTNAME")
         .or_else(|_| std::env::var("USER"))
-        .unwrap_or_else(|_| "macops-default".to_string());
+        .unwrap_or_else(|_| "macnest-default".to_string());
 
     // 检查环境变量是否提供了密钥
     if let Ok(key_b64) = std::env::var(ENCRYPTION_KEY_ENV) {
@@ -24,7 +24,7 @@ fn get_or_create_key() -> [u8; 32] {
 
     // 从 hostname 派生 32 字节密钥
     let mut key = [0u8; 32];
-    let source = format!("macops-encryption-key-{}", hostname);
+    let source = format!("macnest-encryption-key-{}", hostname);
     let source_bytes = source.as_bytes();
     for (i, k) in key.iter_mut().enumerate() {
         *k = source_bytes.get(i % source_bytes.len()).copied().unwrap_or(0);

@@ -1,5 +1,5 @@
 [package]
-name = "macops"
+name = "macnest"
 version = "0.1.0"
 description = "macOS 运维面板 - 本地进程与Docker管理工具"
 edition = "2021"

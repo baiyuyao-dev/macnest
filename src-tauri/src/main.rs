@@ -44,7 +44,7 @@ fn main() {
             let app_handle = app.handle();
             let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
-            let db_path = app_dir.join("macops.db");
+            let db_path = app_dir.join("MacNest.db");
 
             let db_path_str = db_path.to_str().ok_or("Invalid database path")?;
             let db = Database::new(db_path_str).map_err(|e| e.to_string())?;
@@ -126,6 +126,7 @@ fn main() {
             commands::remove_container,
             commands::get_container_logs,
             commands::get_container_stats,
+            commands::recreate_container,
             // Docker terminal commands
             commands::docker_detect_shells,
             commands::docker_terminal_connect,
@@ -135,6 +136,7 @@ fn main() {
             commands::update_bookmark,
             commands::delete_bookmark,
             commands::list_bookmarks,
+            commands::record_bookmark_click,
             // Group commands
             commands::list_groups,
             commands::create_group,

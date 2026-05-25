@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxSession {
     pub name: String,
+    pub display_name: String,
     pub windows: usize,
     pub attached: bool,
     pub created_at: String,

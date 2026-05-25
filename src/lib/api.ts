@@ -113,6 +113,10 @@ export async function removeContainer(containerId: string): Promise<void> {
   return invokeSafe("remove_container", { containerId });
 }
 
+export async function recreateContainer(containerId: string): Promise<string> {
+  return invokeSafe("recreate_container", { containerId });
+}
+
 export async function getContainerLogs(containerId: string, tail = 100): Promise<string> {
   return invokeSafe("get_container_logs", { containerId, tail });
 }
@@ -199,6 +203,10 @@ export async function updateBookmark(
 
 export async function deleteBookmark(id: number): Promise<void> {
   return invokeSafe("delete_bookmark", { id });
+}
+
+export async function recordBookmarkClick(id: number): Promise<void> {
+  return invokeSafe("record_bookmark_click", { id });
 }
 
 // ===== 系统监控 =====
@@ -351,6 +359,7 @@ export async function sftpClearCompleted(): Promise<void> {
 
 export interface TmuxSession {
   name: string;
+  display_name: string;
   windows: number;
   attached: boolean;
   created_at: string;

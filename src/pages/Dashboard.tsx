@@ -31,6 +31,8 @@ import {
   restartService,
   tmuxListSessions,
   getActiveSshSessionsCount,
+  recordBookmarkClick,
+  openExternalUrl,
 } from "@/lib/api";
 import { formatBytes, statusVariant } from "@/lib/utils";
 import type { Service, DockerContainer, Bookmark as BookmarkType, Group, SystemInfo } from "@/types";
@@ -221,10 +223,19 @@ export default function Dashboard() {
     [containers]
   );
 
+  const handleBookmarkClick = async (bm: BookmarkType) => {
+    try {
+      await recordBookmarkClick(bm.id);
+      await openExternalUrl(bm.url);
+    } catch (error) {
+      console.error("Failed to open bookmark:", error);
+    }
+  };
+
   return (
-    <div className="space-y-6 p-6 animate-page-enter">
+    <div className="h-full flex flex-col p-6 animate-page-enter gap-6">
       {/* Header */}
-      <div className="flex items-center justify-between animate-slide-up" style={{ animationDelay: "0ms" }}>
+      <div className="flex items-center justify-between animate-slide-up flex-shrink-0" style={{ animationDelay: "0ms" }}>
         <div>
           <h1 className="text-[22px] font-bold tracking-tight">仪表盘</h1>
           <p className="text-xs text-muted-foreground mt-0.5">概览系统运行状态</p>
@@ -236,7 +247,7 @@ export default function Dashboard() {
 
       {/* Stats */}
       {initialLoading ? (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-4 flex-shrink-0">
           <StatCardSkeleton />
           <StatCardSkeleton />
           <StatCardSkeleton />
@@ -245,10 +256,10 @@ export default function Dashboard() {
           <StatCardSkeleton />
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-4 flex-shrink-0">
           <StatCard icon={Server} label="运行中服务" value={`${runningServices}`} sub={`/ ${services.length}`} colorClass="text-emerald-500" delay={50} />
           <StatCard icon={Container} label="Docker 容器" value={`${runningContainers}`} sub={`/ ${containers.length}`} colorClass="text-blue-500" delay={100} />
-          <StatCard icon={Bookmark} label="书签数量" value={bookmarks.length} colorClass="text-amber-500" delay={150} />
+          <StatCard icon={Bookmark} label="导航数量" value={bookmarks.length} colorClass="text-amber-500" delay={150} />
           <StatCard icon={Globe} label="本机 IP" value={systemInfo?.local_ip || "-"} colorClass="text-purple-500" delay={200} />
           <StatCard icon={LayoutGrid} label="Tmux 会话" value={tmuxSessions} colorClass="text-cyan-500" delay={250} />
           <StatCard icon={Terminal} label="SSH 终端" value={`${sshSessionCount}`} sub={`/ ${sshConnections}`} colorClass="text-rose-500" delay={300} />
@@ -256,10 +267,10 @@ export default function Dashboard() {
       )}
 
       {/* Services + Bookmarks */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
         {/* Services Card */}
-        <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "350ms" }}>
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--glass-border)]">
+        <div className="card-macos overflow-hidden animate-slide-up flex flex-col" style={{ animationDelay: "350ms" }}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--glass-border)] flex-shrink-0">
             <h3 className="flex items-center text-sm font-semibold tracking-tight">
               <Server className="mr-2 h-4 w-4 text-muted-foreground" />
               服务状态
@@ -268,7 +279,7 @@ export default function Dashboard() {
               查看全部 <ChevronRight className="ml-0.5 h-3 w-3" />
             </Button>
           </div>
-          <div className="p-3">
+          <div className="p-3 flex-1 overflow-y-auto">
             {initialLoading ? (
               <div className="space-y-1">
                 <ServiceRowSkeleton />
@@ -290,53 +301,52 @@ export default function Dashboard() {
                   <Plus className="mr-1 h-3 w-3" />添加服务
                 </Button>
               </div>
-            ) : services.filter((s) => s.status === "running").length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-10 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-                  <Server className="h-6 w-6 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">暂无运行中服务</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">所有服务当前均已停止</p>
-                </div>
-                <Button size="sm" variant="outline" className="mt-1" onClick={() => navigate("/services")}>
-                  <Play className="mr-1 h-3 w-3" />去启动服务
-                </Button>
-              </div>
             ) : (
               <div className="space-y-0.5">
-                {services.filter((s) => s.status === "running").slice(0, 5).map((svc) => (
+                {services.slice(0, 20).map((svc) => (
                   <div
                     key={svc.id}
                     className="flex items-center justify-between rounded-xl px-3 py-2.5 transition-all duration-200 hover:bg-accent/50 group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <Badge variant={statusVariant(svc.status)} className="text-[10px] shrink-0 font-semibold px-2 py-0.5 rounded-full">
-                        运行中
+                      <Badge variant={statusVariant(svc.status)} className="text-[10px] shrink-0 font-semibold px-2 py-0.5 rounded-full capitalize">
+                        {svc.status === "running" ? "运行中" : svc.status === "stopped" ? "已停止" : svc.status === "error" ? "异常" : "重启中"}
                       </Badge>
                       <span className="text-sm font-medium truncate">{svc.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {svc.ports && (
+                      {svc.ports && svc.status === "running" && (
                         <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
                           <span className="text-muted-foreground/60">端口</span>
                           <span className="font-mono">{svc.ports}</span>
                         </span>
                       )}
-                      <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
-                        <Cpu className="h-3 w-3 text-muted-foreground/60" />
-                        <span className="font-mono">{svc.cpu_percent?.toFixed(1)}%</span>
-                      </span>
-                      <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
-                        <MemoryStick className="h-3 w-3 text-muted-foreground/60" />
-                        <span className="font-mono">{svc.memory_mb?.toFixed(0)}MB</span>
-                      </span>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" onClick={() => handleStop(svc.id)} title="终止">
-                        <Square className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-amber-500 hover:bg-amber-500/10 hover:text-amber-600" onClick={() => handleRestart(svc.id)} title="重启">
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      </Button>
+                      {svc.status === "running" && (
+                        <>
+                          <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
+                            <Cpu className="h-3 w-3 text-muted-foreground/60" />
+                            <span className="font-mono">{svc.cpu_percent?.toFixed(1)}%</span>
+                          </span>
+                          <span className="text-[11px] text-muted-foreground hidden sm:flex items-center gap-0.5">
+                            <MemoryStick className="h-3 w-3 text-muted-foreground/60" />
+                            <span className="font-mono">{svc.memory_mb?.toFixed(0)}MB</span>
+                          </span>
+                        </>
+                      )}
+                      {svc.status === "running" ? (
+                        <>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" onClick={() => handleStop(svc.id)} title="终止">
+                            <Square className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-amber-500 hover:bg-amber-500/10 hover:text-amber-600" onClick={() => handleRestart(svc.id)} title="重启">
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      ) : (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600" onClick={() => handleStart(svc.id)} title="启动">
+                          <Play className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -346,8 +356,8 @@ export default function Dashboard() {
         </div>
 
         {/* Bookmarks Card */}
-        <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "400ms" }}>
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--glass-border)]">
+        <div className="card-macos overflow-hidden animate-slide-up flex flex-col" style={{ animationDelay: "400ms" }}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--glass-border)] flex-shrink-0">
             <h3 className="flex items-center text-sm font-semibold tracking-tight">
               <Bookmark className="mr-2 h-4 w-4 text-muted-foreground" />
               快速访问
@@ -356,7 +366,7 @@ export default function Dashboard() {
               查看全部 <ChevronRight className="ml-0.5 h-3 w-3" />
             </Button>
           </div>
-          <div className="p-3">
+          <div className="p-3 flex-1 overflow-y-auto">
             {initialLoading ? (
               <div className="grid grid-cols-2 gap-3">
                 <BookmarkCardSkeleton />
@@ -372,22 +382,20 @@ export default function Dashboard() {
                   <Bookmark className="h-6 w-6 text-muted-foreground" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium">还没有添加书签</p>
+                  <p className="text-sm font-medium">还没有添加导航</p>
                   <p className="text-xs text-muted-foreground mt-0.5">添加常用服务链接，快速访问</p>
                 </div>
                 <Button size="sm" className="btn-macos mt-1" onClick={() => navigate("/bookmarks")}>
-                  <Plus className="mr-1 h-3 w-3" />添加书签
+                  <Plus className="mr-1 h-3 w-3" />添加导航
                 </Button>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {bookmarks.slice(0, 6).map((bm) => (
-                  <a
+                {bookmarks.slice(0, 20).map((bm) => (
+                  <button
                     key={bm.id}
-                    href={bm.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex flex-col gap-1.5 rounded-xl border border-transparent p-3 transition-all duration-300 hover:bg-accent/40 hover:border-[var(--glass-border-strong)] hover:shadow-glass"
+                    onClick={() => handleBookmarkClick(bm)}
+                    className="group flex flex-col gap-1.5 rounded-xl border border-transparent p-3 transition-all duration-300 hover:bg-accent/40 hover:border-[var(--glass-border-strong)] hover:shadow-glass text-left cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110">
@@ -405,7 +413,7 @@ export default function Dashboard() {
                     <p className="pl-10 truncate text-[10px] text-muted-foreground font-mono">
                       {bm.url.replace(/^https?:\/\//, "").replace(/\/$/, "")}
                     </p>
-                  </a>
+                  </button>
                 ))}
               </div>
             )}

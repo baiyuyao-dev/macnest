@@ -24,6 +24,7 @@ pub struct Service {
     pub ports: String,
     pub cpu_percent: f64,
     pub memory_mb: f64,
+    pub start_count: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -39,6 +40,7 @@ pub struct Bookmark {
     pub service_id: Option<i64>,
     pub health_check_url: String,
     pub is_online: bool,
+    pub click_count: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -83,6 +85,17 @@ pub struct SshConnection {
     pub auth_type: String,
     pub auth_data: String,
     pub group_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TmuxSessionRecord {
+    pub id: i64,
+    pub tmux_name: String,
+    pub display_name: String,
+    pub start_directory: String,
+    pub command: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -220,6 +233,16 @@ impl Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS tmux_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tmux_name TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                start_directory TEXT DEFAULT '',
+                command TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
             "
         )?;
 
@@ -238,6 +261,12 @@ impl Database {
 
         // Migration: add group_type to groups
         let _ = conn.execute("ALTER TABLE groups ADD COLUMN group_type TEXT DEFAULT 'bookmark'", []);
+
+        // Migration: add start_count to services
+        let _ = conn.execute("ALTER TABLE services ADD COLUMN start_count INTEGER DEFAULT 0", []);
+
+        // Migration: add click_count to bookmarks
+        let _ = conn.execute("ALTER TABLE bookmarks ADD COLUMN click_count INTEGER DEFAULT 0", []);
 
         // Migration: fix groups unique constraint to include group_type
         // Check if old unique constraint exists (name, parent_id only) by checking
@@ -386,7 +415,7 @@ impl Database {
     pub fn list_services(&self) -> Result<Vec<Service>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, created_at, updated_at FROM services ORDER BY created_at DESC"
+            "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, start_count, created_at, updated_at FROM services ORDER BY start_count DESC, created_at DESC"
         )?;
         let services = stmt
             .query_map([], |row| {
@@ -406,8 +435,9 @@ impl Database {
                     ports: row.get(12)?,
                     cpu_percent: row.get(13)?,
                     memory_mb: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    start_count: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             })?
             .collect::<Result<Vec<_>>>()?;
@@ -417,7 +447,7 @@ impl Database {
     pub fn get_service(&self, id: i64) -> Result<Service> {
         let conn = self.conn()?;
         let service = conn.query_row(
-            "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, created_at, updated_at FROM services WHERE id = ?1",
+            "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, start_count, created_at, updated_at FROM services WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Service {
@@ -436,8 +466,9 @@ impl Database {
                     ports: row.get(12)?,
                     cpu_percent: row.get(13)?,
                     memory_mb: row.get(14)?,
-                    created_at: row.get(15)?,
-                    updated_at: row.get(16)?,
+                    start_count: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             },
         )?;
@@ -490,6 +521,14 @@ impl Database {
         self.conn()?.execute(
             "UPDATE services SET cpu_percent = ?1, memory_mb = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
             params![cpu_percent, memory_mb, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn increment_service_start_count(&self, id: i64) -> Result<()> {
+        self.conn()?.execute(
+            "UPDATE services SET start_count = start_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![id],
         )?;
         Ok(())
     }
@@ -587,9 +626,9 @@ impl Database {
     pub fn list_bookmarks(&self, group_id: Option<i64>) -> Result<Vec<Bookmark>> {
         let conn = self.conn()?;
         let query = if let Some(_gid) = group_id {
-            "SELECT id, name, url, description, group_id, icon, service_id, health_check_url, is_online, created_at, updated_at FROM bookmarks WHERE group_id = ?1 ORDER BY created_at DESC"
+            "SELECT id, name, url, description, group_id, icon, service_id, health_check_url, is_online, click_count, created_at, updated_at FROM bookmarks WHERE group_id = ?1 ORDER BY click_count DESC, created_at DESC"
         } else {
-            "SELECT id, name, url, description, group_id, icon, service_id, health_check_url, is_online, created_at, updated_at FROM bookmarks ORDER BY created_at DESC"
+            "SELECT id, name, url, description, group_id, icon, service_id, health_check_url, is_online, click_count, created_at, updated_at FROM bookmarks ORDER BY click_count DESC, created_at DESC"
         };
         let mut stmt = conn.prepare(query)?;
         let bookmarks = if let Some(gid) = group_id {
@@ -605,8 +644,9 @@ impl Database {
                         service_id: row.get(6)?,
                         health_check_url: row.get(7)?,
                         is_online: row.get(8)?,
-                        created_at: row.get(9)?,
-                        updated_at: row.get(10)?,
+                        click_count: row.get(9)?,
+                        created_at: row.get(10)?,
+                        updated_at: row.get(11)?,
                     })
                 })?
                 .collect::<Result<Vec<_>>>()?
@@ -623,8 +663,9 @@ impl Database {
                         service_id: row.get(6)?,
                         health_check_url: row.get(7)?,
                         is_online: row.get(8)?,
-                        created_at: row.get(9)?,
-                        updated_at: row.get(10)?,
+                        click_count: row.get(9)?,
+                        created_at: row.get(10)?,
+                        updated_at: row.get(11)?,
                     })
                 })?
                 .collect::<Result<Vec<_>>>()?
@@ -644,6 +685,14 @@ impl Database {
         self.conn()?.execute(
             "UPDATE bookmarks SET name = ?1, url = ?2, description = ?3, group_id = ?4, icon = ?5, updated_at = CURRENT_TIMESTAMP WHERE id = ?6",
             params![name, url, description, group_id, icon, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn increment_bookmark_click_count(&self, id: i64) -> Result<()> {
+        self.conn()?.execute(
+            "UPDATE bookmarks SET click_count = click_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![id],
         )?;
         Ok(())
     }
@@ -829,6 +878,93 @@ impl Database {
     pub fn delete_ssh_connection(&self, id: i64) -> Result<()> {
         let conn = self.conn()?;
         conn.execute("DELETE FROM ssh_connections WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // === Tmux Session Mappings ===
+
+    pub fn create_tmux_session(&self, tmux_name: &str, display_name: &str, start_directory: &str, command: &str) -> Result<i64> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO tmux_sessions (tmux_name, display_name, start_directory, command) VALUES (?1, ?2, ?3, ?4)",
+            params![tmux_name, display_name, start_directory, command],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_tmux_session_by_tmux_name(&self, tmux_name: &str) -> Result<Option<TmuxSessionRecord>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, tmux_name, display_name, start_directory, command, created_at, updated_at FROM tmux_sessions WHERE tmux_name = ?1"
+        )?;
+        let mut rows = stmt.query(params![tmux_name])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(TmuxSessionRecord {
+                id: row.get(0)?,
+                tmux_name: row.get(1)?,
+                display_name: row.get(2)?,
+                start_directory: row.get(3)?,
+                command: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_tmux_session_by_display_name(&self, display_name: &str) -> Result<Option<TmuxSessionRecord>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, tmux_name, display_name, start_directory, command, created_at, updated_at FROM tmux_sessions WHERE display_name = ?1"
+        )?;
+        let mut rows = stmt.query(params![display_name])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(TmuxSessionRecord {
+                id: row.get(0)?,
+                tmux_name: row.get(1)?,
+                display_name: row.get(2)?,
+                start_directory: row.get(3)?,
+                command: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_tmux_sessions(&self) -> Result<Vec<TmuxSessionRecord>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, tmux_name, display_name, start_directory, command, created_at, updated_at FROM tmux_sessions ORDER BY created_at DESC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TmuxSessionRecord {
+                id: row.get(0)?,
+                tmux_name: row.get(1)?,
+                display_name: row.get(2)?,
+                start_directory: row.get(3)?,
+                command: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn update_tmux_session_display_name(&self, tmux_name: &str, display_name: &str) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE tmux_sessions SET display_name = ?1, updated_at = CURRENT_TIMESTAMP WHERE tmux_name = ?2",
+            params![display_name, tmux_name],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_tmux_session_by_tmux_name(&self, tmux_name: &str) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM tmux_sessions WHERE tmux_name = ?1", params![tmux_name])?;
         Ok(())
     }
 }

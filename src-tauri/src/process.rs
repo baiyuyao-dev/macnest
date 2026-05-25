@@ -144,7 +144,7 @@ impl ProcessManager {
     pub fn stop_service_by_pid(&self, service_id: i64, pid: u32) -> Result<(), String> {
         // Collect the entire process tree rooted at this PID
         let pids = collect_pids(pid);
-        eprintln!("[macops] Stopping service {} — killing PID tree: {:?}", service_id, pids);
+        eprintln!("[macnest] Stopping service {} — killing PID tree: {:?}", service_id, pids);
 
         // Phase 1: graceful termination (SIGTERM) for all processes
         for &p in &pids {

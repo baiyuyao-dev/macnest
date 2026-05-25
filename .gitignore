@@ -3,4 +3,11 @@ dist/
 .DS_Store
 *.log
 target/
+.env
+.env.local
+.env.*.local
 
+
+# Development tools
+.claude/
+.superpowers/

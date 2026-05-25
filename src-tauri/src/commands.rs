@@ -211,6 +211,8 @@ pub async fn start_service(
         .update_service_status(id, "running", Some(pid as i64), &ports_str)
         .map_err(|e| e.to_string())?;
 
+    let _ = state.db.increment_service_start_count(id);
+
     Ok(pid)
 }
 
@@ -304,6 +306,8 @@ pub async fn restart_service(
         .update_service_status(id, "running", Some(pid as i64), &ports_str)
         .map_err(|e| e.to_string())?;
 
+    let _ = state.db.increment_service_start_count(id);
+
     Ok(pid)
 }
 
@@ -355,26 +359,26 @@ fn detect_ports_for_pid(pid: u32) -> Result<Vec<String>, String> {
 /// Scan all listening TCP ports and return those belonging to the process tree rooted at `pid`.
 fn detect_ports(pid: u32) -> Result<Vec<String>, String> {
     let all_pids = crate::process::collect_pids(pid);
-    eprintln!("[macops] detect_ports: root_pid={}, all_pids={:?}", pid, all_pids);
+    eprintln!("[MacNest] detect_ports: root_pid={}, all_pids={:?}", pid, all_pids);
 
     let mut all_ports = Vec::new();
     for &p in &all_pids {
         match detect_ports_for_pid(p) {
             Ok(ports) => {
                 if !ports.is_empty() {
-                    eprintln!("[macops]   PID {} ports: {:?}", p, ports);
+                    eprintln!("[MacNest]   PID {} ports: {:?}", p, ports);
                     all_ports.extend(ports);
                 }
             }
             Err(e) => {
-                eprintln!("[macops]   PID {} error: {}", p, e);
+                eprintln!("[MacNest]   PID {} error: {}", p, e);
             }
         }
     }
 
     all_ports.sort();
     all_ports.dedup();
-    eprintln!("[macops] detect_ports result: {:?}", all_ports);
+    eprintln!("[MacNest] detect_ports result: {:?}", all_ports);
     Ok(all_ports)
 }
 
@@ -413,6 +417,11 @@ pub async fn get_container_logs(container_id: String, tail: i64) -> Result<Strin
 #[tauri::command]
 pub async fn get_container_stats(container_id: String) -> Result<docker::ContainerStats, String> {
     docker::get_container_stats(&container_id).await
+}
+
+#[tauri::command]
+pub async fn recreate_container(container_id: String) -> Result<String, String> {
+    docker::recreate_container(&container_id).await
 }
 
 // === Docker Terminal Commands ===
@@ -585,6 +594,11 @@ pub fn update_bookmark(
 #[tauri::command]
 pub fn delete_bookmark(state: State<AppState>, id: i64) -> Result<(), String> {
     state.db.delete_bookmark(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn record_bookmark_click(state: State<AppState>, id: i64) -> Result<(), String> {
+    state.db.increment_bookmark_click_count(id).map_err(|e| e.to_string())
 }
 
 // === System Commands ===
@@ -1126,23 +1140,23 @@ use crate::tmux::types::{
 use tauri::ipc::Channel;
 
 #[tauri::command]
-pub fn tmux_list_sessions() -> Result<Vec<TmuxSession>, String> {
-    crate::tmux::commands::list_sessions()
+pub fn tmux_list_sessions(state: State<AppState>) -> Result<Vec<TmuxSession>, String> {
+    crate::tmux::commands::list_sessions(&state.db)
 }
 
 #[tauri::command]
-pub fn tmux_create_session(req: CreateTmuxSessionRequest) -> Result<(), String> {
-    crate::tmux::commands::create_session(&req)
+pub fn tmux_create_session(state: State<AppState>, req: CreateTmuxSessionRequest) -> Result<(), String> {
+    crate::tmux::commands::create_session(&state.db, &req)
 }
 
 #[tauri::command]
-pub fn tmux_kill_session(name: String) -> Result<(), String> {
-    crate::tmux::commands::kill_session(&name)
+pub fn tmux_kill_session(state: State<AppState>, name: String) -> Result<(), String> {
+    crate::tmux::commands::kill_session(&state.db, &name)
 }
 
 #[tauri::command]
-pub fn tmux_rename_session(req: RenameTmuxSessionRequest) -> Result<(), String> {
-    crate::tmux::commands::rename_session(&req)
+pub fn tmux_rename_session(state: State<AppState>, req: RenameTmuxSessionRequest) -> Result<(), String> {
+    crate::tmux::commands::rename_session(&state.db, &req)
 }
 
 #[tauri::command]
@@ -1158,7 +1172,8 @@ pub fn tmux_attach_pty(
     rows: u16,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let pty_session = crate::tmux::pty::attach_session_pty(&session_name, channel, cols, rows)?;
+    let tmux_name = crate::tmux::commands::resolve_tmux_name(&state.db, &session_name)?;
+    let pty_session = crate::tmux::pty::attach_session_pty(&tmux_name, channel, cols, rows)?;
     let pty_id = uuid::Uuid::new_v4().to_string();
 
     state
@@ -1217,7 +1232,9 @@ pub fn tmux_pty_close(pty_id: String, state: State<'_, AppState>) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn tmux_open_in_ghostty(session_name: String) -> Result<(), String> {
+pub fn tmux_open_in_ghostty(state: State<AppState>, session_name: String) -> Result<(), String> {
+    let tmux_name = crate::tmux::commands::resolve_tmux_name(&state.db, &session_name)?;
+
     // 方案1: 直接通过 ghostty CLI 启动（最可靠）
     let ghostty_in_path = std::process::Command::new("which")
         .arg("ghostty")
@@ -1227,7 +1244,11 @@ pub fn tmux_open_in_ghostty(session_name: String) -> Result<(), String> {
 
     if ghostty_in_path {
         let result = std::process::Command::new("ghostty")
-            .args(["-e", &format!("tmux attach -t {}", session_name)])
+            .arg("-e")
+            .arg("tmux")
+            .arg("attach")
+            .arg("-t")
+            .arg(&tmux_name)
             .spawn();
         if result.is_ok() {
             return Ok(());
@@ -1241,7 +1262,10 @@ pub fn tmux_open_in_ghostty(session_name: String) -> Result<(), String> {
             "Ghostty",
             "--args",
             "-e",
-            &format!("tmux attach -t {}", session_name),
+            "tmux",
+            "attach",
+            "-t",
+            &tmux_name,
         ])
         .output();
 
@@ -1261,7 +1285,7 @@ tell application "System Events" to tell process "Ghostty"
     keystroke "tmux attach -t {}"
     keystroke return
 end tell"#,
-        session_name
+        tmux_name
     );
 
     let output = std::process::Command::new("osascript")

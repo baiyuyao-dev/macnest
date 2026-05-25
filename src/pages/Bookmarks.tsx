@@ -123,11 +123,11 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
         <Bookmark className="h-8 w-8 text-muted-foreground" />
       </div>
-      <h3 className="mt-5 text-base font-semibold tracking-tight">还没有书签</h3>
-      <p className="mt-1.5 text-sm text-muted-foreground">添加你的第一个书签来快速访问常用服务</p>
+      <h3 className="mt-5 text-base font-semibold tracking-tight">还没有导航</h3>
+      <p className="mt-1.5 text-sm text-muted-foreground">添加你的第一个导航来快速访问常用服务</p>
       <Button className="btn-macos mt-5 rounded-xl" onClick={onCreate}>
         <Plus className="mr-1.5 h-3.5 w-3.5" />
-        添加第一个书签
+        添加第一个导航
       </Button>
     </div>
   );
@@ -542,11 +542,11 @@ export default function BookmarksPage() {
         <div className="flex items-center justify-between animate-slide-up">
           <div>
             <h1 className="text-[22px] font-bold tracking-tight">服务导航</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">管理常用服务书签</p>
+            <p className="text-xs text-muted-foreground mt-0.5">管理常用服务导航</p>
           </div>
           <Button className="btn-macos rounded-xl" onClick={openCreateDialog}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
-            添加书签
+            添加导航
           </Button>
         </div>
 
@@ -555,7 +555,7 @@ export default function BookmarksPage() {
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索书签名称、URL..."
+              placeholder="搜索导航名称、URL..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="input-macos pl-10"
@@ -589,7 +589,7 @@ export default function BookmarksPage() {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted mb-4">
               <Search className="h-6 w-6 text-muted-foreground" />
             </div>
-            <p className="text-sm text-muted-foreground">没有找到匹配的书签</p>
+            <p className="text-sm text-muted-foreground">没有找到匹配的导航</p>
             <Button variant="outline" className="mt-4 rounded-lg btn-macos-secondary" onClick={() => setSearchQuery("")}>
               清除搜索
             </Button>
@@ -617,7 +617,7 @@ export default function BookmarksPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="glass-strong border-[var(--glass-border-strong)] w-[48rem] max-w-[90vw]">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">{dialogMode === "edit" ? "编辑书签" : "添加书签"}</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{dialogMode === "edit" ? "编辑导航" : "添加导航"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
             <div className="space-y-1.5">
@@ -725,7 +725,7 @@ export default function BookmarksPage() {
           </DialogHeader>
           <div className="py-2">
             <p className="text-sm text-muted-foreground">
-              确定要删除该分组吗？该分组下的书签将变为未分组，子分组将提升为一级分组。
+              确定要删除该分组吗？该分组下的导航将变为未分组，子分组将提升为一级分组。
             </p>
           </div>
           <div className="flex justify-end gap-2">
@@ -739,11 +739,11 @@ export default function BookmarksPage() {
       <Dialog open={bookmarkDeleteConfirmOpen} onOpenChange={setBookmarkDeleteConfirmOpen}>
         <DialogContent className="glass-strong border-[var(--glass-border-strong)]">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">确认删除书签</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">确认删除导航</DialogTitle>
           </DialogHeader>
           <div className="py-2">
             <p className="text-sm text-muted-foreground">
-              确定要删除该书签吗？删除后将无法恢复。
+              确定要删除该导航吗？删除后将无法恢复。
             </p>
           </div>
           <div className="flex justify-end gap-2">
