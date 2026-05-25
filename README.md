@@ -19,7 +19,21 @@ MacNest 是一款基于 **Tauri v2 + Rust + React** 构建的 macOS 桌面应用
 
 ## 截图
 
-> 待补充：欢迎提交 UI 截图 PR
+| 仪表盘 | 服务管理 |
+|--------|----------|
+| ![仪表盘](screenshots/dashboard.png) | ![服务管理](screenshots/services.png) |
+
+| Docker 管理 | SSH 终端 |
+|-------------|----------|
+| ![Docker 管理](screenshots/docker.png) | ![SSH 终端](screenshots/terminal.png) |
+
+| Tmux 会话 | 服务导航 |
+|-----------|----------|
+| ![Tmux 会话](screenshots/tmux.png) | ![服务导航](screenshots/bookmarks.png) |
+
+| 系统监控 |
+|----------|
+| ![系统监控](screenshots/system.png) |
 
 ## 技术栈
 
