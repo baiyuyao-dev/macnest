@@ -293,7 +293,7 @@ export default function Tmux() {
 
       {/* 创建对话框 */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">新建 tmux 会话</DialogTitle>
           </DialogHeader>
@@ -320,7 +320,7 @@ export default function Tmux() {
 
       {/* 重命名对话框 */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">重命名会话</DialogTitle>
           </DialogHeader>
