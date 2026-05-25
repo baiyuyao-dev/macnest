@@ -172,6 +172,7 @@ export interface TmuxSession {
   attached: boolean;
   created_at: string;
   pid: number;
+  start_directory?: string;
 }
 
 export interface CreateTmuxSessionRequest {

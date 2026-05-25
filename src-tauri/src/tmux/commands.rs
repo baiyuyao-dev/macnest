@@ -27,11 +27,15 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let now = chrono::Utc::now().timestamp();
 
-    // 2. 从数据库获取映射关系
+    // 2. 从数据库获取映射关系（包含 display_name 和 start_directory）
     let db_sessions = db.list_tmux_sessions().unwrap_or_default();
     let name_map: std::collections::HashMap<String, String> = db_sessions
+        .iter()
+        .map(|r| (r.tmux_name.clone(), r.display_name.clone()))
+        .collect();
+    let dir_map: std::collections::HashMap<String, String> = db_sessions
         .into_iter()
-        .map(|r| (r.tmux_name, r.display_name))
+        .map(|r| (r.tmux_name, r.start_directory))
         .collect();
 
     let sessions = stdout
@@ -44,6 +48,10 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
                 .get(&tmux_name)
                 .cloned()
                 .unwrap_or_else(|| tmux_name.clone());
+            let start_directory = dir_map
+                .get(&tmux_name)
+                .cloned()
+                .filter(|s| !s.is_empty());
             TmuxSession {
                 name: tmux_name,
                 display_name,
@@ -51,6 +59,7 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
                 attached: parts.get(2).unwrap_or(&"0") == &"1",
                 created_at: format_timestamp(parts.get(3).unwrap_or(&"0"), now),
                 pid: parts.get(4).unwrap_or(&"0").parse().unwrap_or(0),
+                start_directory,
             }
         })
         .collect();

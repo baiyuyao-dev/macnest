@@ -9,6 +9,7 @@ pub struct TmuxSession {
     pub attached: bool,
     pub created_at: String,
     pub pid: u32,
+    pub start_directory: Option<String>,
 }
 
 /// 创建会话请求

@@ -39,6 +39,7 @@ export default function Tmux() {
   const [deleteTarget, setDeleteTarget] = useState("");
   const [newName, setNewName] = useState("");
   const [renameTarget, setRenameTarget] = useState("");
+  const [newCwd, setNewCwd] = useState("");
   const [activeSession, setActiveSession] = useState<string | null>(null);
 
   const loadSessions = useCallback(async () => {
@@ -73,8 +74,12 @@ export default function Tmux() {
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
-      await tmuxCreateSession({ name: newName.trim() });
+      await tmuxCreateSession({
+        name: newName.trim(),
+        start_directory: newCwd.trim() || undefined,
+      });
       setNewName("");
+      setNewCwd("");
       setCreateOpen(false);
       loadSessions();
     } catch (e: unknown) {
@@ -213,6 +218,9 @@ export default function Tmux() {
                         <p className="text-sm font-semibold">{s.display_name}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
                           {s.windows} 个窗口 · {s.created_at}
+                          {s.start_directory && (
+                            <span className="ml-1.5 text-[10px] opacity-70">· {s.start_directory}</span>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -296,8 +304,14 @@ export default function Tmux() {
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos mt-1.5"
               />
             </div>
+            <div>
+              <Label className="text-xs">工作目录</Label>
+              <Input value={newCwd} onChange={(e) => setNewCwd(e.target.value)} placeholder="如 /Users/xxx/projects，留空使用主目录"
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos mt-1.5"
+              />
+            </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setCreateOpen(false)}>取消</Button>
+              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setNewName(""); setNewCwd(""); setCreateOpen(false); }}>取消</Button>
               <Button size="sm" className="btn-macos rounded-lg" onClick={handleCreate} disabled={!newName.trim()}>创建</Button>
             </div>
           </div>
