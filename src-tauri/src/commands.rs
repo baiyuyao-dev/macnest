@@ -1249,12 +1249,13 @@ pub fn tmux_open_in_ghostty(state: State<AppState>, session_name: String) -> Res
 
     // 方案1: 直接调用 ghostty CLI（最可靠）
     if let Some(path) = ghostty_path {
+        // Ghostty 的 -e 会把所有参数传给 login，但 login 只接受单个程序名。
+        // 用 sh -c 包装，让 login 启动 sh，sh 再执行 tmux attach。
         let result = std::process::Command::new(path)
             .arg("-e")
-            .arg("tmux")
-            .arg("attach")
-            .arg("-t")
-            .arg(&tmux_name)
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(format!("tmux attach -t '{}'", tmux_name.replace('\'', "'\"'\"'")))
             .spawn();
 
         match result {
