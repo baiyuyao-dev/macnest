@@ -27,21 +27,11 @@ export default function TmuxTerminal({ sessionName, onDetach }: TmuxTerminalProp
 
       const { Channel } = await import("@tauri-apps/api/core");
       const channel = new Channel<Uint8Array>((message: unknown) => {
-        let data: Uint8Array;
         if (message instanceof Uint8Array) {
-          data = message;
+          term.write(message);
         } else if (Array.isArray(message)) {
-          data = new Uint8Array(message);
-        } else {
-          return;
+          term.write(new Uint8Array(message));
         }
-
-        // 过滤 tmux 鼠标模式指令，保留本地选区功能
-        const filtered = new TextDecoder().decode(data).replace(
-          /\x1b\[\?(1000|1001|1002|1003|1004|1005|1006|1015)[hl]/g,
-          ""
-        );
-        term.write(filtered);
       });
 
       try {
