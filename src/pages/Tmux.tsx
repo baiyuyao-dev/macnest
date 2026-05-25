@@ -198,10 +198,10 @@ export default function Tmux() {
               {sessions.map((s, i) => (
                 <div
                   key={s.name}
-                  className={`group card-macos p-4 cursor-pointer transition-all duration-300 hover:shadow-glass-lg animate-slide-up ${
+                  className={`group card-macos p-4 cursor-pointer transition-all duration-300 hover:bg-accent/40 hover:shadow-glass-lg animate-slide-up ${
                     activeSession === s.name
                       ? "border-primary/50 shadow-glass-lg"
-                      : ""
+                      : "hover:border-[var(--glass-border-strong)]"
                   }`}
                   style={{ animationDelay: `${i * 50}ms` }}
                   onClick={() => handleAttach(s.name)}
