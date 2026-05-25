@@ -962,6 +962,15 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_tmux_session_start_directory(&self, tmux_name: &str, start_directory: &str) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE tmux_sessions SET start_directory = ?1, updated_at = CURRENT_TIMESTAMP WHERE tmux_name = ?2",
+            params![start_directory, tmux_name],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_tmux_session_by_tmux_name(&self, tmux_name: &str) -> Result<()> {
         let conn = self.conn()?;
         conn.execute("DELETE FROM tmux_sessions WHERE tmux_name = ?1", params![tmux_name])?;

@@ -106,6 +106,17 @@ fn validate_tmux_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_directory(dir: &str) -> Result<(), String> {
+    let path = std::path::Path::new(dir);
+    if !path.exists() {
+        return Err(format!("路径不存在: {}", dir));
+    }
+    if !path.is_dir() {
+        return Err(format!("路径不是目录: {}", dir));
+    }
+    Ok(())
+}
+
 /// 创建新会话（detached 模式）
 pub fn create_session(db: &Database, req: &CreateTmuxSessionRequest) -> Result<(), String> {
     let display_name = req.name.trim();
@@ -126,6 +137,10 @@ pub fn create_session(db: &Database, req: &CreateTmuxSessionRequest) -> Result<(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
+
+    // 验证工作目录
+    validate_directory(&start_dir)?;
+
     cmd.args(["-c", &start_dir]);
 
     if let Some(ref command) = req.command {
@@ -225,6 +240,37 @@ pub fn rename_session(
             if !output.status.success() {
                 return Err(String::from_utf8_lossy(&output.stderr).to_string());
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// 更新会话的工作目录（仅更新数据库，不影响已运行的 tmux 会话）
+pub fn update_session_start_directory(
+    db: &Database,
+    display_name: &str,
+    start_directory: &str,
+) -> Result<(), String> {
+    // 验证路径
+    if !start_directory.is_empty() {
+        validate_directory(start_directory)?;
+    }
+
+    let record = db
+        .get_tmux_session_by_display_name(display_name)
+        .map_err(|e| e.to_string())?;
+
+    match record {
+        Some(r) => {
+            db.update_tmux_session_start_directory(&r.tmux_name, start_directory)
+                .map_err(|e| format!("更新工作目录失败: {}", e))?;
+        }
+        None => {
+            return Err(format!(
+                "未找到会话 '{}' 的数据库记录，无法更新工作目录",
+                display_name
+            ));
         }
     }
 

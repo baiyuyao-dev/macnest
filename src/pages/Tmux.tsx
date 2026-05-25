@@ -18,13 +18,17 @@ import {
   Square,
   ExternalLink,
   Terminal as TerminalIcon,
+  Copy,
+  FolderOpen,
 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import TmuxTerminal from "@/components/terminal/TmuxTerminal";
 import {
   tmuxListSessions,
   tmuxCreateSession,
   tmuxKillSession,
   tmuxRenameSession,
+  tmuxUpdateSessionStartDirectory,
   tmuxOpenInGhostty,
 } from "@/lib/api";
 import type { TmuxSession } from "@/types";
@@ -34,12 +38,14 @@ export default function Tmux() {
   const [loading, setLoading] = useState(true);
   const [hasTmux, setHasTmux] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState("");
   const [newName, setNewName] = useState("");
-  const [renameTarget, setRenameTarget] = useState("");
   const [newCwd, setNewCwd] = useState("");
+  const [editTarget, setEditTarget] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editCwd, setEditCwd] = useState("");
   const [activeSession, setActiveSession] = useState<string | null>(null);
 
   const loadSessions = useCallback(async () => {
@@ -83,7 +89,8 @@ export default function Tmux() {
       setCreateOpen(false);
       loadSessions();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
+      console.error("[Tmux Create] Failed:", e);
       alert(`创建失败: ${msg}`);
     }
   };
@@ -101,26 +108,107 @@ export default function Tmux() {
       setDeleteTarget("");
       loadSessions();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
+      console.error("[Tmux Kill] Failed:", e);
       alert(`删除失败: ${msg}`);
     }
   };
 
-  const handleRename = async () => {
-    if (!newName.trim() || !renameTarget) return;
-    try {
-      await tmuxRenameSession({
-        old_name: renameTarget,
-        new_name: newName.trim(),
-      });
-      setNewName("");
-      setRenameOpen(false);
-      setRenameTarget("");
-      loadSessions();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      alert(`重命名失败: ${msg}`);
+  // 统一提取错误消息（处理 AppError 对象）
+  const getErrorMessage = (e: unknown): string => {
+    if (e instanceof Error) return e.message;
+    if (typeof e === "string") return e;
+    if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+    return String(e);
+  };
+
+  const handleEdit = async () => {
+    if (!editName.trim() || !editTarget) return;
+    const trimmedName = editName.trim();
+    const trimmedCwd = editCwd.trim();
+
+    // 查找原始会话信息
+    const original = sessions.find((s) => s.display_name === editTarget);
+    if (!original) {
+      alert("会话信息已失效，请刷新后重试");
+      return;
     }
+
+    const originalCwd = original.start_directory || "";
+    const nameChanged = trimmedName !== editTarget;
+    const cwdChanged = trimmedCwd !== originalCwd;
+
+    console.log("[Tmux Edit]", { editTarget, trimmedName, trimmedCwd, originalCwd, nameChanged, cwdChanged });
+
+    if (!nameChanged && !cwdChanged) {
+      setEditOpen(false);
+      setEditTarget("");
+      setEditName("");
+      setEditCwd("");
+      return; // 没有任何变化
+    }
+
+    try {
+      // 1. 更新名称（如有变化）
+      if (nameChanged) {
+        console.log("[Tmux Edit] Renaming:", editTarget, "->", trimmedName);
+        await tmuxRenameSession({
+          old_name: editTarget,
+          new_name: trimmedName,
+        });
+      }
+
+      // 2. 更新工作目录（如有变化）
+      if (cwdChanged) {
+        const lookupName = nameChanged ? trimmedName : editTarget;
+        console.log("[Tmux Edit] Updating directory for:", lookupName, "->", trimmedCwd);
+        await tmuxUpdateSessionStartDirectory(lookupName, trimmedCwd);
+      }
+
+      setEditOpen(false);
+      setEditTarget("");
+      setEditName("");
+      setEditCwd("");
+      await loadSessions();
+
+      // 3. 如果工作目录变了，提示用户是否需要销毁重建
+      if (cwdChanged) {
+        const shouldRebuild = confirm(
+          "工作目录已更新，但当前运行的 tmux 会话不会自动切换目录。\n\n" +
+          "是否需要销毁当前会话并重新创建以应用新目录？\n\n" +
+          "⚠️ 警告：此操作会丢失当前会话内的所有状态（如未保存的工作、历史命令等）。"
+        );
+        if (shouldRebuild) {
+          try {
+            // 获取最新的 display_name（可能已重命名）
+            const displayNameToKill = nameChanged ? trimmedName : editTarget;
+            console.log("[Tmux Edit] Rebuilding session:", displayNameToKill);
+            await tmuxKillSession(displayNameToKill);
+            await tmuxCreateSession({
+              name: nameChanged ? trimmedName : editTarget,
+              start_directory: trimmedCwd || undefined,
+            });
+            await loadSessions();
+            alert("会话已重建，新工作目录已生效。");
+          } catch (e: unknown) {
+            const msg = getErrorMessage(e);
+            console.error("[Tmux Edit] Rebuild failed:", e);
+            alert(`重建失败: ${msg}`);
+          }
+        }
+      }
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e);
+      console.error("[Tmux Edit] Edit failed:", e);
+      alert(`编辑失败: ${msg}`);
+    }
+  };
+
+  const handleCopy = (session: TmuxSession) => {
+    const copyName = session.display_name + "-copy";
+    setNewName(copyName);
+    setNewCwd(session.start_directory || "");
+    setCreateOpen(true);
   };
 
   const handleAttach = (name: string) => {
@@ -135,13 +223,20 @@ export default function Tmux() {
     try {
       await tmuxOpenInGhostty(displayName);
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === "object" && e !== null && "message" in e
-            ? String((e as { message: unknown }).message)
-            : String(e);
+      const msg = getErrorMessage(e);
+      console.error("[Tmux Ghostty] Failed:", e);
       alert(`Ghostty 打开失败: ${msg}`);
+    }
+  };
+
+  const pickDirectory = async (setter: (path: string) => void) => {
+    try {
+      const selected = await open({ directory: true });
+      if (selected && typeof selected === "string") {
+        setter(selected);
+      }
+    } catch {
+      // 用户取消选择，忽略
     }
   };
 
@@ -175,7 +270,7 @@ export default function Tmux() {
             <RefreshCw className="mr-1 h-3.5 w-3.5" />
             刷新
           </Button>
-          <Button size="sm" className="h-8 text-xs rounded-lg btn-macos" onClick={() => { setNewName(""); setCreateOpen(true); }}>
+          <Button size="sm" className="h-8 text-xs rounded-lg btn-macos" onClick={() => { setNewName(""); setNewCwd(""); setCreateOpen(true); }}>
             <Plus className="mr-1 h-3.5 w-3.5" />
             新建会话
           </Button>
@@ -242,7 +337,19 @@ export default function Tmux() {
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
-                            onClick={(e) => { e.stopPropagation(); setRenameTarget(s.display_name); setNewName(s.display_name); setRenameOpen(true); }}
+                            onClick={(e) => { e.stopPropagation(); handleCopy(s); }} title="复制配置新建"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditTarget(s.display_name);
+                              setEditName(s.display_name);
+                              setEditCwd(s.start_directory || "");
+                              setEditOpen(true);
+                            }}
+                            title="编辑"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -306,9 +413,17 @@ export default function Tmux() {
             </div>
             <div>
               <Label className="text-xs">工作目录</Label>
-              <Input value={newCwd} onChange={(e) => setNewCwd(e.target.value)} placeholder="如 /Users/xxx/projects，留空使用主目录"
-                onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos mt-1.5"
-              />
+              <div className="flex gap-2 mt-1.5">
+                <Input value={newCwd} onChange={(e) => setNewCwd(e.target.value)} placeholder="如 /Users/xxx/projects，留空使用主目录"
+                  onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos flex-1"
+                />
+                <Button variant="outline" size="sm" className="h-9 px-3 rounded-lg text-xs"
+                  onClick={() => pickDirectory(setNewCwd)} type="button"
+                >
+                  <FolderOpen className="h-3.5 w-3.5 mr-1" />
+                  浏览
+                </Button>
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setNewName(""); setNewCwd(""); setCreateOpen(false); }}>取消</Button>
@@ -318,20 +433,39 @@ export default function Tmux() {
         </DialogContent>
       </Dialog>
 
-      {/* 重命名对话框 */}
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+      {/* 编辑对话框 */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">重命名会话</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">编辑会话</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-1">
             <div>
-              <Label className="text-xs">新名称</Label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRename()} className="input-macos mt-1.5" />
+              <Label className="text-xs">会话名称</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="会话名称"
+                onKeyDown={(e) => e.key === "Enter" && handleEdit()} className="input-macos mt-1.5"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">工作目录</Label>
+              <div className="flex gap-2 mt-1.5">
+                <Input value={editCwd} onChange={(e) => setEditCwd(e.target.value)} placeholder="如 /Users/xxx/projects"
+                  onKeyDown={(e) => e.key === "Enter" && handleEdit()} className="input-macos flex-1"
+                />
+                <Button variant="outline" size="sm" className="h-9 px-3 rounded-lg text-xs"
+                  onClick={() => pickDirectory(setEditCwd)} type="button"
+                >
+                  <FolderOpen className="h-3.5 w-3.5 mr-1" />
+                  浏览
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                修改工作目录后，当前运行的 tmux 会话不会自动切换。保存后可选择是否销毁重建以应用新目录。
+              </p>
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setRenameOpen(false)}>取消</Button>
-              <Button size="sm" className="btn-macos rounded-lg" onClick={handleRename} disabled={!newName.trim()}>重命名</Button>
+              <Button variant="outline" size="sm" className="rounded-lg" onClick={() => { setEditOpen(false); setEditTarget(""); }}>取消</Button>
+              <Button size="sm" className="btn-macos rounded-lg" onClick={handleEdit} disabled={!editName.trim()}>保存</Button>
             </div>
           </div>
         </DialogContent>

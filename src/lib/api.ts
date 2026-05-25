@@ -393,6 +393,16 @@ export async function tmuxRenameSession(req: RenameTmuxSessionRequest): Promise<
   return invokeSafe("tmux_rename_session", { req });
 }
 
+export async function tmuxUpdateSessionStartDirectory(
+  display_name: string,
+  start_directory: string
+): Promise<void> {
+  return invokeSafe("tmux_update_session_start_directory", {
+    displayName: display_name,
+    startDirectory: start_directory,
+  });
+}
+
 export async function tmuxIsAvailable(): Promise<boolean> {
   return invokeSafe("tmux_is_available");
 }

@@ -173,6 +173,7 @@ fn main() {
             commands::tmux_create_session,
             commands::tmux_kill_session,
             commands::tmux_rename_session,
+            commands::tmux_update_session_start_directory,
             commands::tmux_is_available,
             commands::tmux_attach_pty,
             commands::tmux_pty_write,
