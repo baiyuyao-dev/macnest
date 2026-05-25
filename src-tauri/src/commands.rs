@@ -1235,55 +1235,58 @@ pub fn tmux_pty_close(pty_id: String, state: State<'_, AppState>) -> Result<(), 
 pub fn tmux_open_in_ghostty(state: State<AppState>, session_name: String) -> Result<(), String> {
     let tmux_name = crate::tmux::commands::resolve_tmux_name(&state.db, &session_name)?;
 
-    // 方案1: 直接通过 ghostty CLI 启动（最可靠）
-    let ghostty_in_path = std::process::Command::new("which")
-        .arg("ghostty")
-        .output()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false);
+    // 查找 ghostty 可执行文件路径
+    let ghostty_paths = [
+        "/opt/homebrew/bin/ghostty",
+        "/usr/local/bin/ghostty",
+        "/Applications/Ghostty.app/Contents/MacOS/ghostty",
+    ];
 
-    if ghostty_in_path {
-        let result = std::process::Command::new("ghostty")
+    let ghostty_path = ghostty_paths
+        .iter()
+        .find(|&&p| std::path::Path::new(p).exists())
+        .copied();
+
+    // 方案1: 直接调用 ghostty CLI（最可靠）
+    if let Some(path) = ghostty_path {
+        let result = std::process::Command::new(path)
             .arg("-e")
             .arg("tmux")
             .arg("attach")
             .arg("-t")
             .arg(&tmux_name)
             .spawn();
-        if result.is_ok() {
-            return Ok(());
+
+        match result {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                // CLI 启动失败，尝试方案2
+                eprintln!("ghostty CLI spawn failed: {}, trying open", e);
+            }
         }
     }
 
-    // 方案2: 通过 open 启动 Ghostty app 并传参
-    let open_result = std::process::Command::new("open")
-        .args([
-            "-na",
-            "Ghostty",
-            "--args",
-            "-e",
-            "tmux",
-            "attach",
-            "-t",
-            &tmux_name,
-        ])
-        .output();
+    // 方案2: 通过 open 启动 Ghostty.app，用环境变量传递命令
+    // Ghostty 支持 GHOSTTY_RESOURCES_DIR 等环境变量，
+    // 但对于执行命令，我们需要用 AppleScript 或者直接在 app 启动后发送命令
+    let output = std::process::Command::new("open")
+        .args(["-na", "Ghostty"])
+        .env("GHOSTTY_NEW_WINDOW", "1")
+        .output()
+        .map_err(|e| format!("无法启动 Ghostty.app: {}", e))?;
 
-    if open_result.is_ok() {
-        return Ok(());
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("open Ghostty 失败: {}", stderr));
     }
 
-    // 方案3: AppleScript 回退（兼容模式）
+    // 等待 Ghostty 启动，然后通过 AppleScript 发送 tmux attach 命令
+    std::thread::sleep(std::time::Duration::from_millis(800));
+
     let script = format!(
-        r#"tell application "Ghostty"
-    activate
-    delay 0.5
-end tell
+        r#"tell application "Ghostty" to activate
 tell application "System Events" to tell process "Ghostty"
-    keystroke "n" using command down
-    delay 0.3
-    keystroke "tmux attach -t {}"
-    keystroke return
+    keystroke "tmux attach -t {}" & return
 end tell"#,
         tmux_name
     );
@@ -1292,11 +1295,11 @@ end tell"#,
         .arg("-e")
         .arg(&script)
         .output()
-        .map_err(|e| format!("无法启动 Ghostty: {}", e))?;
+        .map_err(|e| format!("AppleScript 执行失败: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("AppleScript 执行失败: {}", stderr));
+        return Err(format!("Ghostty 命令发送失败: {}", stderr));
     }
 
     Ok(())
