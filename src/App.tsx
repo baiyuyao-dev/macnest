@@ -11,6 +11,7 @@ import Settings from "./pages/Settings";
 import { useThemeStore } from "./stores/theme";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getSettings } from "./lib/api";
 
 function NavigationListener() {
   const navigate = useNavigate();
@@ -31,7 +32,18 @@ function NavigationListener() {
 }
 
 function App() {
-  const { isDark } = useThemeStore();
+  const { isDark, setTheme } = useThemeStore();
+
+  // 应用启动时从数据库加载主题设置
+  useEffect(() => {
+    getSettings()
+      .then((data) => {
+        setTheme(data.theme === "dark");
+      })
+      .catch(() => {
+        // 首次启动无设置记录，保持默认深色
+      });
+  }, [setTheme]);
 
   useEffect(() => {
     if (isDark) {
