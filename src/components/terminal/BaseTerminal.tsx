@@ -34,6 +34,15 @@ export default function BaseTerminal({
     let lastHeight = 0;
     let initialized = false;
 
+    // 复制快捷键处理：通过 termRef 访问终端实例
+    const handleCopyKeyDown = (e: KeyboardEvent) => {
+      const t = termRef.current;
+      if ((e.metaKey || e.ctrlKey) && e.key === "c" && t && t.hasSelection()) {
+        e.preventDefault();
+        navigator.clipboard.writeText(t.getSelection()).catch(() => {});
+      }
+    };
+
     const initTerminal = () => {
       if (initialized) return;
       initialized = true;
@@ -43,6 +52,7 @@ export default function BaseTerminal({
         cursorStyle: "block",
         fontFamily: 'Menlo, "DejaVu Sans Mono", "Courier New", monospace',
         fontSize: 14,
+        allowProposedApi: true,
         theme: {
           background: "#1a1a2e",
           foreground: "#e0e0e0",
@@ -66,6 +76,9 @@ export default function BaseTerminal({
           brightWhite: "#e5e5e5",
         },
       });
+
+      // 监听复制快捷键：Cmd+C / Ctrl+C
+      container.addEventListener("keydown", handleCopyKeyDown);
 
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
@@ -141,6 +154,7 @@ export default function BaseTerminal({
     intersectionObserver.observe(container);
 
     return () => {
+      container.removeEventListener("keydown", handleCopyKeyDown);
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       term?.dispose();
