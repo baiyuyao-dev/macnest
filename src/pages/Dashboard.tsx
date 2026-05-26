@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Server,
   Container,
@@ -18,6 +20,8 @@ import {
   ChevronRight,
   Cpu,
   MemoryStick,
+  Loader2,
+  FileText,
 } from "lucide-react";
 import {
   listServices,
@@ -29,10 +33,12 @@ import {
   startService,
   stopService,
   restartService,
+  getServiceLogs,
   tmuxListSessions,
   getActiveSshSessionsCount,
   recordBookmarkClick,
   openExternalUrl,
+  type LogEntry,
 } from "@/lib/api";
 import { formatBytes, statusVariant } from "@/lib/utils";
 import type { Service, DockerContainer, Bookmark as BookmarkType, Group, SystemInfo } from "@/types";
@@ -133,8 +139,16 @@ export default function Dashboard() {
   const [sshSessionCount, setSshSessionCount] = useState(0);
   const [sshConnections, setSshConnections] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [pendingActions, setPendingActions] = useState<Record<number, "starting" | "stopping" | "restarting">>({});
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ─── Log viewer state ─────────────────────────────────────
+  const [logDialogOpen, setLogDialogOpen] = useState(false);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+  const [logService, setLogService] = useState<Service | null>(null);
+  const logScrollRef = useRef<HTMLDivElement>(null);
+  const logUnlistenRef = useRef<(() => void) | null>(null);
 
   const loadData = useCallback(async (showSkeleton: boolean) => {
     const start = Date.now();
@@ -151,7 +165,8 @@ export default function Dashboard() {
         getActiveSshSessionsCount().catch(() => 0),
         listSshConnections().catch(() => []),
       ]);
-      setServices(svcList);
+      // Dashboard 按 start_count 降序排列（常用服务优先）
+      setServices([...svcList].sort((a, b) => (b.start_count ?? 0) - (a.start_count ?? 0)));
       setContainers(ctrList);
       setBookmarks(bmList);
       setGroups(gpList);
@@ -188,29 +203,50 @@ export default function Dashboard() {
 
   // ─── Service action handlers ──────────────────────────────
   const handleStart = async (id: number) => {
+    setPendingActions((prev) => ({ ...prev, [id]: "starting" }));
     try {
       await startService(id);
       loadData(false);
     } catch (error) {
       console.error("Failed to start service:", error);
+    } finally {
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
   const handleStop = async (id: number) => {
+    setPendingActions((prev) => ({ ...prev, [id]: "stopping" }));
     try {
       await stopService(id);
       loadData(false);
     } catch (error) {
       console.error("Failed to stop service:", error);
+    } finally {
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
   const handleRestart = async (id: number) => {
+    setPendingActions((prev) => ({ ...prev, [id]: "restarting" }));
     try {
       await restartService(id);
       loadData(false);
     } catch (error) {
       console.error("Failed to restart service:", error);
+    } finally {
+      setPendingActions((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
@@ -231,6 +267,86 @@ export default function Dashboard() {
       console.error("Failed to open bookmark:", error);
     }
   };
+
+  // ─── Log viewer ───────────────────────────────────────────
+  const handleOpenLogs = async (service: Service) => {
+    setLogService(service);
+    setLogDialogOpen(true);
+
+    try {
+      const logs = await getServiceLogs(service.id);
+      setLogEntries(logs);
+    } catch (error) {
+      console.error("Failed to load logs:", error);
+      setLogEntries([]);
+    }
+  };
+
+  const handleCloseLogs = () => {
+    setLogDialogOpen(false);
+    setLogService(null);
+    setLogEntries([]);
+    if (logUnlistenRef.current) {
+      logUnlistenRef.current();
+      logUnlistenRef.current = null;
+    }
+  };
+
+  const inferLevel = useCallback((content: string): string => {
+    const lower = content.toLowerCase();
+    if (lower.includes("error") || lower.includes("fatal") || lower.includes("panic") || lower.includes("exception")) {
+      return "error";
+    }
+    if (lower.includes("warn")) {
+      return "warn";
+    }
+    return "info";
+  }, []);
+
+  // 实时监听日志事件
+  useEffect(() => {
+    if (!logDialogOpen || !logService) return;
+
+    let unlistenStdout: UnlistenFn | null = null;
+    let unlistenStderr: UnlistenFn | null = null;
+
+    const setupListeners = async () => {
+      unlistenStdout = await listen<string>(`service:log:${logService.id}`, (event) => {
+        setLogEntries((prev) => {
+          const next = [...prev, {
+            timestamp: new Date().toLocaleString(),
+            level: "info",
+            content: event.payload,
+          }];
+          return next.slice(-5000);
+        });
+      });
+      unlistenStderr = await listen<string>(`service:err:${logService.id}`, (event) => {
+        setLogEntries((prev) => {
+          const next = [...prev, {
+            timestamp: new Date().toLocaleString(),
+            level: inferLevel(event.payload),
+            content: event.payload,
+          }];
+          return next.slice(-5000);
+        });
+      });
+    };
+
+    setupListeners();
+
+    return () => {
+      if (unlistenStdout) unlistenStdout();
+      if (unlistenStderr) unlistenStderr();
+    };
+  }, [logDialogOpen, logService?.id, inferLevel]);
+
+  // 日志自动滚动到底部
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    }
+  }, [logEntries]);
 
   return (
     <div className="h-full flex flex-col p-6 animate-page-enter gap-6">
@@ -335,18 +451,21 @@ export default function Dashboard() {
                       )}
                       {svc.status === "running" ? (
                         <>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" onClick={() => handleStop(svc.id)} title="终止">
-                            <Square className="h-3.5 w-3.5" />
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" onClick={() => handleStop(svc.id)} disabled={!!pendingActions[svc.id]} title="终止">
+                            {pendingActions[svc.id] === "stopping" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-amber-500 hover:bg-amber-500/10 hover:text-amber-600" onClick={() => handleRestart(svc.id)} title="重启">
-                            <RefreshCw className="h-3.5 w-3.5" />
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-amber-500 hover:bg-amber-500/10 hover:text-amber-600" onClick={() => handleRestart(svc.id)} disabled={!!pendingActions[svc.id]} title="重启">
+                            {pendingActions[svc.id] === "restarting" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                           </Button>
                         </>
                       ) : (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600" onClick={() => handleStart(svc.id)} title="启动">
-                          <Play className="h-3.5 w-3.5" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600" onClick={() => handleStart(svc.id)} disabled={!!pendingActions[svc.id]} title="启动">
+                          {pendingActions[svc.id] === "starting" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                         </Button>
                       )}
+                      <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg text-blue-500 hover:bg-blue-500/10 hover:text-blue-600" onClick={() => handleOpenLogs(svc)} title="日志">
+                        <FileText className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -421,6 +540,40 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ─── Log Viewer Dialog ──────────────────────────────── */}
+      <Dialog open={logDialogOpen} onOpenChange={(open) => { if (!open) handleCloseLogs(); }}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] w-[50rem] max-w-[95vw] h-[80vh] flex flex-col p-0">
+          <DialogHeader className="px-5 py-4 border-b border-[var(--glass-border)] shrink-0">
+            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-500" />
+              {logService?.name} - 日志
+              <Badge variant="secondary" className="text-[10px] ml-2">
+                {logEntries.length} 条
+              </Badge>
+            </DialogTitle>
+          </DialogHeader>
+          <div
+            ref={logScrollRef}
+            className="flex-1 overflow-y-auto px-4 py-3 font-mono text-xs space-y-1"
+          >
+            {logEntries.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">暂无日志</p>
+            ) : (
+              logEntries.map((entry, idx) => (
+                <div key={idx} className="flex gap-2 break-all">
+                  <span className="text-muted-foreground shrink-0 whitespace-nowrap">[{entry.timestamp}]</span>
+                  <span className={`shrink-0 ${
+                    entry.level === "error" ? "text-red-400" :
+                    entry.level === "warn" ? "text-amber-400" :
+                    "text-emerald-400"
+                  }`}>[{entry.level.toUpperCase()}]</span>
+                  <span className="text-foreground/90">{entry.content}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

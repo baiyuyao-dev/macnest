@@ -415,7 +415,7 @@ impl Database {
     pub fn list_services(&self) -> Result<Vec<Service>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, start_count, created_at, updated_at FROM services ORDER BY start_count DESC, created_at DESC"
+            "SELECT id, name, description, command, cwd, env_vars, auto_start, restart_policy, max_restarts, port_auto_detect, status, pid, ports, cpu_percent, memory_mb, start_count, created_at, updated_at FROM services ORDER BY id ASC"
         )?;
         let services = stmt
             .query_map([], |row| {

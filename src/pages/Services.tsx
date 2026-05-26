@@ -18,7 +18,9 @@ import {
   RotateCcw,
   AlertTriangle,
   Loader2,
+  FileText,
 } from "lucide-react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Service } from "@/types";
 import {
   listServices,
@@ -28,6 +30,8 @@ import {
   startService,
   stopService,
   restartService,
+  getServiceLogs,
+  type LogEntry,
 } from "@/lib/api";
 
 type ServiceStatus = "all" | "running" | "stopped" | "error" | "restarting";
@@ -70,6 +74,13 @@ export default function Services() {
 
   // Pending action states for visual feedback
   const [pendingActions, setPendingActions] = useState<Record<number, "starting" | "stopping" | "restarting">>({});
+
+  // Log viewer states
+  const [logDialogOpen, setLogDialogOpen] = useState(false);
+  const [logService, setLogService] = useState<Service | null>(null);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+  const logScrollRef = useRef<HTMLDivElement>(null);
+  const logUnlistenRef = useRef<UnlistenFn | null>(null);
 
   // ─── Load services ────────────────────────────────────────
   const loadServices = useCallback(async (showSpinner = false) => {
@@ -234,6 +245,89 @@ export default function Services() {
     }
   };
 
+  // ─── Log viewer ───────────────────────────────────────────
+  const handleOpenLogs = async (service: Service) => {
+    setLogService(service);
+    setLogDialogOpen(true);
+
+    // 加载已有日志
+    try {
+      const logs = await getServiceLogs(service.id);
+      setLogEntries(logs);
+    } catch (error) {
+      console.error("Failed to load logs:", error);
+      setLogEntries([]);
+    }
+  };
+
+  const handleCloseLogs = () => {
+    setLogDialogOpen(false);
+    setLogService(null);
+    setLogEntries([]);
+    // 取消事件监听
+    if (logUnlistenRef.current) {
+      logUnlistenRef.current();
+      logUnlistenRef.current = null;
+    }
+  };
+
+  // 根据内容推断日志级别（与后端保持一致）
+  const inferLevel = useCallback((content: string): string => {
+    const lower = content.toLowerCase();
+    if (lower.includes("error") || lower.includes("fatal") || lower.includes("panic") || lower.includes("exception")) {
+      return "error";
+    }
+    if (lower.includes("warn")) {
+      return "warn";
+    }
+    return "info";
+  }, []);
+
+  // 实时监听日志事件
+  useEffect(() => {
+    if (!logDialogOpen || !logService) return;
+
+    let unlistenStdout: UnlistenFn | null = null;
+    let unlistenStderr: UnlistenFn | null = null;
+
+    const setupListeners = async () => {
+      unlistenStdout = await listen<string>(`service:log:${logService.id}`, (event) => {
+        setLogEntries((prev) => {
+          const next = [...prev, {
+            timestamp: new Date().toLocaleString(),
+            level: "info",
+            content: event.payload,
+          }];
+          return next.slice(-5000);
+        });
+      });
+      unlistenStderr = await listen<string>(`service:err:${logService.id}`, (event) => {
+        setLogEntries((prev) => {
+          const next = [...prev, {
+            timestamp: new Date().toLocaleString(),
+            level: inferLevel(event.payload),
+            content: event.payload,
+          }];
+          return next.slice(-5000);
+        });
+      });
+    };
+
+    setupListeners();
+
+    return () => {
+      if (unlistenStdout) unlistenStdout();
+      if (unlistenStderr) unlistenStderr();
+    };
+  }, [logDialogOpen, logService?.id, inferLevel]);
+
+  // 日志自动滚动到底部
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    }
+  }, [logEntries]);
+
   // ─── Status badge helper ──────────────────────────────────
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -371,9 +465,14 @@ export default function Services() {
                   </Button>
                 )}
                 <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-amber-500 hover:bg-amber-500/10 hover:text-amber-600" title="重启"
-                  disabled={!!pendingActions[service.id]} onClick={() => handleRestart(service.id)}
+                  disabled={!!pendingActions[service.id] || service.status !== "running"} onClick={() => handleRestart(service.id)}
                 >
                   {pendingActions[service.id] === "restarting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-blue-500 hover:bg-blue-500/10 hover:text-blue-600" title="日志"
+                  onClick={() => handleOpenLogs(service)}
+                >
+                  <FileText className="h-4 w-4" />
                 </Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60" title="编辑"
                   disabled={!!pendingActions[service.id]} onClick={() => openEditDialog(service)}
@@ -476,6 +575,41 @@ export default function Services() {
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
               确认删除
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Log Viewer Dialog ──────────────────────────────── */}
+      <Dialog open={logDialogOpen} onOpenChange={(open) => { if (!open) handleCloseLogs(); }}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] w-[50rem] max-w-[95vw] h-[80vh] flex flex-col p-0">
+          <DialogHeader className="px-5 py-4 border-b border-[var(--glass-border)] shrink-0">
+            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-500" />
+              {logService?.name} - 日志
+              <Badge variant="secondary" className="text-[10px] ml-2">
+                {logEntries.length} 条
+              </Badge>
+            </DialogTitle>
+          </DialogHeader>
+          <div
+            ref={logScrollRef}
+            className="flex-1 overflow-y-auto px-4 py-3 font-mono text-xs space-y-1"
+          >
+            {logEntries.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">暂无日志</p>
+            ) : (
+              logEntries.map((entry, idx) => (
+                <div key={idx} className="flex gap-2 break-all">
+                  <span className="text-muted-foreground shrink-0 whitespace-nowrap">[{entry.timestamp}]</span>
+                  <span className={`shrink-0 ${
+                    entry.level === "error" ? "text-red-400" :
+                    entry.level === "warn" ? "text-amber-400" :
+                    "text-emerald-400"
+                  }`}>[{entry.level.toUpperCase()}]</span>
+                  <span className="text-foreground/90">{entry.content}</span>
+                </div>
+              ))
+            )}
           </div>
         </DialogContent>
       </Dialog>

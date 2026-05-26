@@ -77,17 +77,13 @@ export async function restartService(id: number): Promise<number> {
   return invokeSafe("restart_service", { id });
 }
 
-export async function getServiceLogs(
-  serviceId: number
-): Promise<
-  {
-    id: number;
-    service_id: number;
-    content: string;
-    level: string;
-    created_at: string;
-  }[]
-> {
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  content: string;
+}
+
+export async function getServiceLogs(serviceId: number): Promise<LogEntry[]> {
   return invokeSafe("get_service_logs", { serviceId });
 }
 

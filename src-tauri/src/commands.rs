@@ -255,7 +255,7 @@ fn stop_service_internal(state: &State<'_, AppState>, id: i64) -> Result<(), Str
 }
 
 #[tauri::command]
-pub fn stop_service(state: State<AppState>, id: i64) -> Result<(), String> {
+pub async fn stop_service(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     stop_service_internal(&state, id)
 }
 
@@ -315,11 +315,12 @@ pub async fn restart_service(
 pub fn get_service_logs(
     state: State<AppState>,
     service_id: i64,
-) -> Result<Vec<database::ServiceLog>, String> {
-    state
-        .db
-        .get_service_logs(service_id, 500)
-        .map_err(|e| e.to_string())
+) -> Result<Vec<crate::process::LogEntry>, String> {
+    let pm = state
+        .process_manager
+        .lock()
+        .map_err(|e| e.to_string())?;
+    Ok(pm.get_logs(service_id))
 }
 
 #[tauri::command]

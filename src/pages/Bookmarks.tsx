@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -184,8 +184,7 @@ export default function BookmarksPage() {
     service_id: null as number | null,
   });
 
-  const [groupSearchInput, setGroupSearchInput] = useState("");
-  const [groupSearchQuery, setGroupSearchQuery] = useState("");
+  const [sidebarSearch, setSidebarSearch] = useState("");
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
 
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
@@ -198,6 +197,40 @@ export default function BookmarksPage() {
   const [bookmarkDeleteTargetId, setBookmarkDeleteTargetId] = useState<number | null>(null);
 
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  // ── Resizable sidebar ──────────────────────────────────────
+  const DEFAULT_SIDEBAR_WIDTH = 280;
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const isDraggingH = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
+  const [dragOverlay, setDragOverlay] = useState<"col-resize" | null>(null);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      e.preventDefault();
+      if (isDraggingH.current && sidebarRef.current) {
+        const delta = e.clientX - startXRef.current;
+        const w = Math.max(280, Math.min(420, startWidthRef.current + delta));
+        sidebarRef.current.style.width = w + "px";
+      }
+    };
+    const handleUp = () => {
+      if (isDraggingH.current) {
+        isDraggingH.current = false;
+        const w = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
+        setSidebarWidth(w);
+      }
+      setDragOverlay(null);
+    };
+    window.addEventListener("mousemove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, []);
 
   const loadBookmarks = useCallback(async () => {
     setLoading(true);
@@ -249,8 +282,15 @@ export default function BookmarksPage() {
         (b.description && b.description.toLowerCase().includes(q))
       );
     }
+    if (sidebarSearch.trim()) {
+      const q = sidebarSearch.toLowerCase().trim();
+      result = result.filter((b) =>
+        b.name.toLowerCase().includes(q) || b.url.toLowerCase().includes(q) ||
+        (b.description && b.description.toLowerCase().includes(q))
+      );
+    }
     return result;
-  }, [bookmarks, searchQuery, activeGroupId, groups]);
+  }, [bookmarks, searchQuery, sidebarSearch, activeGroupId, groups]);
 
   const resetForm = () => {
     setFormData({ name: "", url: "", description: "", group_id: null, icon: "link", service_id: null });
@@ -300,10 +340,6 @@ export default function BookmarksPage() {
     } catch (error) { console.error("Failed to delete bookmark:", error); }
     setBookmarkDeleteConfirmOpen(false);
     setBookmarkDeleteTargetId(null);
-  };
-
-  const handleGroupSearch = () => {
-    setGroupSearchQuery(groupSearchInput);
   };
 
   const handleCreateGroup = async () => {
@@ -372,9 +408,9 @@ export default function BookmarksPage() {
   const groupTree = useMemo(() => buildGroupTree(groups), [groups]);
 
   const displayedTree = useMemo(() => {
-    if (!groupSearchQuery.trim()) return groupTree;
-    return filterGroupTree(groupTree, groupSearchQuery);
-  }, [groupTree, groupSearchQuery]);
+    if (!sidebarSearch.trim()) return groupTree;
+    return filterGroupTree(groupTree, sidebarSearch);
+  }, [groupTree, sidebarSearch]);
 
   const toggleExpand = (id: number) => {
     setExpandedIds((prev) => {
@@ -384,6 +420,21 @@ export default function BookmarksPage() {
       return next;
     });
   };
+
+  // Expand all when searching
+  useEffect(() => {
+    if (sidebarSearch.trim()) {
+      const allIds = new Set<number>();
+      function collect(nodes: GroupNode[]) {
+        for (const n of nodes) {
+          allIds.add(n.id);
+          collect(n.children);
+        }
+      }
+      collect(displayedTree);
+      setExpandedIds(allIds);
+    }
+  }, [sidebarSearch, displayedTree]);
 
   interface TreeNodeProps {
     node: GroupNode;
@@ -482,25 +533,58 @@ export default function BookmarksPage() {
   }, [groupTree]);
 
   return (
-    <div className="flex h-full animate-page-enter">
+    <div className="flex h-full animate-page-enter relative">
+      {/* Drag overlay */}
+      {dragOverlay && (
+        <div className="fixed inset-0 z-[9999]" style={{ cursor: dragOverlay }} />
+      )}
+
       {/* Sidebar - Group Navigation */}
-      <div className="w-64 border-r border-[var(--glass-border)] flex flex-col shrink-0 bg-muted/20">
+      <div
+        className="border-r border-[var(--glass-border)] flex flex-col shrink-0 bg-muted/20"
+        style={{ width: sidebarWidth }}
+        ref={sidebarRef}
+      >
         <div className="p-4 border-b border-[var(--glass-border)] flex items-center justify-between">
-          <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">分组</h2>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 rounded-lg text-xs px-2.5 btn-macos-secondary"
-            onClick={() => {
-              setGroupForm({ id: 0, name: "", parent_id: activeGroupId, group_type: "bookmark" });
-              setGroupDialogMode("create");
-              setGroupDialogOpen(true);
-            }}
-          >
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            新建分组
-          </Button>
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">导航管理</span>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 rounded-lg text-xs px-2.5 btn-macos"
+              onClick={openCreateDialog}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              新增导航
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-lg text-xs px-2.5 btn-macos-secondary"
+              onClick={() => {
+                setGroupForm({ id: 0, name: "", parent_id: activeGroupId, group_type: "bookmark" });
+                setGroupDialogMode("create");
+                setGroupDialogOpen(true);
+              }}
+            >
+              <Folder className="h-3.5 w-3.5 mr-1" />
+              新建分组
+            </Button>
+          </div>
         </div>
+
+        {/* Search */}
+        <div className="p-3 border-b border-[var(--glass-border)]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="搜索分组或导航..."
+              value={sidebarSearch}
+              onChange={(e) => setSidebarSearch(e.target.value)}
+              className="h-8 text-xs pl-9 input-macos"
+            />
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           <button
             onClick={() => setActiveGroupId(null)}
@@ -520,20 +604,21 @@ export default function BookmarksPage() {
             <TreeNode key={node.id} node={node} depth={0} />
           ))}
         </div>
-        <div className="p-3 border-t border-[var(--glass-border)]">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="搜索分组"
-              value={groupSearchInput}
-              onChange={(e) => setGroupSearchInput(e.target.value)}
-              className="input-macos h-8 text-xs pl-9"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleGroupSearch();
-              }}
-            />
-          </div>
-        </div>
+      </div>
+
+      {/* Horizontal splitter */}
+      <div
+        className="w-2 shrink-0 z-20 group relative cursor-col-resize"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          isDraggingH.current = true;
+          startXRef.current = e.clientX;
+          startWidthRef.current = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
+          setDragOverlay("col-resize");
+        }}
+      >
+        <div className="absolute inset-0 -left-1 -right-1" />
+        <div className="w-[3px] h-full mx-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
       </div>
 
       {/* Main Content */}
@@ -544,10 +629,6 @@ export default function BookmarksPage() {
             <h1 className="text-[22px] font-bold tracking-tight">服务导航</h1>
             <p className="text-xs text-muted-foreground mt-0.5">管理常用服务导航</p>
           </div>
-          <Button className="btn-macos rounded-xl" onClick={openCreateDialog}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            添加导航
-          </Button>
         </div>
 
         {/* Search + View toggle */}
