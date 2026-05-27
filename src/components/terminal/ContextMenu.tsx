@@ -1,4 +1,5 @@
 import { useEffect, useRef, useLayoutEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export interface ContextMenuItem {
   id: string;
@@ -77,7 +78,7 @@ export default function ContextMenu({ open, x, y, items, onClose }: ContextMenuP
 
   if (!open) return null;
 
-  return (
+  const menu = (
     <div
       ref={menuRef}
       className="fixed z-50 glass-strong border border-[var(--glass-border-strong)] rounded-xl shadow-xl py-1.5 min-w-[180px] max-w-[260px]"
@@ -115,4 +116,6 @@ export default function ContextMenu({ open, x, y, items, onClose }: ContextMenuP
       )}
     </div>
   );
+
+  return createPortal(menu, document.body);
 }
