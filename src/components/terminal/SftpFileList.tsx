@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Folder, FileText, ArrowUp, ArrowDown, Trash2, FolderPlus, Pencil, RefreshCw, Terminal } from "lucide-react";
+import { Folder, FileText, ArrowUp, ArrowDown, Trash2, FolderPlus, Pencil, RefreshCw, Terminal, FolderOpen, Clipboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import type { SftpFile } from "@/types";
 import { formatSize } from "@/lib/utils";
+import ContextMenu, { type ContextMenuItemOrDivider } from "./ContextMenu";
 
 interface SftpFileListProps {
   files: SftpFile[];
@@ -49,6 +50,14 @@ export default function SftpFileList({
   const [isDragging, setIsDragging] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
+
+  // 右键菜单状态
+  const [contextMenu, setContextMenu] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    items: ContextMenuItemOrDivider[];
+  }>({ open: false, x: 0, y: 0, items: [] });
 
   useEffect(() => {
     if (!toolbarRef.current) return;
@@ -106,6 +115,117 @@ export default function SftpFileList({
       setRenameValue(selectedFile.name);
       setShowRenameDialog(true);
     }
+  };
+
+  // ── 右键菜单 ────────────────────────────────────────────
+
+  const handleFileContextMenu = (e: React.MouseEvent, file: SftpFile) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const items: ContextMenuItemOrDivider[] = [
+      {
+        id: "open",
+        label: file.is_dir ? "进入目录" : "打开",
+        icon: file.is_dir ? <FolderOpen className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />,
+        onClick: () => {
+          if (file.is_dir) {
+            onPathChange(file.path);
+          } else {
+            onSelectFile(file);
+            onDownload();
+          }
+        },
+      },
+      {
+        id: "download",
+        label: "下载",
+        icon: <ArrowDown className="h-3.5 w-3.5" />,
+        disabled: file.is_dir,
+        onClick: () => {
+          onSelectFile(file);
+          onDownload();
+        },
+      },
+      {
+        id: "rename",
+        label: "重命名",
+        icon: <Pencil className="h-3.5 w-3.5" />,
+        onClick: () => {
+          onSelectFile(file);
+          setRenameValue(file.name);
+          setShowRenameDialog(true);
+        },
+      },
+      {
+        id: "copy-path",
+        label: "复制路径",
+        icon: <Clipboard className="h-3.5 w-3.5" />,
+        onClick: () => {
+          navigator.clipboard.writeText(file.path).catch(() => {});
+        },
+      },
+    ];
+
+    if (onSyncToTerminal) {
+      items.push({
+        id: "sync-to-terminal",
+        label: "复制路径到终端",
+        icon: <Terminal className="h-3.5 w-3.5" />,
+        onClick: onSyncToTerminal,
+      });
+    }
+
+    items.push("divider");
+    items.push({
+      id: "delete",
+      label: "删除",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      destructive: true,
+      onClick: () => {
+        onSelectFile(file);
+        onDelete(file);
+      },
+    });
+
+    setContextMenu({ open: true, x: e.clientX, y: e.clientY, items });
+  };
+
+  const handleBlankContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+
+    const items: ContextMenuItemOrDivider[] = [
+      {
+        id: "mkdir",
+        label: "新建文件夹",
+        icon: <FolderPlus className="h-3.5 w-3.5" />,
+        onClick: () => setShowMkdirDialog(true),
+      },
+      {
+        id: "upload",
+        label: "上传文件",
+        icon: <ArrowUp className="h-3.5 w-3.5" />,
+        onClick: onUpload,
+      },
+      {
+        id: "refresh",
+        label: "刷新",
+        icon: <RefreshCw className="h-3.5 w-3.5" />,
+        onClick: onRefresh,
+      },
+    ];
+
+    if (onSyncToTerminal) {
+      items.push("divider");
+      items.push({
+        id: "sync-to-terminal",
+        label: "同步到终端",
+        icon: <Terminal className="h-3.5 w-3.5" />,
+        onClick: onSyncToTerminal,
+      });
+    }
+
+    setContextMenu({ open: true, x: e.clientX, y: e.clientY, items });
   };
 
   return (
@@ -192,6 +312,7 @@ export default function SftpFileList({
             }
           }
         }}
+        onContextMenu={handleBlankContextMenu}
       >
         {/* 返回上级 */}
         {currentPath !== "/" && (
@@ -218,6 +339,7 @@ export default function SftpFileList({
             }`}
             onClick={() => onSelectFile(file)}
             onDoubleClick={() => handleDoubleClick(file)}
+            onContextMenu={(e) => handleFileContextMenu(e, file)}
           >
             <div className={`flex-[2] ${file.is_dir ? "text-amber-500" : "text-foreground"}`}>
               {file.is_dir ? <Folder className="h-3.5 w-3.5 inline mr-1" /> : <FileText className="h-3.5 w-3.5 inline mr-1" />}
@@ -278,6 +400,15 @@ export default function SftpFileList({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 右键菜单 */}
+      <ContextMenu
+        open={contextMenu.open}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={contextMenu.items}
+        onClose={() => setContextMenu((prev) => ({ ...prev, open: false }))}
+      />
     </div>
   );
 }
