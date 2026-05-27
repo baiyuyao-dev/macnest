@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useRef, useLayoutEffect, type ReactNode } from "react";
 
 export interface ContextMenuItem {
   id: string;
@@ -22,28 +22,11 @@ interface ContextMenuProps {
 
 export default function ContextMenu({ open, x, y, items, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<[number, number]>([x, y]);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    },
-    [onClose]
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("click", onClose, { once: true });
-    window.addEventListener("scroll", onClose, { once: true, capture: true });
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("click", onClose);
-      window.removeEventListener("scroll", onClose, true);
-    };
-  }, [open, handleKeyDown, onClose]);
-
-  useEffect(() => {
+  // 在浏览器绘制前调整位置，避免菜单闪现到错误位置
+  useLayoutEffect(() => {
     if (!open || !menuRef.current) return;
 
     const el = menuRef.current;
@@ -54,23 +37,51 @@ export default function ContextMenu({ open, x, y, items, onClose }: ContextMenuP
     let ax = x;
     let ay = y;
 
-    if (x + rect.width > vw - 8) ax = vw - rect.width - 8;
-    if (y + rect.height > vh - 8) ay = y - rect.height;
+    // 水平：超出右侧则紧贴鼠标左侧展开
+    if (x + rect.width > vw - 8) {
+      ax = x - rect.width;
+    }
     if (ax < 8) ax = 8;
+
+    // 垂直：先向下展开，放不下再向上
+    if (y + rect.height > vh - 8) {
+      ay = y - rect.height;
+    }
     if (ay < 8) ay = 8;
 
-    setPos([ax, ay]);
+    el.style.left = `${ax}px`;
+    el.style.top = `${ay}px`;
   }, [open, x, y]);
 
-  if (!open) return null;
+  // 事件监听
+  useEffect(() => {
+    if (!open) return;
 
-  const [adjustedX, adjustedY] = pos;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseRef.current();
+    };
+
+    const handleClick = () => onCloseRef.current();
+    const handleScroll = () => onCloseRef.current();
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("click", handleClick, { once: true });
+    window.addEventListener("scroll", handleScroll, { once: true, capture: true });
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [open]);
+
+  if (!open) return null;
 
   return (
     <div
       ref={menuRef}
       className="fixed z-50 glass-strong border border-[var(--glass-border-strong)] rounded-xl shadow-xl py-1.5 min-w-[180px] max-w-[260px]"
-      style={{ left: adjustedX, top: adjustedY }}
+      style={{ left: x, top: y }}
       onClick={(e) => e.stopPropagation()}
     >
       {items.map((item, idx) =>
