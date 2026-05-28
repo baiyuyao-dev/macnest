@@ -12,9 +12,10 @@ import type { SftpFile, SftpTransfer } from "@/types";
 interface SftpPanelProps {
   sessionId: string;
   onSyncToTerminal?: (path: string) => void;
+  syncPath?: string | null;
 }
 
-export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProps) {
+export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: SftpPanelProps) {
   const [currentPath, setCurrentPath] = useState("/");
   const [files, setFiles] = useState<SftpFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<SftpFile | null>(null);
@@ -22,6 +23,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
   const [loading, setLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteFile, setPendingDeleteFile] = useState<SftpFile | null>(null);
+  const [autoSync, setAutoSync] = useState(true);
 
   const loadFiles = useCallback(async (path: string) => {
     setLoading(true);
@@ -40,6 +42,13 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
   useEffect(() => {
     loadFiles("/");
   }, [sessionId, loadFiles]);
+
+  // 终端路径变化时自动同步
+  useEffect(() => {
+    if (autoSync && syncPath && syncPath !== currentPath) {
+      loadFiles(syncPath);
+    }
+  }, [syncPath, currentPath, autoSync, loadFiles]);
 
   // 进度轮询（使用 ref 避免依赖 transfers 导致多次创建 interval）
   const transfersRef = useRef(transfers);
@@ -248,13 +257,31 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
   };
 
   return (
-    <div className="flex h-full bg-background relative">
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
-          <div className="text-emerald-500 text-xs">加载中...</div>
+    <div className="flex h-full bg-background relative flex-col">
+      {/* 终端路径同步状态条 */}
+      {syncPath && (
+        <div className="flex items-center justify-between px-3 py-1 bg-muted/40 border-b border-[var(--glass-border)] text-[11px] shrink-0">
+          <span className="text-muted-foreground truncate mr-2" title={syncPath}>
+            终端: {syncPath}
+          </span>
+          <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={autoSync}
+              onChange={(e) => setAutoSync(e.target.checked)}
+              className="h-3 w-3 rounded accent-primary"
+            />
+            <span className={autoSync ? "text-primary" : "text-muted-foreground"}>自动同步</span>
+          </label>
         </div>
       )}
-      <SftpTree
+      <div className="flex flex-1 overflow-hidden relative">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
+            <div className="text-emerald-500 text-xs">加载中...</div>
+          </div>
+        )}
+        <SftpTree
         currentPath={currentPath}
         onPathChange={loadFiles}
       />
@@ -312,6 +339,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal }: SftpPanelProp
           </div>
         </DialogContent>
       </Dialog>
+    </div>
     </div>
   );
 }

@@ -201,6 +201,7 @@ fn main() {
             commands::tmux_open_in_ghostty,
             commands::tmux_generate_config,
             // App commands
+            commands::show_main_window,
             commands::exit_app,
         ])
         .build(tauri::generate_context!())
@@ -218,9 +219,8 @@ fn main() {
                 }
             }
             tauri::RunEvent::Reopen { .. } => {
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if let Err(e) = commands::show_or_create_main_window(&app_handle) {
+                    eprintln!("[macnest] Failed to show main window on reopen: {}", e);
                 }
             }
             _ => {}
@@ -249,9 +249,8 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if let Err(e) = commands::show_or_create_main_window(app) {
+                    eprintln!("[macnest] Failed to show main window from tray menu: {}", e);
                 }
             }
             "quit" => {

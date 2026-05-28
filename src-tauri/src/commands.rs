@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::database;
 use crate::docker;
@@ -1305,9 +1305,13 @@ pub fn tmux_pty_close(pty_id: String, state: State<'_, AppState>) -> Result<(), 
 pub fn tmux_open_in_ghostty(state: State<AppState>, session_name: String) -> Result<(), String> {
     let tmux_name = crate::tmux::commands::resolve_tmux_name(&state.db, &session_name)?;
 
+    // 使用 tmux 绝对路径，避免 Ghostty 启动的 shell 没有加载 profile 导致 PATH 缺失
+    let tmux_path = crate::tmux::get_tmux_path();
+
     // 创建临时脚本文件
     let script_content = format!(
-        "#!/bin/sh\n# MacNest auto-generated tmux attach script\nexec tmux attach -t '{}'\n",
+        "#!/bin/sh\n# MacNest auto-generated tmux attach script\nexec {} attach -t '{}'\n",
+        tmux_path,
         tmux_name.replace('\'', "'\"'\"'")
     );
     let script_path = format!(
@@ -1420,6 +1424,39 @@ end tell"#,
 #[tauri::command]
 pub fn tmux_generate_config() -> Result<String, String> {
     crate::tmux::commands::generate_config()
+}
+
+pub fn show_or_create_main_window(app: &AppHandle) -> Result<(), String> {
+    match app.get_webview_window("main") {
+        Some(window) => {
+            window.show().map_err(|e| e.to_string())?;
+            window.set_focus().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        None => {
+            let window = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("MacNest")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(900.0, 600.0)
+            .center()
+            .decorations(true)
+            .resizable(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+            window.show().map_err(|e| e.to_string())?;
+            window.set_focus().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
+    show_or_create_main_window(&app)
 }
 
 #[tauri::command]

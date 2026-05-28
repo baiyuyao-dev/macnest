@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCurrentWebviewWindow, WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { getSystemInfo, getResourceUsage, listServices } from "@/lib/api";
 import {
@@ -50,11 +50,7 @@ export default function TrayPopup() {
 
   const showMainWindow = async () => {
     try {
-      const mainWindow = await WebviewWindow.getByLabel("main");
-      if (mainWindow) {
-        await mainWindow.show();
-        await mainWindow.setFocus();
-      }
+      await invoke("show_main_window");
       const popup = getCurrentWebviewWindow();
       await popup.hide();
     } catch (err) {

@@ -72,6 +72,7 @@ function TerminalSplitPane({
   onDragOverlayChange: (v: "row-resize" | null) => void;
 }) {
   const [splitPct, setSplitPct] = useState(60);
+  const [terminalPath, setTerminalPath] = useState<string | null>(null);
   const termRef = useRef<HTMLDivElement>(null);
   const sftpRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -119,6 +120,7 @@ function TerminalSplitPane({
           }}
           websocketUrl={tab.websocketUrl}
           active={isActive}
+          onPathChange={setTerminalPath}
         />
       </div>
       {/* Vertical splitter */}
@@ -143,6 +145,7 @@ function TerminalSplitPane({
       <div className="overflow-hidden" ref={sftpRef} style={{ flex: 100 - splitPct }}>
         <SftpPanel
           sessionId={tab.sessionId}
+          syncPath={terminalPath}
           onSyncToTerminal={(path) => {
             const xterm = xtermRefs.current.get(tab.id);
             if (xterm) {

@@ -11,9 +11,10 @@ export interface XTermHandle {
 interface XTermProps {
   websocketUrl: string;
   active?: boolean;
+  onPathChange?: (path: string) => void;
 }
 
-const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm({ websocketUrl, active }, ref) {
+const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm({ websocketUrl, active, onPathChange }, ref) {
   const wsRef = useRef<WebSocket | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -43,6 +44,20 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm({ websocketUrl,
     ws.onopen = () => {
       const { cols, rows } = term;
       ws.send(JSON.stringify({ type: "resize", cols, rows }));
+
+      // 配置 shell 自动报告当前工作目录（OSC 7 序列）
+      const shellIntegration = [
+        'if [ -n "$ZSH_VERSION" ]; then',
+        '  precmd() { printf "\\033]7;file://%s%s\\007" "$HOSTNAME" "$PWD" }',
+        'elif [ -n "$BASH_VERSION" ]; then',
+        '  export PROMPT_COMMAND=\'printf "\\033]7;file://%s%s\\007" "$HOSTNAME" "$PWD"\'',
+        'fi',
+        '',
+      ].join('\n');
+      const initBytes = new TextEncoder().encode(shellIntegration + '\r');
+      const initB64 = btoa(String.fromCharCode(...initBytes));
+      ws.send(initB64);
+
       keepaliveTimerRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send("\0");
@@ -79,8 +94,29 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm({ websocketUrl,
   const handleReady = useCallback((term: Terminal) => {
     termRef.current = term;
     term.loadAddon(new WebLinksAddon());
+
+    // 注册 OSC 7 处理器，静默捕获 shell 报告的当前工作目录
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parser = (term as any).parser;
+    if (onPathChange && parser?.registerOscHandler) {
+      parser.registerOscHandler(7, (data: string) => {
+        try {
+          // data 格式: file://hostname/path
+          const url = new URL(data);
+          const path = decodeURIComponent(url.pathname);
+          onPathChange(path);
+        } catch {
+          const match = data.match(/^file:\/\/[^/]+(.+)$/);
+          if (match) {
+            onPathChange(decodeURIComponent(match[1]));
+          }
+        }
+        return true; // true = 已消费，不输出到终端
+      });
+    }
+
     connectWs(term);
-  }, [connectWs]);
+  }, [connectWs, onPathChange]);
 
   const handleData = useCallback((data: string) => {
     const ws = wsRef.current;

@@ -90,7 +90,7 @@ export default function Tmux() {
       setSessions(data);
       setHasTmux(true);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       if (msg.includes("no server")) {
         setSessions([]);
         setHasTmux(true);
