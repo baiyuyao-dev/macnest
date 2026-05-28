@@ -30,8 +30,9 @@ pub struct AppState {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -127,6 +128,24 @@ fn main() {
             commands::get_container_logs,
             commands::get_container_stats,
             commands::recreate_container,
+            // Docker image commands
+            commands::list_images,
+            commands::remove_image,
+            commands::prune_images,
+            // Docker inspect command
+            commands::inspect_container,
+            // Docker system overview
+            commands::docker_system_df,
+            // Docker volume commands
+            commands::list_volumes,
+            commands::remove_volume,
+            commands::prune_volumes,
+            // Docker network commands
+            commands::list_networks,
+            commands::remove_network,
+            // Docker pull / create
+            commands::pull_image,
+            commands::create_container,
             // Docker terminal commands
             commands::docker_detect_shells,
             commands::docker_terminal_connect,
@@ -184,8 +203,29 @@ fn main() {
             // App commands
             commands::exit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        match event {
+            tauri::RunEvent::WindowEvent { label, event, .. } => {
+                if label == "tray-popup" {
+                    if let tauri::WindowEvent::Focused(false) = event {
+                        if let Some(popup) = app_handle.get_webview_window("tray-popup") {
+                            let _ = popup.hide();
+                        }
+                    }
+                }
+            }
+            tauri::RunEvent::Reopen { .. } => {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            _ => {}
+        }
+    });
 }
 
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -220,36 +260,49 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { id: _, position, rect: _, .. } = event {
-                // 防抖：忽略 300ms 内的重复点击（macOS mouseDown + mouseUp 各触发一次）
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64;
-                let last = LAST_CLICK_MS.load(Ordering::Relaxed);
-                if now.saturating_sub(last) < 300 {
-                    return;
-                }
-                LAST_CLICK_MS.store(now, Ordering::Relaxed);
+            let is_valid_click = matches!(
+                event,
+                TrayIconEvent::Click { .. } | TrayIconEvent::DoubleClick { .. }
+            );
+            if !is_valid_click {
+                return;
+            }
 
-                let app = tray.app_handle();
-                match app.get_webview_window("tray-popup") {
-                    Some(popup) => {
-                        let is_visible = popup.is_visible().unwrap_or(false);
-                        if is_visible {
-                            let _ = popup.hide();
-                        } else {
-                            // 让 popup 显示在 tray icon 正下方
-                            let x = position.x;
-                            let y = position.y + 10.0;
-                            let _ = popup.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
-                            let _ = popup.show();
-                            let _ = popup.set_focus();
-                        }
+            // 获取点击位置
+            let position = match &event {
+                TrayIconEvent::Click { position, .. } => *position,
+                TrayIconEvent::DoubleClick { position, .. } => *position,
+                _ => return,
+            };
+
+            // 防抖：忽略 300ms 内的重复点击（macOS mouseDown + mouseUp 各触发一次）
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            let last = LAST_CLICK_MS.load(Ordering::Relaxed);
+            if now.saturating_sub(last) < 300 {
+                return;
+            }
+            LAST_CLICK_MS.store(now, Ordering::Relaxed);
+
+            let app = tray.app_handle();
+            match app.get_webview_window("tray-popup") {
+                Some(popup) => {
+                    let is_visible = popup.is_visible().unwrap_or(false);
+                    if is_visible {
+                        let _ = popup.hide();
+                    } else {
+                        // 让 popup 显示在 tray icon 正下方
+                        let x = position.x;
+                        let y = position.y + 10.0;
+                        let _ = popup.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+                        let _ = popup.show();
+                        let _ = popup.set_focus();
                     }
-                    None => {
-                        eprintln!("[macnest] ERROR: tray-popup window not found!");
-                    }
+                }
+                None => {
+                    eprintln!("[macnest] ERROR: tray-popup window not found!");
                 }
             }
         })

@@ -425,6 +425,66 @@ pub async fn recreate_container(container_id: String) -> Result<String, String> 
     docker::recreate_container(&container_id).await
 }
 
+#[tauri::command]
+pub async fn list_images() -> Result<Vec<docker::DockerImage>, String> {
+    docker::list_images().await
+}
+
+#[tauri::command]
+pub async fn remove_image(image_id: String) -> Result<(), String> {
+    docker::remove_image(&image_id).await
+}
+
+#[tauri::command]
+pub async fn prune_images() -> Result<String, String> {
+    docker::prune_images().await
+}
+
+#[tauri::command]
+pub async fn inspect_container(container_id: String) -> Result<docker::ContainerInspect, String> {
+    docker::inspect_container(&container_id).await
+}
+
+#[tauri::command]
+pub async fn pull_image(image: String) -> Result<String, String> {
+    docker::pull_image(&image).await
+}
+
+#[tauri::command]
+pub async fn create_container(req: docker::CreateContainerRequest) -> Result<String, String> {
+    docker::create_container(&req).await
+}
+
+#[tauri::command]
+pub async fn docker_system_df() -> Result<docker::DockerSystemDf, String> {
+    docker::system_df().await
+}
+
+#[tauri::command]
+pub async fn list_volumes() -> Result<Vec<docker::DockerVolume>, String> {
+    docker::list_volumes().await
+}
+
+#[tauri::command]
+pub async fn remove_volume(name: String) -> Result<(), String> {
+    docker::remove_volume(&name).await
+}
+
+#[tauri::command]
+pub async fn prune_volumes() -> Result<String, String> {
+    docker::prune_volumes().await
+}
+
+#[tauri::command]
+pub async fn list_networks() -> Result<Vec<docker::DockerNetwork>, String> {
+    docker::list_networks().await
+}
+
+#[tauri::command]
+pub async fn remove_network(id: String) -> Result<(), String> {
+    docker::remove_network(&id).await
+}
+
 // === Docker Terminal Commands ===
 
 #[tauri::command]

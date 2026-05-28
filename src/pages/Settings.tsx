@@ -21,6 +21,7 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useThemeStore } from "@/stores/theme";
 import { getSettings, updateSettings } from "@/lib/api";
 
@@ -61,8 +62,10 @@ export default function SettingsPage() {
     try {
       await updateSettings(settings);
       setTheme(settings.theme === "dark");
+      toast.success("设置已保存");
     } catch (err) {
       console.error("Failed to save settings:", err);
+      toast.error("保存失败，请重试");
     } finally {
       setSaving(false);
     }

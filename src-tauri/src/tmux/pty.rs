@@ -18,6 +18,9 @@ pub fn attach_session_pty(
     cols: u16,
     rows: u16,
 ) -> Result<TmuxPtySession, String> {
+    // 先重新加载配置，确保右键菜单等设置已禁用
+    crate::tmux::commands::source_tmux_config();
+
     let pty_system = NativePtySystem::default();
 
     let pair = pty_system

@@ -66,8 +66,6 @@ export function statusVariant(status: string): BadgeVariant {
 export function processStatusVariant(status: string): BadgeVariant {
   switch (status) {
     case "运行中": return "success";
-    case "睡眠":
-    case "空闲": return "secondary";
     case "僵尸":
     case "等待": return "warning";
     case "停止":

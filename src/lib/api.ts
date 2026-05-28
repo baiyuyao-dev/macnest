@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
-import type { Service, DockerContainer, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection, SftpFile, TransferProgress } from "@/types";
+import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection, SftpFile, TransferProgress } from "@/types";
 
 // ===== 统一错误处理 =====
 
@@ -115,6 +115,72 @@ export async function recreateContainer(containerId: string): Promise<string> {
 
 export async function getContainerLogs(containerId: string, tail = 100): Promise<string> {
   return invokeSafe("get_container_logs", { containerId, tail });
+}
+
+export async function listImages(): Promise<DockerImage[]> {
+  return invokeSafe("list_images");
+}
+
+export async function removeImage(imageId: string): Promise<void> {
+  return invokeSafe("remove_image", { imageId });
+}
+
+export async function pruneImages(): Promise<string> {
+  return invokeSafe("prune_images");
+}
+
+export async function inspectContainer(containerId: string): Promise<ContainerInspect> {
+  return invokeSafe("inspect_container", { containerId });
+}
+
+export async function dockerSystemDf(): Promise<DockerSystemDf> {
+  return invokeSafe("docker_system_df");
+}
+
+// ===== Docker Volume Management =====
+
+export async function listVolumes(): Promise<DockerVolume[]> {
+  return invokeSafe("list_volumes");
+}
+
+export async function removeVolume(name: string): Promise<void> {
+  return invokeSafe("remove_volume", { name });
+}
+
+export async function pruneVolumes(): Promise<string> {
+  return invokeSafe("prune_volumes");
+}
+
+// ===== Docker Network Management =====
+
+export async function listNetworks(): Promise<DockerNetwork[]> {
+  return invokeSafe("list_networks");
+}
+
+export async function removeNetwork(id: string): Promise<void> {
+  return invokeSafe("remove_network", { id });
+}
+
+export async function pullImage(image: string): Promise<string> {
+  return invokeSafe("pull_image", { image });
+}
+
+export interface CreateContainerRequest {
+  image: string;
+  name: string;
+  ports: string[];
+  env: string[];
+  volumes: string[];
+  restart_policy: string;
+  network: string;
+  workdir: string;
+  command: string;
+  detached: boolean;
+  auto_start: boolean;
+}
+
+export async function createContainer(req: CreateContainerRequest): Promise<string> {
+  return invokeSafe("create_container", { req });
 }
 
 export async function getContainerStats(

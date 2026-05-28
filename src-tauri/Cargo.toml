@@ -15,6 +15,7 @@ tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-store = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -47,6 +48,9 @@ portable-pty = "0.9"
 
 # === base64 编码（WebSocket text message 传输二进制数据）===
 base64 = "0.22"
+
+# === Unix 信号支持（向子进程发送 SIGTERM 实现优雅关闭）===
+libc = "0.2"
 
 # === 凭据加密 ===
 aes-gcm = "0.10"

@@ -33,6 +33,77 @@ export interface DockerContainer {
   created: string;
 }
 
+export interface DockerImage {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: string;
+  containers: number;
+}
+
+export interface ContainerMount {
+  source: string;
+  destination: string;
+  mode: string;
+  type_: string;
+}
+
+export interface ContainerPort {
+  ip: string;
+  host_port: string;
+  container_port: string;
+  protocol: string;
+}
+
+export interface DockerSystemDf {
+  containers_total: number;
+  containers_active: number;
+  containers_size: string;
+  images_total: number;
+  images_active: number;
+  images_size: string;
+  volumes_total: number;
+  volumes_active: number;
+  volumes_size: string;
+}
+
+export interface ContainerInspect {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  state: string;
+  created: string;
+  restart_policy: string;
+  restart_count: number;
+  hostname: string;
+  working_dir: string;
+  user: string;
+  entrypoint: string;
+  cmd: string;
+  env: string[];
+  labels: [string, string][];
+  mounts: ContainerMount[];
+  ports: ContainerPort[];
+  network_mode: string;
+}
+
+export interface DockerVolume {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  scope: string;
+  labels: string;
+}
+
+export interface DockerNetwork {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+}
+
 export interface Group {
   id: number;
   name: string;

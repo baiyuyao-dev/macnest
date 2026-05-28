@@ -12,6 +12,7 @@ import { useThemeStore } from "./stores/theme";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getSettings } from "./lib/api";
+import { Toaster } from "sonner";
 
 function NavigationListener() {
   const navigate = useNavigate();
@@ -54,21 +55,36 @@ function App() {
   }, [isDark]);
 
   return (
-    <HashRouter>
-      <NavigationListener />
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="services" element={<Services />} />
-          <Route path="docker" element={<Docker />} />
-          <Route path="bookmarks" element={<Bookmarks />} />
-          <Route path="terminal" element={<Terminal />} />
-          <Route path="tmux" element={<Tmux />} />
-          <Route path="system" element={<System />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-      </Routes>
-    </HashRouter>
+    <>
+      <Toaster
+        position="top-center"
+        duration={2000}
+        toastOptions={{
+          style: {
+            background: isDark ? "#1c1917" : "#fafaf9",
+            color: isDark ? "#fafaf9" : "#1c1917",
+            border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
+            fontSize: "13px",
+          },
+        }}
+        richColors
+      />
+      <HashRouter>
+        <NavigationListener />
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="services" element={<Services />} />
+            <Route path="docker" element={<Docker />} />
+            <Route path="bookmarks" element={<Bookmarks />} />
+            <Route path="terminal" element={<Terminal />} />
+            <Route path="tmux" element={<Tmux />} />
+            <Route path="system" element={<System />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
+        </Routes>
+      </HashRouter>
+    </>
   );
 }
 

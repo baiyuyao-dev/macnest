@@ -157,6 +157,9 @@ pub fn create_session(db: &Database, req: &CreateTmuxSessionRequest) -> Result<(
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
+    // 重新加载配置，确保新会话继承最新的 ~/.tmux.conf
+    source_tmux_config();
+
     // 存入数据库映射
     let command_str = req.command.as_deref().unwrap_or("");
     db.create_tmux_session(&tmux_name, display_name, &start_dir, command_str)
@@ -305,8 +308,13 @@ pub fn resolve_tmux_name(db: &Database, display_name: &str) -> Result<String, St
 pub fn generate_config() -> Result<String, String> {
     let config = r#"# MacNest 生成的 tmux 配置
 
-# 鼠标支持
+# 鼠标支持（保留点击切换窗格/拖动调整大小，但禁用右键菜单）
 set -g mouse on
+unbind-key -n MouseDown3Pane
+unbind-key -n MouseDown3Status
+unbind-key -n MouseDown3StatusLeft
+unbind-key -n MouseDown3StatusRight
+unbind-key -n MouseDown3Border
 
 # 状态栏样式
 set -g status-style bg=#1a1a2e,fg=#e0e0e0
@@ -356,6 +364,16 @@ set -ga terminal-overrides ",*256col*:Tc"
     std::fs::write(&config_path, config).map_err(|e| e.to_string())?;
 
     Ok(config_path.to_string_lossy().to_string())
+}
+
+/// 重新加载 ~/.tmux.conf，使配置变更对运行中的 tmux server 生效
+pub fn source_tmux_config() {
+    let tmux = crate::tmux::get_tmux_path();
+    let home = std::env::var("HOME").unwrap_or_default();
+    let config_path = format!("{}/.tmux.conf", home);
+    let _ = std::process::Command::new(&tmux)
+        .args(["source-file", &config_path])
+        .output();
 }
 
 /// 格式化时间戳为友好字符串

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import "@xterm/xterm/css/xterm.css";
 
 interface BaseTerminalProps {
@@ -69,12 +70,16 @@ export default function BaseTerminal({
         },
       });
 
-      // Cmd+C 复制选中文本
+      // Cmd+C 复制选中文本；Escape 阻止冒泡避免 Dialog 捕获
       const localTerm = term;
       localTerm.attachCustomKeyEventHandler((e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          return true;
+        }
         if ((e.metaKey || e.ctrlKey) && e.key === "c" && localTerm.hasSelection()) {
           e.preventDefault();
-          navigator.clipboard.writeText(localTerm.getSelection()).catch(() => {});
+          writeText(localTerm.getSelection()).catch(() => {});
           return false;
         }
         return true;

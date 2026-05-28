@@ -316,12 +316,11 @@ pub fn get_processes() -> Result<Vec<ProcessInfo>, String> {
             let mem_mb = rss_kb as f64 / 1024.0;
 
             // Translate ps state to Chinese
+            // S (sleep/interruptible) is the normal state for most processes
             let status = match raw_status.chars().next().unwrap_or('?') {
-                'R' => "运行中",
-                'S' => "睡眠",
+                'R' | 'S' | 'I' => "运行中",
                 'T' => "停止",
                 'Z' => "僵尸",
-                'I' => "空闲",
                 'U' => "不可中断",
                 'W' => "等待",
                 _ => raw_status,
