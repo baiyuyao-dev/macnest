@@ -269,10 +269,12 @@ pub async fn get_container_top_processes(container_id: &str) -> Result<String, S
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// Recreate a container: inspect original config, pull latest image, then stop + remove + re-create.
-/// Supports both docker-compose managed and standalone containers.
-/// SAFETY: Always pulls image and validates config BEFORE removing old container.
-pub async fn recreate_container(container_id: &str) -> Result<String, String> {
+/// 重建容器的核心逻辑，支持端口覆盖。
+/// 如果 `override_ports` 为 Some，则使用传入的端口列表替代原配置中的端口绑定。
+async fn do_recreate_container(
+    container_id: &str,
+    override_ports: Option<Vec<String>>,
+) -> Result<String, String> {
     // 1. Inspect container to get full config
     let inspect_output = Command::new(docker_path())
         .args(["inspect", "--format", "{{json .}}", container_id])
@@ -351,8 +353,6 @@ pub async fn recreate_container(container_id: &str) -> Result<String, String> {
     }
 
     // 3. Standalone container: stop + remove + re-create
-    //    No forced pull — docker run will auto-pull if image is missing locally.
-    // Build docker run arguments from inspect data BEFORE removing old container
     let mut args = vec!["run".to_string(), "-d".to_string()];
 
     if !name.is_empty() {
@@ -405,28 +405,38 @@ pub async fn recreate_container(container_id: &str) -> Result<String, String> {
         }
     }
 
-    let port_bindings = inspect_data["HostConfig"]["PortBindings"].as_object();
-    if let Some(bindings) = port_bindings {
-        for (container_port, host_bindings) in bindings {
-            if let Some(arr) = host_bindings.as_array() {
-                for binding in arr {
-                    let host_ip = binding["HostIp"].as_str().unwrap_or("");
-                    let host_port = binding["HostPort"].as_str().unwrap_or("");
-                    let spec = if host_ip.is_empty() || host_ip == "0.0.0.0" {
-                        format!("{}:{}", host_port, container_port)
-                    } else {
-                        format!("{}:{}:{}", host_ip, host_port, container_port)
-                    };
-                    args.push("-p".to_string());
-                    args.push(spec);
+    // ── Port bindings: use override if provided ──
+    if let Some(ref ports) = override_ports {
+        for port in ports {
+            if !port.is_empty() {
+                args.push("-p".to_string());
+                args.push(port.clone());
+            }
+        }
+    } else {
+        let port_bindings = inspect_data["HostConfig"]["PortBindings"].as_object();
+        if let Some(bindings) = port_bindings {
+            for (container_port, host_bindings) in bindings {
+                if let Some(arr) = host_bindings.as_array() {
+                    for binding in arr {
+                        let host_ip = binding["HostIp"].as_str().unwrap_or("");
+                        let host_port = binding["HostPort"].as_str().unwrap_or("");
+                        let spec = if host_ip.is_empty() || host_ip == "0.0.0.0" {
+                            format!("{}:{}", host_port, container_port)
+                        } else {
+                            format!("{}:{}:{}", host_ip, host_port, container_port)
+                        };
+                        args.push("-p".to_string());
+                        args.push(spec);
+                    }
                 }
             }
         }
-    }
 
-    if let Some(exposed) = inspect_data["Config"]["ExposedPorts"].as_object() {
-        if port_bindings.map(|m| m.is_empty()).unwrap_or(true) {
-            args.push("-P".to_string());
+        if let Some(exposed) = inspect_data["Config"]["ExposedPorts"].as_object() {
+            if port_bindings.map(|m| m.is_empty()).unwrap_or(true) {
+                args.push("-P".to_string());
+            }
         }
     }
 
@@ -518,6 +528,22 @@ pub async fn recreate_container(container_id: &str) -> Result<String, String> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Recreate a container: inspect original config, pull latest image, then stop + remove + re-create.
+/// Supports both docker-compose managed and standalone containers.
+/// SAFETY: Always pulls image and validates config BEFORE removing old container.
+pub async fn recreate_container(container_id: &str) -> Result<String, String> {
+    do_recreate_container(container_id, None).await
+}
+
+/// Update container port mappings by recreating the container.
+/// All other configuration (env, volumes, labels, etc.) is preserved.
+pub async fn update_container_ports(
+    container_id: &str,
+    ports: Vec<String>,
+) -> Result<String, String> {
+    do_recreate_container(container_id, Some(ports)).await
 }
 
 // === Image Management ===

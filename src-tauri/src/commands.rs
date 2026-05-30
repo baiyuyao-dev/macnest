@@ -426,6 +426,14 @@ pub async fn recreate_container(container_id: String) -> Result<String, String> 
 }
 
 #[tauri::command]
+pub async fn update_container_ports(
+    container_id: String,
+    ports: Vec<String>,
+) -> Result<String, String> {
+    docker::update_container_ports(&container_id, ports).await
+}
+
+#[tauri::command]
 pub async fn list_images() -> Result<Vec<docker::DockerImage>, String> {
     docker::list_images().await
 }
@@ -600,10 +608,8 @@ pub fn list_bookmarks(
 pub struct CreateBookmarkRequest {
     pub name: String,
     pub url: String,
-    pub description: String,
     pub group_id: Option<i64>,
     pub icon: String,
-    pub service_id: Option<i64>,
 }
 
 #[tauri::command]
@@ -616,10 +622,8 @@ pub fn create_bookmark(
         .create_bookmark(
             &req.name,
             &req.url,
-            &req.description,
             req.group_id,
             &req.icon,
-            req.service_id,
         )
         .map_err(|e| e.to_string())
 }
@@ -629,7 +633,6 @@ pub struct UpdateBookmarkRequest {
     pub id: i64,
     pub name: String,
     pub url: String,
-    pub description: String,
     pub group_id: Option<i64>,
     pub icon: String,
 }
@@ -645,7 +648,6 @@ pub fn update_bookmark(
             req.id,
             &req.name,
             &req.url,
-            &req.description,
             req.group_id,
             &req.icon,
         )
@@ -658,8 +660,10 @@ pub fn delete_bookmark(state: State<AppState>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn record_bookmark_click(state: State<AppState>, id: i64) -> Result<(), String> {
-    state.db.increment_bookmark_click_count(id).map_err(|e| e.to_string())
+pub fn import_safari_bookmarks(
+    state: State<AppState>,
+) -> Result<crate::safari_bookmarks::ImportResult, String> {
+    crate::safari_bookmarks::import_safari_bookmarks(&state.db)
 }
 
 // === System Commands ===
@@ -691,6 +695,7 @@ pub struct UpdateSettingsRequest {
     pub theme: String,
     pub auto_refresh_interval: i64,
     pub show_menu_bar: bool,
+    pub auto_sync_bookmarks_interval: i64,
 }
 
 #[tauri::command]
@@ -700,7 +705,12 @@ pub fn update_settings(
 ) -> Result<(), String> {
     state
         .db
-        .update_settings(&req.theme, req.auto_refresh_interval, req.show_menu_bar)
+        .update_settings(
+            &req.theme,
+            req.auto_refresh_interval,
+            req.show_menu_bar,
+            req.auto_sync_bookmarks_interval,
+        )
         .map_err(|e| e.to_string())
 }
 

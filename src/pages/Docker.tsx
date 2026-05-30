@@ -36,6 +36,7 @@ import {
   restartContainer,
   removeContainer,
   recreateContainer,
+  updateContainerPorts,
   getContainerStats,
   getContainerLogs,
   listImages,
@@ -202,6 +203,12 @@ export default function Docker() {
   const [pullImageName, setPullImageName] = useState("");
   const [pullLoading, setPullLoading] = useState(false);
   const [pullResult, setPullResult] = useState("");
+
+  // Port edit states
+  const [portEditOpen, setPortEditOpen] = useState(false);
+  const [portEditContainer, setPortEditContainer] = useState<DockerContainer | null>(null);
+  const [portEditPorts, setPortEditPorts] = useState<{ hostPort: string; containerPort: string; protocol: "tcp" | "udp" }[]>([]);
+  const [portEditLoading, setPortEditLoading] = useState(false);
 
   // Create container states
   type PortBinding = { hostPort: string; containerPort: string; protocol: "tcp" | "udp" };
@@ -942,6 +949,86 @@ export default function Docker() {
     });
   };
 
+  // ─── Port edit handlers ───────────────────────────────────
+  const handleOpenPortEdit = async (container: DockerContainer) => {
+    setPortEditContainer(container);
+    setPortEditLoading(true);
+    setPortEditOpen(true);
+    try {
+      const data = await inspectContainer(container.container_id);
+      const ports = data.ports.map((p) => ({
+        hostPort: p.host_port,
+        containerPort: p.container_port.replace(/\/(tcp|udp)$/, ""),
+        protocol: (p.protocol === "udp" ? "udp" : "tcp") as "tcp" | "udp",
+      }));
+      setPortEditPorts(ports.length > 0 ? ports : [{ hostPort: "", containerPort: "", protocol: "tcp" as "tcp" | "udp" }]);
+    } catch (error) {
+      console.error("Failed to load container ports:", error);
+      setPortEditPorts([{ hostPort: "", containerPort: "", protocol: "tcp" }]);
+    } finally {
+      setPortEditLoading(false);
+    }
+  };
+
+  const handleClosePortEdit = () => {
+    setPortEditOpen(false);
+    setPortEditContainer(null);
+    setPortEditPorts([]);
+  };
+
+  const handleUpdatePorts = async () => {
+    if (!portEditContainer) return;
+    const formattedPorts = portEditPorts
+      .map((p) => {
+        const cp = p.containerPort.trim();
+        if (!cp) return "";
+        const hp = p.hostPort.trim();
+        const proto = p.protocol === "udp" ? "/udp" : "";
+        return hp ? `${hp}:${cp}${proto}` : `${cp}${proto}`;
+      })
+      .filter(Boolean);
+    setPortEditLoading(true);
+    setPending(portEditContainer.container_id, "recreating");
+    try {
+      await updateContainerPorts(portEditContainer.container_id, formattedPorts);
+      setPortEditOpen(false);
+      setPortEditContainer(null);
+      setPortEditPorts([]);
+      await loadContainers(true);
+    } catch (error: any) {
+      console.error("Failed to update ports:", error);
+      alert(`更新端口映射失败: ${error.message || error}`);
+    } finally {
+      setPortEditLoading(false);
+      if (portEditContainer) {
+        setPending(portEditContainer.container_id, null);
+      }
+    }
+  };
+
+  const updatePortEditField = (index: number, key: "hostPort" | "containerPort" | "protocol", value: string) => {
+    setPortEditPorts((prev) => {
+      const arr = [...prev];
+      arr[index] = { ...arr[index], [key]: value };
+      return arr;
+    });
+  };
+
+  const addPortEditField = () => {
+    setPortEditPorts((prev) => [
+      ...prev,
+      { hostPort: "", containerPort: "", protocol: "tcp" as "tcp" | "udp" },
+    ]);
+  };
+
+  const removePortEditField = (index: number) => {
+    setPortEditPorts((prev) => {
+      const arr = prev.filter((_, i) => i !== index);
+      if (arr.length === 0) arr.push({ hostPort: "", containerPort: "", protocol: "tcp" as "tcp" | "udp" });
+      return arr;
+    });
+  };
+
   const filteredImages = useMemo(() => {
     const q = imageSearch.toLowerCase().trim();
     if (!q) return images;
@@ -1193,6 +1280,11 @@ export default function Docker() {
                               onClick={() => handleOpenLogs(container)}
                             >
                               <FileText className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-cyan-500 hover:bg-cyan-500/10 hover:text-cyan-600" title="编辑端口映射"
+                              disabled={!!pendingActions[container.container_id]} onClick={() => handleOpenPortEdit(container)}
+                            >
+                              {pendingActions[container.container_id] === "recreating" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
                             </Button>
                             {container.state === "running" ? (
                               <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-red-500 hover:bg-red-500/10 hover:text-red-600" title="停止"
@@ -1811,7 +1903,7 @@ export default function Docker() {
                 value={pullImageName}
                 onChange={(e) => setPullImageName(e.target.value)}
                 className="input-macos"
-                onKeyDown={(e) => e.key === "Enter" && handlePullImage()}
+                onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handlePullImage()}
               />
               <p className="text-[10px] text-muted-foreground mt-1">格式: 镜像名:标签，如 nginx:alpine</p>
             </div>
@@ -1986,6 +2078,71 @@ export default function Docker() {
             <Button variant="default" size="sm" className="rounded-lg bg-blue-500 hover:bg-blue-600 text-white" onClick={handleCreateContainer} disabled={createLoading || !createForm.image.trim()}>
               {createLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Box className="mr-1.5 h-3.5 w-3.5" />}
               {createLoading ? "创建中..." : "创建容器"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Port Edit Dialog ─────────────────────────────── */}
+      <Dialog open={portEditOpen} onOpenChange={(open) => { if (!open) handleClosePortEdit(); }}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] w-[32rem] max-w-[95vw] flex flex-col p-0">
+          <DialogHeader className="px-5 py-4 border-b border-[var(--glass-border)] shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              <Globe className="h-4 w-4 text-cyan-500" />
+              编辑端口映射 — {portEditContainer?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-5 py-4 space-y-4">
+            <p className="text-xs text-muted-foreground">
+              容器将被重建以应用新的端口映射，原有数据卷会保留。
+            </p>
+            {portEditLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground text-sm">加载中...</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium">端口映射</label>
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={addPortEditField}>+ 添加</Button>
+                </div>
+                {portEditPorts.map((port, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="grid grid-cols-[1fr_1fr_80px] gap-2 flex-1">
+                      <div className="space-y-0.5">
+                        <label className="text-[10px] text-muted-foreground">主机端口</label>
+                        <Input placeholder="8080" value={port.hostPort} onChange={(e) => updatePortEditField(i, "hostPort", e.target.value)} className="input-macos text-xs h-8" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <label className="text-[10px] text-muted-foreground">容器端口</label>
+                        <Input placeholder="80" value={port.containerPort} onChange={(e) => updatePortEditField(i, "containerPort", e.target.value)} className="input-macos text-xs h-8" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <label className="text-[10px] text-muted-foreground">协议</label>
+                        <select
+                          value={port.protocol}
+                          onChange={(e) => updatePortEditField(i, "protocol", e.target.value)}
+                          className="w-full h-8 px-2 rounded-lg border border-[var(--glass-border)] bg-background text-xs"
+                        >
+                          <option value="tcp">TCP</option>
+                          <option value="udp">UDP</option>
+                        </select>
+                      </div>
+                    </div>
+                    {portEditPorts.length > 1 && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 mt-4" onClick={() => removePortEditField(i)}><X className="h-3.5 w-3.5" /></Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="px-5 py-4 border-t border-[var(--glass-border)] flex justify-end gap-2 shrink-0">
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={handleClosePortEdit}>取消</Button>
+            <Button variant="default" size="sm" className="rounded-lg bg-cyan-500 hover:bg-cyan-600 text-white" onClick={handleUpdatePorts} disabled={portEditLoading}>
+              {portEditLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Globe className="mr-1.5 h-3.5 w-3.5" />}
+              {portEditLoading ? "重建中..." : "确认重建"}
             </Button>
           </div>
         </DialogContent>

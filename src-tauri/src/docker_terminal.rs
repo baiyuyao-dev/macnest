@@ -122,10 +122,6 @@ impl DockerTerminalManager {
         cmd.arg("TERM=xterm-256color");
         cmd.arg(container_id);
         cmd.arg(shell);
-        // 强制 shell 进入 interactive 模式（兼容旧 pipe 模式行为）
-        if shell.ends_with("bash") || shell.ends_with("zsh") || shell.ends_with("sh") {
-            cmd.arg("-i");
-        }
 
         let child = pair
             .slave
@@ -226,14 +222,19 @@ async fn start_docker_exec_server(
     let sid = session_id.to_string();
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 4096];
+        let mut total = 0usize;
         loop {
             match pty_reader.read(&mut buf) {
                 Ok(0) => {
-                    eprintln!("[docker-terminal:{}] PTY EOF", sid);
+                    eprintln!("[docker-terminal:{}] PTY EOF (total {} bytes)", sid, total);
                     break;
                 }
                 Ok(n) => {
+                    total += n;
+                    eprintln!("[docker-terminal:{}] PTY read {} bytes (total {}), first bytes: {:?}",
+                        sid, n, total, &buf[..n.min(20)]);
                     if broadcast_tx_clone.send(buf[..n].to_vec()).is_err() {
+                        eprintln!("[docker-terminal:{}] broadcast send failed", sid);
                         break;
                     }
                 }
@@ -245,10 +246,10 @@ async fn start_docker_exec_server(
         }
     });
 
-    // Write channel: WebSocket → PTY master
+    // Write channel: WebSocket → PTY master (std::thread + std::sync::mpsc 更稳定)
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
 
-    // Spawn blocking task to write to PTY master
+    // Spawn blocking thread to write to PTY master
     std::thread::spawn(move || {
         while let Ok(data) = write_rx.recv() {
             if pty_writer.write_all(&data).is_err() {
@@ -295,15 +296,31 @@ async fn start_docker_exec_server(
         let write_tx = write_tx.clone();
         let master = master.clone();
         let sid = session_id.to_string();
+        let sid_writer = sid.clone();
 
-        // Task 1: PTY → WebSocket
+        // Task 1: PTY → WebSocket + ping keepalive
         let reader = tokio::spawn(async move {
+            let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            let mut ws_total = 0usize;
             loop {
-                match broadcast_rx.recv().await {
+                let result = tokio::select! {
+                    biased;
+                    _ = ping_interval.tick() => {
+                        if ws_write.send(Message::Ping(vec![].into())).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                    result = broadcast_rx.recv() => result,
+                };
+                match result {
                     Ok(data) => {
+                        ws_total += data.len();
                         let b64 =
                             base64::engine::general_purpose::STANDARD.encode(&data);
+                        eprintln!("[docker-terminal:{}] WS send {} bytes (total {})", sid, data.len(), ws_total);
                         if ws_write.send(Message::Text(b64.into())).await.is_err() {
+                            eprintln!("[docker-terminal:{}] WS send failed", sid);
                             break;
                         }
                     }
@@ -311,6 +328,7 @@ async fn start_docker_exec_server(
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 }
             }
+            eprintln!("[docker-terminal:{}] WS reader task ended", sid);
         });
 
         // Task 2: WebSocket → PTY
@@ -324,17 +342,29 @@ async fn start_docker_exec_server(
                         // Handle resize
                         if let Ok(resize) = serde_json::from_str::<ResizeMessage>(&text)
                         {
-                            let master = master.clone();
-                            tokio::task::spawn_blocking(move || {
-                                let master = master.lock().unwrap();
-                                let _ = master.resize(PtySize {
-                                    rows: resize.rows,
-                                    cols: resize.cols,
-                                    pixel_width: 0,
-                                    pixel_height: 0,
+                            if resize.msg_type == "resize" {
+                                let master = master.clone();
+                                let sid2 = sid_writer.clone();
+                                tokio::task::spawn_blocking(move || {
+                                    let master = master.lock().unwrap();
+                                    match master.resize(PtySize {
+                                        rows: resize.rows,
+                                        cols: resize.cols,
+                                        pixel_width: 0,
+                                        pixel_height: 0,
+                                    }) {
+                                        Ok(_) => eprintln!(
+                                            "[docker-terminal:{}] PTY resized to {}x{}",
+                                            sid2, resize.cols, resize.rows
+                                        ),
+                                        Err(e) => eprintln!(
+                                            "[docker-terminal:{}] PTY resize failed: {}",
+                                            sid2, e
+                                        ),
+                                    }
                                 });
-                            });
-                            continue;
+                                continue;
+                            }
                         }
                         if let Ok(bytes) =
                             base64::engine::general_purpose::STANDARD.decode(&text)
@@ -353,7 +383,7 @@ async fn start_docker_exec_server(
                     _ => {}
                 }
             }
-            eprintln!("[docker-terminal:{}] WebSocket reader closed", sid);
+            eprintln!("[docker-terminal:{}] WebSocket reader closed", sid_writer);
         });
 
         let (r1, r2) = tokio::join!(reader, writer);

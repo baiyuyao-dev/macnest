@@ -113,6 +113,13 @@ export async function recreateContainer(containerId: string): Promise<string> {
   return invokeSafe("recreate_container", { containerId });
 }
 
+export async function updateContainerPorts(
+  containerId: string,
+  ports: string[]
+): Promise<string> {
+  return invokeSafe("update_container_ports", { containerId, ports });
+}
+
 export async function getContainerLogs(containerId: string, tail = 100): Promise<string> {
   return invokeSafe("get_container_logs", { containerId, tail });
 }
@@ -255,10 +262,8 @@ export async function updateBookmark(
       id: data.id,
       name: data.name,
       url: data.url,
-      description: data.description,
       group_id: data.group_id,
       icon: data.icon,
-      service_id: data.service_id,
     },
   });
 }
@@ -267,8 +272,14 @@ export async function deleteBookmark(id: number): Promise<void> {
   return invokeSafe("delete_bookmark", { id });
 }
 
-export async function recordBookmarkClick(id: number): Promise<void> {
-  return invokeSafe("record_bookmark_click", { id });
+export interface SafariImportResult {
+  groups_imported: number;
+  bookmarks_imported: number;
+  skipped: number;
+}
+
+export async function importSafariBookmarks(): Promise<SafariImportResult> {
+  return invokeSafe("import_safari_bookmarks");
 }
 
 // ===== 系统监控 =====
@@ -292,6 +303,7 @@ export interface AppSettings {
   theme: string;
   auto_refresh_interval: number;
   show_menu_bar: boolean;
+  auto_sync_bookmarks_interval: number;
   created_at: string;
   updated_at: string;
 }
@@ -304,6 +316,7 @@ export async function updateSettings(data: {
   theme: string;
   auto_refresh_interval: number;
   show_menu_bar: boolean;
+  auto_sync_bookmarks_interval: number;
 }): Promise<void> {
   return invokeSafe("update_settings", { req: data });
 }

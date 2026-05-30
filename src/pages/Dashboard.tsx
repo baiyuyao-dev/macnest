@@ -23,6 +23,7 @@ import {
   Loader2,
   FileText,
 } from "lucide-react";
+import BookmarkIcon from "@/components/BookmarkIcon";
 import {
   listServices,
   listContainers,
@@ -36,7 +37,6 @@ import {
   getServiceLogs,
   tmuxListSessions,
   getActiveSshSessionsCount,
-  recordBookmarkClick,
   openExternalUrl,
   type LogEntry,
 } from "@/lib/api";
@@ -261,7 +261,6 @@ export default function Dashboard() {
 
   const handleBookmarkClick = async (bm: BookmarkType) => {
     try {
-      await recordBookmarkClick(bm.id);
       await openExternalUrl(bm.url);
     } catch (error) {
       console.error("Failed to open bookmark:", error);
@@ -517,8 +516,8 @@ export default function Dashboard() {
                     className="group flex flex-col gap-1.5 rounded-xl border border-transparent p-3 transition-all duration-300 hover:bg-accent/40 hover:border-[var(--glass-border-strong)] hover:shadow-glass text-left cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110">
-                        {bm.icon ? <img src={bm.icon} alt="" className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110 overflow-hidden">
+                        <BookmarkIcon icon={bm.icon} url={bm.url} className="h-5 w-5 object-contain" />
                       </div>
                       <p className="truncate text-sm font-medium group-hover:text-accent-foreground transition-colors">{bm.name}</p>
                     </div>

@@ -136,6 +136,13 @@ impl SshConnectionManager {
         eprintln!("[ssh] PTY requested, requesting shell...");
         channel.request_shell(true).await?;
         eprintln!("[ssh] Shell request accepted");
+
+        // 注入 shell 路径同步配置（OSC 7）
+        // 避免在单引号内使用 \r（会被 icrnl 转成 \n 导致字符串跨行）
+        // 用 \x0d 表示回车，bash printf 会正确解释
+        let init: &[u8] = b"\rPROMPT_COMMAND='printf \"\x1B]7;file://%s\x07\" \"$PWD\"';[ -n \"$ZSH_VERSION\" ]&&precmd(){printf \"\x1B]7;file://%s\x07\" \"$PWD\"}\n";
+        let _ = channel.data(init).await;
+
         Ok(channel)
     }
 

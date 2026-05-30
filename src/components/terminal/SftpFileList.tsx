@@ -282,7 +282,7 @@ export default function SftpFileList({
 
       {/* 文件列表 */}
       <div
-        className={`flex-1 overflow-y-auto ${isDragging ? "bg-primary/10" : ""}`}
+        className={`flex-1 overflow-y-auto min-h-0 ${isDragging ? "bg-primary/10" : ""}`}
         onDragOver={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -368,7 +368,7 @@ export default function SftpFileList({
               placeholder="文件夹名称"
               value={mkdirName}
               onChange={(e) => setMkdirName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleMkdir()}
+              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleMkdir()}
               autoFocus
               className="input-macos"
             />
@@ -390,7 +390,7 @@ export default function SftpFileList({
               placeholder="新名称"
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleRename()}
+              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleRename()}
               autoFocus
               className="input-macos"
             />

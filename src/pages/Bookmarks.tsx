@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +16,8 @@ import {
   Cloud, MessageSquare, Image, Music, Video, Mail, Calendar,
   Plus, Search, Grid3X3, List, ExternalLink, Trash2, Edit, Bookmark,
   Folder, X, ChevronRight, ChevronDown,
-  type LucideIcon
 } from "lucide-react";
+import BookmarkIcon from "@/components/BookmarkIcon";
 import type { Bookmark as BookmarkType, Group } from "@/types";
 import {
   listBookmarks, createBookmark, updateBookmark, deleteBookmark,
@@ -37,37 +38,25 @@ function GridView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
       {bookmarks.map((bookmark, index) => {
-        const IconComp = getIcon(bookmark.icon || "link");
         const groupName = groups.find((g) => g.id === bookmark.group_id)?.name || "未分组";
         return (
           <div
             key={bookmark.id}
             className="group relative card-macos p-4 cursor-pointer transition-all duration-300 hover:shadow-glass-lg"
             onClick={() => onOpen(bookmark.url)}
-            title={bookmark.description || bookmark.name}
+            title={bookmark.name}
             style={{ animationDelay: `${index * 30}ms` }}
           >
-            <div className="absolute top-3 right-3 flex items-center gap-1 z-10">
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-secondary/60"
-                onClick={(e) => { e.stopPropagation(); onOpen(bookmark.url); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-secondary/60"
-                onClick={(e) => { e.stopPropagation(); onEdit(bookmark); }}><Edit className="h-3.5 w-3.5" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-background/80 hover:bg-red-500/10 hover:text-red-500"
-                onClick={(e) => { e.stopPropagation(); onDelete(bookmark.id); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
-            </div>
             <div className="flex justify-center mt-5 mb-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110">
-                <IconComp className="h-6 w-6" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110 overflow-hidden">
+                <BookmarkIcon icon={bookmark.icon} url={bookmark.url} className="h-6 w-6" />
               </div>
             </div>
             <h3 className="font-semibold text-sm text-center truncate px-1" title={bookmark.name}>{bookmark.name}</h3>
-            <p className="text-[11px] text-muted-foreground text-center truncate mt-1 px-1" title={bookmark.url}>{bookmark.url}</p>
+            <p className="text-[11px] text-muted-foreground text-center truncate mt-1 px-2" title={bookmark.url}>{bookmark.url}</p>
             <div className="flex justify-center mt-2">
               <Badge variant="secondary" className="text-[10px] rounded-full">{groupName}</Badge>
             </div>
-            {bookmark.description && (
-              <p className="text-[11px] text-muted-foreground text-center truncate mt-2 px-1">{bookmark.description}</p>
-            )}
           </div>
         );
       })}
@@ -80,7 +69,6 @@ function ListView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
     <div className="card-macos overflow-hidden">
       <div className="divide-y divide-[var(--glass-border)]">
         {bookmarks.map((bookmark) => {
-          const IconComp = getIcon(bookmark.icon || "link");
           const groupName = groups.find((g) => g.id === bookmark.group_id)?.name || "未分组";
           return (
             <div
@@ -88,8 +76,8 @@ function ListView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
               className="flex items-center gap-4 py-3 px-4 hover:bg-accent/40 transition-colors cursor-pointer group"
               onClick={() => onOpen(bookmark.url)}
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <IconComp className="h-4.5 w-4.5" />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary overflow-hidden">
+                <BookmarkIcon icon={bookmark.icon} url={bookmark.url} className="h-4.5 w-4.5" />
               </div>
               <div className="w-40 shrink-0">
                 <div className="flex items-center gap-2">
@@ -99,15 +87,6 @@ function ListView({ bookmarks, groups, onOpen, onEdit, onDelete }: BookmarkViewP
               <div className="flex-1 min-w-0"><span className="text-sm text-muted-foreground truncate block">{bookmark.url}</span></div>
               <div className="w-28 shrink-0">
                 <Badge variant="secondary" className="text-[10px] rounded-full">{groupName}</Badge>
-              </div>
-              <div className="hidden lg:block flex-1 min-w-0 max-w-xs"><span className="text-[11px] text-muted-foreground truncate block">{bookmark.description || "-"}</span></div>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-secondary/60"
-                  onClick={(e) => { e.stopPropagation(); onOpen(bookmark.url); }}><ExternalLink className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-secondary/60"
-                  onClick={(e) => { e.stopPropagation(); onEdit(bookmark); }}><Edit className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg hover:bg-red-500/10 hover:text-red-500"
-                  onClick={(e) => { e.stopPropagation(); onDelete(bookmark.id); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
               </div>
             </div>
           );
@@ -131,21 +110,6 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </Button>
     </div>
   );
-}
-
-// Icon Mapping
-const iconMap: Record<string, LucideIcon> = {
-  "layout-dashboard": LayoutDashboard, "server": Server, "database": Database,
-  "globe": Globe, "terminal": Terminal, "cpu": Cpu, "hard-drive": HardDrive,
-  "code": Code, "box": Box, "layers": Layers, "zap": Zap, "shield": Shield,
-  "settings": Settings, "file-text": FileText, "link": Link, "book-open": BookOpen,
-  "bar-chart": BarChart3, "flask": FlaskConical, "cloud": Cloud,
-  "message-square": MessageSquare, "image": Image, "music": Music,
-  "video": Video, "mail": Mail, "calendar": Calendar,
-};
-
-function getIcon(iconName: string): LucideIcon {
-  return iconMap[iconName] || Link;
 }
 
 const ICON_OPTIONS = [
@@ -180,8 +144,7 @@ export default function BookmarksPage() {
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
-    name: "", url: "", description: "", group_id: null as number | null, icon: "link",
-    service_id: null as number | null,
+    name: "", url: "", group_id: null as number | null, icon: "link",
   });
 
   const [sidebarSearch, setSidebarSearch] = useState("");
@@ -278,35 +241,32 @@ export default function BookmarksPage() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter((b) =>
-        b.name.toLowerCase().includes(q) || b.url.toLowerCase().includes(q) ||
-        (b.description && b.description.toLowerCase().includes(q))
+        b.name.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)
       );
     }
     if (sidebarSearch.trim()) {
       const q = sidebarSearch.toLowerCase().trim();
       result = result.filter((b) =>
-        b.name.toLowerCase().includes(q) || b.url.toLowerCase().includes(q) ||
-        (b.description && b.description.toLowerCase().includes(q))
+        b.name.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)
       );
     }
     return result;
   }, [bookmarks, searchQuery, sidebarSearch, activeGroupId, groups]);
 
   const resetForm = () => {
-    setFormData({ name: "", url: "", description: "", group_id: null, icon: "link", service_id: null });
+    setFormData({ name: "", url: "", group_id: null, icon: "link" });
     setEditingId(null); setDialogMode(null);
   };
 
   const openCreateDialog = () => {
-    setFormData({ name: "", url: "", description: "", group_id: activeGroupId, icon: "link", service_id: null });
+    setFormData({ name: "", url: "", group_id: activeGroupId, icon: "link" });
     setEditingId(null); setDialogMode("create"); setDialogOpen(true);
   };
 
   const openEditDialog = (bookmark: BookmarkType) => {
     setFormData({
-      name: bookmark.name, url: bookmark.url, description: bookmark.description || "",
+      name: bookmark.name, url: bookmark.url,
       group_id: bookmark.group_id, icon: bookmark.icon || "link",
-      service_id: bookmark.service_id,
     });
     setEditingId(bookmark.id); setDialogMode("edit"); setDialogOpen(true);
   };
@@ -482,31 +442,6 @@ export default function BookmarksPage() {
           </div>
           <div className="flex items-center gap-1 shrink-0 ml-1">
             <span className="text-xs opacity-70">{count}</span>
-            <div
-              className="flex items-center gap-0.5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 rounded-lg hover:bg-secondary/60"
-                onClick={() => {
-                  setGroupForm({ id: node.id, name: node.name, parent_id: node.parent_id, group_type: node.group_type });
-                  setGroupDialogMode("edit");
-                  setGroupDialogOpen(true);
-                }}
-              >
-                <Edit className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 rounded-lg hover:bg-red-500/10 hover:text-red-500"
-                onClick={() => handleDeleteGroup(node.id)}
-              >
-                <Trash2 className="h-3 w-3 text-destructive" />
-              </Button>
-            </div>
           </div>
         </div>
         {hasChildren && isExpanded && (
@@ -545,33 +480,6 @@ export default function BookmarksPage() {
         style={{ width: sidebarWidth }}
         ref={sidebarRef}
       >
-        <div className="p-4 border-b border-[var(--glass-border)] flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">导航管理</span>
-          <div className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              className="h-7 rounded-lg text-xs px-2.5 btn-macos"
-              onClick={openCreateDialog}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              新增导航
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 rounded-lg text-xs px-2.5 btn-macos-secondary"
-              onClick={() => {
-                setGroupForm({ id: 0, name: "", parent_id: activeGroupId, group_type: "bookmark" });
-                setGroupDialogMode("create");
-                setGroupDialogOpen(true);
-              }}
-            >
-              <Folder className="h-3.5 w-3.5 mr-1" />
-              新建分组
-            </Button>
-          </div>
-        </div>
-
         {/* Search */}
         <div className="p-3 border-b border-[var(--glass-border)]">
           <div className="relative">
@@ -707,11 +615,12 @@ export default function BookmarksPage() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">URL <span className="text-destructive">*</span></Label>
-              <Input value={formData.url} onChange={(e) => setFormData({ ...formData, url: e.target.value })} placeholder="http://localhost:8080" className="input-macos" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">描述</Label>
-              <Input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="简短描述该服务的用途" className="input-macos" />
+              <Input
+                value={formData.url}
+                onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+                placeholder="http://localhost:8080"
+                className="input-macos"
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">分组</Label>

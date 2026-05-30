@@ -77,7 +77,7 @@ export default function SftpTree({ currentPath, onPathChange }: SftpTreeProps) {
   };
 
   return (
-    <div className="flex h-full w-[160px] flex-col border-r border-[var(--glass-border)] bg-muted/20 shrink-0 overflow-hidden">
+    <div className="flex h-full flex-col border-r border-[var(--glass-border)] bg-muted/20 overflow-hidden">
       <div className="bg-muted/40 px-2 py-1.5 text-[10px] font-bold text-muted-foreground border-b border-[var(--glass-border)]">
         📁 远程目录
       </div>

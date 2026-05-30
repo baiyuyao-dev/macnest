@@ -45,18 +45,13 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm({ websocketUrl,
       const { cols, rows } = term;
       ws.send(JSON.stringify({ type: "resize", cols, rows }));
 
-      // 配置 shell 自动报告当前工作目录（OSC 7 序列）
-      const shellIntegration = [
-        'if [ -n "$ZSH_VERSION" ]; then',
-        '  precmd() { printf "\\033]7;file://%s%s\\007" "$HOSTNAME" "$PWD" }',
-        'elif [ -n "$BASH_VERSION" ]; then',
-        '  export PROMPT_COMMAND=\'printf "\\033]7;file://%s%s\\007" "$HOSTNAME" "$PWD"\'',
-        'fi',
-        '',
-      ].join('\n');
-      const initBytes = new TextEncoder().encode(shellIntegration + '\r');
-      const initB64 = btoa(String.fromCharCode(...initBytes));
-      ws.send(initB64);
+      // Docker 终端需要多次发送 resize，确保 docker exec 进程能正确接收
+      setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          const { cols, rows } = term;
+          ws.send(JSON.stringify({ type: "resize", cols, rows }));
+        }
+      }, 500);
 
       keepaliveTimerRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -96,19 +91,23 @@ const XTerm = forwardRef<XTermHandle, XTermProps>(function XTerm({ websocketUrl,
     term.loadAddon(new WebLinksAddon());
 
     // 注册 OSC 7 处理器，静默捕获 shell 报告的当前工作目录
+    // 无条件注册：即使当前终端不需要路径同步，也要消费掉 OSC 7 序列，
+    // 防止远程 shell 的 .bashrc/.zshrc 中配置的 OSC 7 输出到终端上
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parser = (term as any).parser;
-    if (onPathChange && parser?.registerOscHandler) {
+    if (parser?.registerOscHandler) {
       parser.registerOscHandler(7, (data: string) => {
-        try {
-          // data 格式: file://hostname/path
-          const url = new URL(data);
-          const path = decodeURIComponent(url.pathname);
-          onPathChange(path);
-        } catch {
-          const match = data.match(/^file:\/\/[^/]+(.+)$/);
-          if (match) {
-            onPathChange(decodeURIComponent(match[1]));
+        if (onPathChange) {
+          try {
+            // data 格式: file://hostname/path
+            const url = new URL(data);
+            const path = decodeURIComponent(url.pathname);
+            onPathChange(path);
+          } catch {
+            const match = data.match(/^file:\/\/[^/]+(.+)$/);
+            if (match) {
+              onPathChange(decodeURIComponent(match[1]));
+            }
           }
         }
         return true; // true = 已消费，不输出到终端

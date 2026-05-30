@@ -34,13 +34,8 @@ pub struct Bookmark {
     pub id: i64,
     pub name: String,
     pub url: String,
-    pub description: String,
     pub group_id: Option<i64>,
     pub icon: String,
-    pub service_id: Option<i64>,
-    pub health_check_url: String,
-    pub is_online: bool,
-    pub click_count: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -51,6 +46,7 @@ pub struct AppSettings {
     pub theme: String,
     pub auto_refresh_interval: i64,
     pub show_menu_bar: bool,
+    pub auto_sync_bookmarks_interval: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -147,12 +143,8 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 url TEXT NOT NULL,
-                description TEXT DEFAULT '',
-                category TEXT DEFAULT 'default',
+                group_id INTEGER,
                 icon TEXT DEFAULT 'link',
-                service_id INTEGER,
-                health_check_url TEXT DEFAULT '',
-                is_online BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -170,6 +162,7 @@ impl Database {
                 theme TEXT DEFAULT 'dark',
                 auto_refresh_interval INTEGER DEFAULT 5,
                 show_menu_bar BOOLEAN DEFAULT 1,
+                auto_sync_bookmarks_interval INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -177,7 +170,7 @@ impl Database {
             INSERT OR IGNORE INTO settings (id) VALUES (1);
 
             CREATE INDEX IF NOT EXISTS idx_service_logs_service_id ON service_logs(service_id);
-            CREATE INDEX IF NOT EXISTS idx_bookmarks_category ON bookmarks(category);
+            CREATE INDEX IF NOT EXISTS idx_bookmarks_group_id ON bookmarks(group_id);
 
             UPDATE settings SET theme = 'dark' WHERE id = 1 AND theme IS NULL;
 
@@ -265,19 +258,55 @@ impl Database {
         // Migration: add start_count to services
         let _ = conn.execute("ALTER TABLE services ADD COLUMN start_count INTEGER DEFAULT 0", []);
 
-        // Migration: add click_count to bookmarks
-        let _ = conn.execute("ALTER TABLE bookmarks ADD COLUMN click_count INTEGER DEFAULT 0", []);
+        // Migration: add auto_sync_bookmarks_interval to settings
+        let _ = conn.execute("ALTER TABLE settings ADD COLUMN auto_sync_bookmarks_interval INTEGER DEFAULT 0", []);
 
-        // Migration: fix groups unique constraint to include group_type
-        // Check if old unique constraint exists (name, parent_id only) by checking
-        // sqlite_master for an autoindex on groups that covers just those two columns.
-        let has_old_constraint: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'groups' AND sql LIKE '%ON groups(name, parent_id)%'",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
-        if has_old_constraint > 0 {
-            // Recreate the table with the correct constraint
+        // Migration: prune redundant columns from bookmarks (rebuild table)
+        let bookmarks_sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bookmarks'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_default();
+        if bookmarks_sql.contains("description")
+            || bookmarks_sql.contains("service_id")
+            || bookmarks_sql.contains("health_check_url")
+            || bookmarks_sql.contains("is_online")
+            || bookmarks_sql.contains("click_count")
+        {
+            let _ = conn.execute_batch(
+                "BEGIN;
+                CREATE TABLE bookmarks_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    group_id INTEGER,
+                    icon TEXT DEFAULT 'link',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO bookmarks_new (id, name, url, group_id, icon, created_at, updated_at)
+                SELECT id, name, url, group_id, icon, created_at, updated_at FROM bookmarks;
+                DROP TABLE bookmarks;
+                ALTER TABLE bookmarks_new RENAME TO bookmarks;
+                COMMIT;"
+            );
+        }
+
+        // Migration: fix groups unique constraint to include group_type.
+        // SQLite autoindexes from column-level UNIQUE have sql=NULL, so we
+        // inspect the CREATE TABLE statement directly.
+        let groups_sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'groups'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_default();
+        let has_old_unique = groups_sql.contains("UNIQUE")
+            && !groups_sql.contains("UNIQUE(name, parent_id, group_type)");
+        if has_old_unique {
             let _ = conn.execute_batch(
                 "BEGIN;
                 CREATE TABLE groups_new (
@@ -610,15 +639,13 @@ impl Database {
         &self,
         name: &str,
         url: &str,
-        description: &str,
         group_id: Option<i64>,
         icon: &str,
-        service_id: Option<i64>,
     ) -> Result<i64> {
         let conn = self.conn()?;
         conn.execute(
-            "INSERT INTO bookmarks (name, url, description, group_id, icon, service_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![name, url, description, group_id, icon, service_id],
+            "INSERT INTO bookmarks (name, url, group_id, icon) VALUES (?1, ?2, ?3, ?4)",
+            params![name, url, group_id, icon],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -626,9 +653,9 @@ impl Database {
     pub fn list_bookmarks(&self, group_id: Option<i64>) -> Result<Vec<Bookmark>> {
         let conn = self.conn()?;
         let query = if let Some(_gid) = group_id {
-            "SELECT id, name, url, description, group_id, icon, service_id, health_check_url, is_online, click_count, created_at, updated_at FROM bookmarks WHERE group_id = ?1 ORDER BY click_count DESC, created_at DESC"
+            "SELECT id, name, url, group_id, icon, created_at, updated_at FROM bookmarks WHERE group_id = ?1 ORDER BY created_at DESC"
         } else {
-            "SELECT id, name, url, description, group_id, icon, service_id, health_check_url, is_online, click_count, created_at, updated_at FROM bookmarks ORDER BY click_count DESC, created_at DESC"
+            "SELECT id, name, url, group_id, icon, created_at, updated_at FROM bookmarks ORDER BY created_at DESC"
         };
         let mut stmt = conn.prepare(query)?;
         let bookmarks = if let Some(gid) = group_id {
@@ -638,15 +665,10 @@ impl Database {
                         id: row.get(0)?,
                         name: row.get(1)?,
                         url: row.get(2)?,
-                        description: row.get(3)?,
-                        group_id: row.get(4)?,
-                        icon: row.get(5)?,
-                        service_id: row.get(6)?,
-                        health_check_url: row.get(7)?,
-                        is_online: row.get(8)?,
-                        click_count: row.get(9)?,
-                        created_at: row.get(10)?,
-                        updated_at: row.get(11)?,
+                        group_id: row.get(3)?,
+                        icon: row.get(4)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
                     })
                 })?
                 .collect::<Result<Vec<_>>>()?
@@ -657,15 +679,10 @@ impl Database {
                         id: row.get(0)?,
                         name: row.get(1)?,
                         url: row.get(2)?,
-                        description: row.get(3)?,
-                        group_id: row.get(4)?,
-                        icon: row.get(5)?,
-                        service_id: row.get(6)?,
-                        health_check_url: row.get(7)?,
-                        is_online: row.get(8)?,
-                        click_count: row.get(9)?,
-                        created_at: row.get(10)?,
-                        updated_at: row.get(11)?,
+                        group_id: row.get(3)?,
+                        icon: row.get(4)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
                     })
                 })?
                 .collect::<Result<Vec<_>>>()?
@@ -678,21 +695,12 @@ impl Database {
         id: i64,
         name: &str,
         url: &str,
-        description: &str,
         group_id: Option<i64>,
         icon: &str,
     ) -> Result<()> {
         self.conn()?.execute(
-            "UPDATE bookmarks SET name = ?1, url = ?2, description = ?3, group_id = ?4, icon = ?5, updated_at = CURRENT_TIMESTAMP WHERE id = ?6",
-            params![name, url, description, group_id, icon, id],
-        )?;
-        Ok(())
-    }
-
-    pub fn increment_bookmark_click_count(&self, id: i64) -> Result<()> {
-        self.conn()?.execute(
-            "UPDATE bookmarks SET click_count = click_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
-            params![id],
+            "UPDATE bookmarks SET name = ?1, url = ?2, group_id = ?3, icon = ?4, updated_at = CURRENT_TIMESTAMP WHERE id = ?5",
+            params![name, url, group_id, icon, id],
         )?;
         Ok(())
     }
@@ -700,6 +708,18 @@ impl Database {
     pub fn delete_bookmark(&self, id: i64) -> Result<()> {
         let conn = self.conn()?;
         conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn clear_all_bookmarks(&self) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM bookmarks", [])?;
+        Ok(())
+    }
+
+    pub fn clear_bookmark_groups(&self) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM groups WHERE group_type = 'bookmark'", [])?;
         Ok(())
     }
 
@@ -754,7 +774,7 @@ impl Database {
     pub fn get_settings(&self) -> Result<AppSettings> {
         let conn = self.conn()?;
         let settings = conn.query_row(
-            "SELECT id, theme, auto_refresh_interval, show_menu_bar, created_at, updated_at FROM settings WHERE id = 1",
+            "SELECT id, theme, auto_refresh_interval, show_menu_bar, auto_sync_bookmarks_interval, created_at, updated_at FROM settings WHERE id = 1",
             [],
             |row| {
                 Ok(AppSettings {
@@ -762,8 +782,9 @@ impl Database {
                     theme: row.get(1)?,
                     auto_refresh_interval: row.get(2)?,
                     show_menu_bar: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    auto_sync_bookmarks_interval: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             },
         )?;
@@ -775,10 +796,11 @@ impl Database {
         theme: &str,
         auto_refresh_interval: i64,
         show_menu_bar: bool,
+        auto_sync_bookmarks_interval: i64,
     ) -> Result<()> {
         self.conn()?.execute(
-            "UPDATE settings SET theme = ?1, auto_refresh_interval = ?2, show_menu_bar = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-            params![theme, auto_refresh_interval, show_menu_bar],
+            "UPDATE settings SET theme = ?1, auto_refresh_interval = ?2, show_menu_bar = ?3, auto_sync_bookmarks_interval = ?4, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+            params![theme, auto_refresh_interval, show_menu_bar, auto_sync_bookmarks_interval],
         )?;
         Ok(())
     }

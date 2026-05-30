@@ -6,6 +6,7 @@ mod docker;
 mod docker_terminal;
 mod error;
 mod process;
+mod safari_bookmarks;
 mod security;
 mod system;
 mod ssh;
@@ -81,6 +82,46 @@ fn main() {
             };
             app.manage(state);
 
+            // Start background Safari bookmark auto-sync thread
+            let db_path_for_sync = db_path_str.to_string();
+            std::thread::spawn(move || {
+                let db = match Database::new(&db_path_for_sync) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("[macnest] Auto-sync thread: failed to open DB: {}", e);
+                        return;
+                    }
+                };
+                let mut last_sync: Option<std::time::Instant> = None;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    if let Ok(settings) = db.get_settings() {
+                        let interval = settings.auto_sync_bookmarks_interval;
+                        if interval <= 0 {
+                            continue;
+                        }
+                        let should_sync = match last_sync {
+                            None => true,
+                            Some(t) => t.elapsed().as_secs() >= (interval as u64 * 60),
+                        };
+                        if should_sync {
+                            match crate::safari_bookmarks::import_safari_bookmarks(&db) {
+                                Ok(result) => {
+                                    eprintln!(
+                                        "[macnest] Auto-synced Safari bookmarks: {} bookmarks, {} groups",
+                                        result.bookmarks_imported, result.groups_imported
+                                    );
+                                    last_sync = Some(std::time::Instant::now());
+                                }
+                                Err(e) => {
+                                    eprintln!("[macnest] Auto-sync Safari bookmarks failed: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
             // Create tray popup window (hidden by default)
             let _popup = tauri::WebviewWindowBuilder::new(
                 app,
@@ -100,11 +141,14 @@ fn main() {
             setup_tray(app)?;
 
             // Show main window after setup
-            let window = app.get_webview_window("main").unwrap();
-            let _ = window.show();
-            let _ = window.set_focus();
-            #[cfg(debug_assertions)]
-            let _ = window.open_devtools();
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                #[cfg(debug_assertions)]
+                let _ = window.open_devtools();
+            } else {
+                eprintln!("[macnest] Warning: main window not found during setup");
+            }
 
             Ok(())
         })
@@ -128,6 +172,7 @@ fn main() {
             commands::get_container_logs,
             commands::get_container_stats,
             commands::recreate_container,
+            commands::update_container_ports,
             // Docker image commands
             commands::list_images,
             commands::remove_image,
@@ -155,7 +200,7 @@ fn main() {
             commands::update_bookmark,
             commands::delete_bookmark,
             commands::list_bookmarks,
-            commands::record_bookmark_click,
+            commands::import_safari_bookmarks,
             // Group commands
             commands::list_groups,
             commands::create_group,

@@ -118,11 +118,8 @@ export interface Bookmark {
   id: number;
   name: string;
   url: string;
-  description: string;
   group_id: number | null;
   icon: string;
-  service_id: number | null;
-  click_count?: number;
   created_at: string;
   updated_at: string;
 }

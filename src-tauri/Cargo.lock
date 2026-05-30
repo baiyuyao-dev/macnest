@@ -2510,6 +2510,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "libc",
+ "plist",
  "portable-pty",
  "r2d2",
  "r2d2_sqlite",

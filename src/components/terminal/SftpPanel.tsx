@@ -3,7 +3,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import SftpTree from "./SftpTree";
 import SftpFileList from "./SftpFileList";
-import SftpFileDetail from "./SftpFileDetail";
+import SftpFileDetail, { type SftpFileDetailHandle } from "./SftpFileDetail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload, sftpGetProgress, sftpCancelTransfer } from "@/lib/api";
@@ -25,6 +25,55 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
   const [pendingDeleteFile, setPendingDeleteFile] = useState<SftpFile | null>(null);
   const [autoSync, setAutoSync] = useState(true);
 
+  // ── Resizable widths ──────────────────────────────────
+  const DEFAULT_TREE_WIDTH = 160;
+  const DEFAULT_DETAIL_WIDTH = 180;
+  const [treeWidth, setTreeWidth] = useState(DEFAULT_TREE_WIDTH);
+  const [detailWidth, setDetailWidth] = useState(DEFAULT_DETAIL_WIDTH);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const detailCompRef = useRef<SftpFileDetailHandle>(null);
+  const isDraggingTree = useRef(false);
+  const isDraggingDetail = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(DEFAULT_TREE_WIDTH);
+  const [dragCursor, setDragCursor] = useState<"col-resize" | null>(null);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      e.preventDefault();
+      if (isDraggingTree.current && treeRef.current) {
+        const delta = e.clientX - startXRef.current;
+        const w = Math.max(120, Math.min(300, startWidthRef.current + delta));
+        treeRef.current.style.width = w + "px";
+      }
+      if (isDraggingDetail.current && detailRef.current) {
+        const delta = startXRef.current - e.clientX;
+        const w = Math.max(140, Math.min(320, startWidthRef.current + delta));
+        detailRef.current.style.width = w + "px";
+      }
+    };
+    const handleUp = () => {
+      if (isDraggingTree.current) {
+        isDraggingTree.current = false;
+        const w = treeRef.current?.offsetWidth ?? DEFAULT_TREE_WIDTH;
+        setTreeWidth(w);
+      }
+      if (isDraggingDetail.current) {
+        isDraggingDetail.current = false;
+        const w = detailRef.current?.offsetWidth ?? DEFAULT_DETAIL_WIDTH;
+        setDetailWidth(w);
+      }
+      setDragCursor(null);
+    };
+    window.addEventListener("mousemove", handleMove, { passive: false });
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, []);
+
   const loadFiles = useCallback(async (path: string) => {
     setLoading(true);
     try {
@@ -43,12 +92,14 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
     loadFiles("/");
   }, [sessionId, loadFiles]);
 
-  // 终端路径变化时自动同步
+  // 终端路径变化时自动同步（只在 syncPath / autoSync / loadFiles 变化时触发，避免 currentPath 变化导致反向同步）
   useEffect(() => {
     if (autoSync && syncPath && syncPath !== currentPath) {
+      console.log("[SFTP AutoSync] syncPath changed:", syncPath, "currentPath:", currentPath);
       loadFiles(syncPath);
     }
-  }, [syncPath, currentPath, autoSync, loadFiles]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncPath, autoSync, loadFiles]);
 
   // 进度轮询（使用 ref 避免依赖 transfers 导致多次创建 interval）
   const transfersRef = useRef(transfers);
@@ -258,6 +309,11 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
 
   return (
     <div className="flex h-full bg-background relative flex-col">
+      {/* 拖动时全屏透明覆盖层 */}
+      {dragCursor && (
+        <div className="fixed inset-0 z-[9999]" style={{ cursor: dragCursor }} />
+      )}
+
       {/* 终端路径同步状态条 */}
       {syncPath && (
         <div className="flex items-center justify-between px-3 py-1 bg-muted/40 border-b border-[var(--glass-border)] text-[11px] shrink-0">
@@ -281,65 +337,108 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
             <div className="text-emerald-500 text-xs">加载中...</div>
           </div>
         )}
-        <SftpTree
-        currentPath={currentPath}
-        onPathChange={loadFiles}
-      />
-      <SftpFileList
-        files={files}
-        currentPath={currentPath}
-        selectedFile={selectedFile}
-        onSelectFile={setSelectedFile}
-        onPathChange={loadFiles}
-        onRefresh={() => loadFiles(currentPath)}
-        onDelete={handleDelete}
-        onMkdir={handleMkdir}
-        onRename={handleRename}
-        onUpload={handleUpload}
-        onDownload={handleDownload}
-        onDropUpload={handleDropUpload}
-        onSyncToTerminal={onSyncToTerminal ? () => onSyncToTerminal(currentPath) : undefined}
-      />
-      <SftpFileDetail
-        file={selectedFile}
-        transfers={transfers}
-        onCancelTransfer={handleCancelTransfer}
-      />
 
-      {/* 删除确认对话框 */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">确认删除</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground py-2">
-            确定要删除 <strong className="text-foreground">{pendingDeleteFile?.name}</strong> 吗？
-            {pendingDeleteFile?.is_dir ? " 文件夹及其内容将无法恢复。" : " 此操作无法撤销。"}
-          </p>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-lg"
-              onClick={() => {
-                setDeleteDialogOpen(false);
-                setPendingDeleteFile(null);
-              }}
-            >
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="rounded-lg"
-              onClick={confirmDelete}
-            >
-              确认删除
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+        {/* Tree */}
+        <div ref={treeRef} className="shrink-0 h-full" style={{ width: treeWidth }}>
+          <SftpTree
+            currentPath={currentPath}
+            onPathChange={loadFiles}
+          />
+        </div>
+
+        {/* Splitter: Tree ↔ FileList */}
+        <div
+          className="w-2 shrink-0 z-20 group relative cursor-col-resize"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            isDraggingTree.current = true;
+            startXRef.current = e.clientX;
+            startWidthRef.current = treeRef.current?.offsetWidth ?? DEFAULT_TREE_WIDTH;
+            setDragCursor("col-resize");
+          }}
+        >
+          <div className="absolute inset-0 -left-1 -right-1" />
+          <div className="w-[3px] h-full mx-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
+        </div>
+
+        {/* FileList */}
+        <div className="flex-1 min-w-0 h-full">
+          <SftpFileList
+            files={files}
+            currentPath={currentPath}
+            selectedFile={selectedFile}
+            onSelectFile={setSelectedFile}
+            onPathChange={loadFiles}
+            onRefresh={() => loadFiles(currentPath)}
+            onDelete={handleDelete}
+            onMkdir={handleMkdir}
+            onRename={handleRename}
+            onUpload={handleUpload}
+            onDownload={handleDownload}
+            onDropUpload={handleDropUpload}
+            onSyncToTerminal={onSyncToTerminal ? () => onSyncToTerminal(currentPath) : undefined}
+          />
+        </div>
+
+        {/* Splitter: FileList ↔ FileDetail */}
+        <div
+          className="w-2 shrink-0 z-20 group relative cursor-col-resize"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            isDraggingDetail.current = true;
+            startXRef.current = e.clientX;
+            startWidthRef.current = detailRef.current?.offsetWidth ?? DEFAULT_DETAIL_WIDTH;
+            setDragCursor("col-resize");
+          }}
+        >
+          <div className="absolute inset-0 -left-1 -right-1" />
+          <div className="w-[3px] h-full mx-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
+        </div>
+
+        {/* FileDetail */}
+        <div ref={detailRef} className="shrink-0 h-full" style={{ width: detailWidth }}>
+          <SftpFileDetail
+            ref={detailCompRef}
+            file={selectedFile}
+            transfers={transfers}
+            onCancelTransfer={handleCancelTransfer}
+          />
+        </div>
+
+        {/* 删除确认对话框 */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold">确认删除</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground py-2">
+              确定要删除 <strong className="text-foreground">{pendingDeleteFile?.name}</strong> 吗？
+              {pendingDeleteFile?.is_dir ? " 文件夹及其内容将无法恢复。" : " 此操作无法撤销。"}
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setPendingDeleteFile(null);
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="rounded-lg"
+                onClick={confirmDelete}
+              >
+                确认删除
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }

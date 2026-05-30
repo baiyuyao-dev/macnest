@@ -481,14 +481,14 @@ export default function Tmux() {
             <div>
               <Label className="text-xs">会话名称</Label>
               <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="如 my-project、web-server"
-                onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos mt-1.5"
+                onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleCreate()} className="input-macos mt-1.5"
               />
             </div>
             <div>
               <Label className="text-xs">工作目录</Label>
               <div className="flex gap-2 mt-1.5">
                 <Input value={newCwd} onChange={(e) => setNewCwd(e.target.value)} placeholder="如 /Users/xxx/projects，留空使用主目录"
-                  onKeyDown={(e) => e.key === "Enter" && handleCreate()} className="input-macos flex-1"
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleCreate()} className="input-macos flex-1"
                 />
                 <Button variant="outline" size="sm" className="h-9 px-3 rounded-lg text-xs"
                   onClick={() => pickDirectory(setNewCwd)} type="button"
@@ -516,14 +516,14 @@ export default function Tmux() {
             <div>
               <Label className="text-xs">会话名称</Label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="会话名称"
-                onKeyDown={(e) => e.key === "Enter" && handleEdit()} className="input-macos mt-1.5"
+                onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleEdit()} className="input-macos mt-1.5"
               />
             </div>
             <div>
               <Label className="text-xs">工作目录</Label>
               <div className="flex gap-2 mt-1.5">
                 <Input value={editCwd} onChange={(e) => setEditCwd(e.target.value)} placeholder="如 /Users/xxx/projects"
-                  onKeyDown={(e) => e.key === "Enter" && handleEdit()} className="input-macos flex-1"
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleEdit()} className="input-macos flex-1"
                 />
                 <Button variant="outline" size="sm" className="h-9 px-3 rounded-lg text-xs"
                   onClick={() => pickDirectory(setEditCwd)} type="button"

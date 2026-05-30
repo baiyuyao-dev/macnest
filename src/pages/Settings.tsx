@@ -20,6 +20,7 @@ import {
   Hexagon,
   Sun,
   Moon,
+  Bookmark,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useThemeStore } from "@/stores/theme";
@@ -32,6 +33,7 @@ export default function SettingsPage() {
     theme: "dark",
     auto_refresh_interval: 5,
     show_menu_bar: true,
+    auto_sync_bookmarks_interval: 0,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -44,6 +46,7 @@ export default function SettingsPage() {
         theme: data.theme,
         auto_refresh_interval: data.auto_refresh_interval,
         show_menu_bar: data.show_menu_bar,
+        auto_sync_bookmarks_interval: data.auto_sync_bookmarks_interval,
       });
       setTheme(data.theme === "dark");
     } catch (err) {
@@ -122,11 +125,13 @@ export default function SettingsPage() {
         theme: "dark",
         auto_refresh_interval: 5,
         show_menu_bar: true,
+        auto_sync_bookmarks_interval: 0,
       });
       setSettings({
         theme: "dark",
         auto_refresh_interval: 5,
         show_menu_bar: true,
+        auto_sync_bookmarks_interval: 0,
       });
       setTheme(true);
     } catch (err) {
@@ -262,6 +267,42 @@ export default function SettingsPage() {
                 setSettings((prev) => ({ ...prev, show_menu_bar: checked }))
               }
             />
+          </div>
+        </div>
+      </div>
+
+      {/* 书签同步 */}
+      <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "175ms" }}>
+        <div className="flex items-center px-5 py-4 border-b border-[var(--glass-border)]">
+          <Bookmark className="mr-2 h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight">书签同步</h3>
+            <p className="text-[11px] text-muted-foreground">自动从 Safari 同步书签</p>
+          </div>
+        </div>
+        <div className="p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-xs font-medium">自动同步频率</Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5">导航模块与 Safari 书签保持同步的频率</p>
+            </div>
+            <select
+              value={String(settings.auto_sync_bookmarks_interval)}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  auto_sync_bookmarks_interval: Number(e.target.value),
+                }))
+              }
+              className="w-28 h-9 text-xs flex rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 shadow-sm outline-none focus:border-primary/50 transition-all"
+            >
+              <option value="0">关闭</option>
+              <option value="5">5 分钟</option>
+              <option value="10">10 分钟</option>
+              <option value="15">15 分钟</option>
+              <option value="30">30 分钟</option>
+              <option value="60">60 分钟</option>
+            </select>
           </div>
         </div>
       </div>
