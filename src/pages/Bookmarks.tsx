@@ -15,15 +15,16 @@ import {
   Settings, FileText, Link, BookOpen, BarChart3, FlaskConical,
   Cloud, MessageSquare, Image, Music, Video, Mail, Calendar,
   Plus, Search, Grid3X3, List, ExternalLink, Trash2, Edit, Bookmark,
-  Folder, X, ChevronRight, ChevronDown,
+  Folder, X, ChevronRight, ChevronDown, RefreshCw,
 } from "lucide-react";
 import BookmarkIcon from "@/components/BookmarkIcon";
 import type { Bookmark as BookmarkType, Group } from "@/types";
 import {
   listBookmarks, createBookmark, updateBookmark, deleteBookmark,
   listGroups, createGroup, updateGroup, deleteGroup,
-  openExternalUrl,
+  openExternalUrl, importSafariBookmarks,
 } from "@/lib/api";
+import { listen } from "@tauri-apps/api/event";
 import { buildGroupTree, collectDescendantIds, filterGroupTree, type GroupNode } from "@/lib/tree";
 
 interface BookmarkViewProps {
@@ -158,6 +159,7 @@ export default function BookmarksPage() {
   const [groupDeleteTargetId, setGroupDeleteTargetId] = useState<number | null>(null);
   const [bookmarkDeleteConfirmOpen, setBookmarkDeleteConfirmOpen] = useState(false);
   const [bookmarkDeleteTargetId, setBookmarkDeleteTargetId] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
@@ -223,6 +225,38 @@ export default function BookmarksPage() {
   useEffect(() => {
     loadBookmarks();
   }, [loadBookmarks]);
+
+  // Listen for auto-sync completion from backend
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen("safari-bookmarks-synced", () => {
+      loadBookmarks();
+      loadGroups();
+      toast.success("Safari 书签已同步");
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch(console.error);
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [loadBookmarks, loadGroups]);
+
+  const handleSyncFromSafari = async () => {
+    setSyncing(true);
+    try {
+      const result = await importSafariBookmarks();
+      await loadBookmarks();
+      await loadGroups();
+      toast.success(
+        `同步完成：导入 ${result.bookmarks_imported} 个书签，${result.groups_imported} 个分组`
+      );
+    } catch (error: any) {
+      console.error("Failed to sync Safari bookmarks:", error);
+      toast.error(error?.message || "同步失败，请检查 Safari 书签文件访问权限");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const filteredBookmarks = useMemo(() => {
     let result = bookmarks;
@@ -536,6 +570,18 @@ export default function BookmarksPage() {
           <div>
             <h1 className="text-[22px] font-bold tracking-tight">服务导航</h1>
             <p className="text-xs text-muted-foreground mt-0.5">管理常用服务导航</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 text-xs rounded-xl btn-macos-secondary"
+              onClick={handleSyncFromSafari}
+              disabled={syncing}
+            >
+              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "同步中..." : "从 Safari 同步"}
+            </Button>
           </div>
         </div>
 

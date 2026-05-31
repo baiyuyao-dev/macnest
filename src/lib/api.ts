@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
-import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, SshConnection, SftpFile, TransferProgress } from "@/types";
+import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, CpuDetailedUsage, SshConnection, SftpFile, TransferProgress } from "@/types";
 
 // ===== 统一错误处理 =====
 
@@ -296,6 +296,10 @@ export async function getProcesses(): Promise<ProcessInfo[]> {
   return invokeSafe("get_processes");
 }
 
+export async function getCpuDetailedUsage(): Promise<CpuDetailedUsage> {
+  return invokeSafe("get_cpu_detailed_usage");
+}
+
 // ===== 设置 =====
 
 export interface AppSettings {
@@ -355,6 +359,18 @@ export async function sshDisconnect(sessionId: string): Promise<void> {
 
 export async function getActiveSshSessionsCount(): Promise<number> {
   return invokeSafe("ssh_active_sessions_count");
+}
+
+export interface ShellIntegrationResult {
+  bashrc_modified: boolean;
+  zshrc_modified: boolean;
+  script_uploaded: boolean;
+}
+
+export async function installSshShellIntegration(
+  sessionId: string
+): Promise<ShellIntegrationResult> {
+  return invokeSafe("install_ssh_shell_integration", { sessionId });
 }
 
 // ===== SFTP 文件管理 =====

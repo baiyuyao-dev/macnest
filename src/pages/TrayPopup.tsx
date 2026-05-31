@@ -1,31 +1,37 @@
 import { useEffect, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
-import { getSystemInfo, getResourceUsage, listServices } from "@/lib/api";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { getSystemInfo, getResourceUsage, getCpuDetailedUsage } from "@/lib/api";
 import {
   Globe,
-  Server,
   Cpu,
   MemoryStick,
   LayoutDashboard,
   Power,
+  Copy,
+  Check,
+  Thermometer,
+  Gauge,
 } from "lucide-react";
 
 export default function TrayPopup() {
   const [ip, setIp] = useState<string>("-");
+  const [ipCopied, setIpCopied] = useState(false);
   const [cpu, setCpu] = useState(0);
   const [memoryPercent, setMemoryPercent] = useState(0);
   const [memoryUsed, setMemoryUsed] = useState("-");
   const [memoryTotal, setMemoryTotal] = useState("-");
-  const [runningServices, setRunningServices] = useState(0);
+  const [cpuTemp, setCpuTemp] = useState(0);
+  const [cpuPressure, setCpuPressure] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
     try {
-      const [sysInfo, resources, services] = await Promise.all([
+      const [sysInfo, resources, cpuDetail] = await Promise.all([
         getSystemInfo().catch(() => null),
         getResourceUsage().catch(() => null),
-        listServices().catch(() => []),
+        getCpuDetailedUsage().catch(() => null),
       ]);
       setIp(sysInfo?.local_ip || "-");
       if (resources) {
@@ -34,7 +40,10 @@ export default function TrayPopup() {
         setMemoryUsed(`${Math.round(resources.memory_used_mb / 1024 * 10) / 10} GB`);
         setMemoryTotal(`${Math.round(resources.memory_total_mb / 1024 * 10) / 10} GB`);
       }
-      setRunningServices(services.filter((s) => s.status === "running").length);
+      if (cpuDetail) {
+        setCpuTemp(cpuDetail.thermal.temperature_celsius);
+        setCpuPressure(cpuDetail.pressure.total_pressure);
+      }
     } catch (err) {
       console.error("Tray popup load error:", err);
     } finally {
@@ -88,18 +97,45 @@ export default function TrayPopup() {
         </div>
 
         {/* Status cards */}
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {/* IP */}
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-1.5">
-            <Globe className="h-4 w-4 text-amber-500 shrink-0" />
-            <div className="min-w-0">
-              <p className="text-[10px] text-muted-foreground">本机 IP</p>
-              <p className="text-sm font-medium truncate">{loading ? "..." : ip}</p>
+          <button
+            onClick={async () => {
+              if (ip === "-" || loading) return;
+              try {
+                await writeText(ip);
+                setIpCopied(true);
+                setTimeout(() => setIpCopied(false), 1500);
+              } catch (err) {
+                console.error("Copy failed:", err);
+              }
+            }}
+            className="group flex items-center gap-3 w-full rounded-xl bg-white/5 px-3 py-2 text-left active:scale-[0.97] transition-all duration-150 cursor-pointer hover:bg-white/10"
+          >
+            <Globe className="h-4 w-4 text-amber-500 shrink-0 group-hover:scale-110 transition-transform duration-150" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] text-muted-foreground">
+                {ipCopied ? (
+                  <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-1 text-emerald-400 font-semibold">
+                    <Check className="h-2.5 w-2.5" />已复制
+                  </span>
+                ) : (
+                  "本机 IP"
+                )}
+              </p>
+              <p className="text-sm font-medium truncate">
+                {loading ? "..." : ip}
+              </p>
             </div>
-          </div>
+            {ipCopied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0 transition-all duration-150" />
+            ) : (
+              <Copy className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground group-hover:scale-110 shrink-0 transition-all duration-150" />
+            )}
+          </button>
 
           {/* CPU */}
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-1.5">
+          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2">
             <Cpu className="h-4 w-4 text-sky-500 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-[10px] text-muted-foreground">CPU 使用率</p>
@@ -114,7 +150,7 @@ export default function TrayPopup() {
           </div>
 
           {/* Memory */}
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-1.5">
+          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2">
             <MemoryStick className="h-4 w-4 text-violet-500 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-[10px] text-muted-foreground">内存</p>
@@ -128,18 +164,31 @@ export default function TrayPopup() {
             </div>
           </div>
 
-          {/* Running services */}
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-1.5">
-            <Server className="h-4 w-4 text-emerald-500 shrink-0" />
+          {/* CPU Temperature */}
+          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2">
+            <Thermometer className="h-4 w-4 text-orange-500 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground">运行中服务</p>
-              <p className="text-sm font-medium">{loading ? "..." : runningServices}</p>
+              <p className="text-[10px] text-muted-foreground">CPU 温度</p>
+              <p className={`text-sm font-medium ${cpuTemp > 80 ? 'text-red-400' : ''}`}>
+                {loading || cpuTemp <= 0 ? "--" : `${cpuTemp.toFixed(1)}°C`}
+              </p>
+            </div>
+          </div>
+
+          {/* CPU Pressure */}
+          <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2">
+            <Gauge className="h-4 w-4 text-amber-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-muted-foreground">CPU 压力</p>
+              <p className="text-sm font-medium">
+                {loading || cpuPressure <= 0 ? "--" : `${cpuPressure.toFixed(1)}%`}
+              </p>
             </div>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="mt-auto space-y-1 pt-1.5 border-t border-white/10">
+        <div className="mt-auto space-y-2 pt-2 border-t border-white/10">
           <button
             onClick={showMainWindow}
             className="w-full flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"

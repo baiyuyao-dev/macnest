@@ -84,6 +84,7 @@ fn main() {
 
             // Start background Safari bookmark auto-sync thread
             let db_path_for_sync = db_path_str.to_string();
+            let app_handle_for_sync = app_handle.clone();
             std::thread::spawn(move || {
                 let db = match Database::new(&db_path_for_sync) {
                     Ok(d) => d,
@@ -112,9 +113,12 @@ fn main() {
                                         result.bookmarks_imported, result.groups_imported
                                     );
                                     last_sync = Some(std::time::Instant::now());
+                                    // Notify frontend to refresh bookmarks
+                                    let _ = app_handle_for_sync.emit("safari-bookmarks-synced", result);
                                 }
                                 Err(e) => {
                                     eprintln!("[macnest] Auto-sync Safari bookmarks failed: {}", e);
+                                    let _ = app_handle_for_sync.emit("safari-bookmarks-sync-failed", e);
                                 }
                             }
                         }
@@ -129,7 +133,7 @@ fn main() {
                 tauri::WebviewUrl::App("tray-popup.html".into()),
             )
             .title("MacNest")
-            .inner_size(260.0, 340.0)
+            .inner_size(260.0, 430.0)
             .visible(false)
             .decorations(false)
             .resizable(false)
@@ -210,6 +214,7 @@ fn main() {
             commands::get_system_info,
             commands::get_resource_usage,
             commands::get_processes,
+            commands::get_cpu_detailed_usage,
             // Settings commands
             commands::get_settings,
             commands::update_settings,
@@ -221,6 +226,7 @@ fn main() {
             commands::ssh_connect,
             commands::ssh_disconnect,
             commands::ssh_active_sessions_count,
+            commands::install_ssh_shell_integration,
             // SFTP commands
             commands::sftp_list_dir,
             commands::sftp_delete,
@@ -290,6 +296,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let _tray = TrayIconBuilder::new()
         .tooltip("MacNest")
         .icon(icon)
+        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

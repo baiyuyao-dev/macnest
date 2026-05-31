@@ -182,4 +182,38 @@ impl SftpManager {
     pub fn open_file(&self, path: &Path) -> anyhow::Result<ssh2::File> {
         self.sftp.open(path).map_err(|e| e.into())
     }
+
+    /// 将字节内容写入远程文件（覆盖模式）
+    pub fn write_file(&self, path: &str, content: &[u8]) -> anyhow::Result<()> {
+        self.validate_sftp_path(path)?;
+        let mut file = self.sftp.create(Path::new(path))?;
+        file.write_all(content)?;
+        Ok(())
+    }
+
+    /// 读取远程文件全部内容
+    pub fn read_file(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        self.validate_sftp_path(path)?;
+        let mut file = self.sftp.open(Path::new(path))?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+
+    /// 通过 SSH exec 执行命令并返回 stdout/stderr/exit_code
+    pub fn exec_command(&self, command: &str) -> anyhow::Result<(String, String, i32)> {
+        let mut channel = self.session.channel_session()?;
+        channel.exec(command)?;
+
+        let mut stdout = String::new();
+        channel.read_to_string(&mut stdout)?;
+
+        let mut stderr = String::new();
+        channel.stderr().read_to_string(&mut stderr)?;
+
+        channel.wait_close()?;
+        let exit_code = channel.exit_status()?;
+
+        Ok((stdout, stderr, exit_code as i32))
+    }
 }

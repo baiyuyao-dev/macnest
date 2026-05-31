@@ -395,3 +395,150 @@ pub fn get_network_io() -> Result<(u64, u64), String> {
 
     Ok((total_rx, total_tx))
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CpuThermal {
+    pub temperature_celsius: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CpuPressure {
+    pub user_pressure: f64,
+    pub system_pressure: f64,
+    pub total_pressure: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CpuCoreLoad {
+    pub core_index: i32,
+    pub usage_percent: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CpuDetailedUsage {
+    pub thermal: CpuThermal,
+    pub pressure: CpuPressure,
+    pub cores: Vec<CpuCoreLoad>,
+}
+
+pub fn get_cpu_detailed_usage() -> Result<CpuDetailedUsage, String> {
+    let thermal = get_cpu_thermal()?;
+    let pressure = get_cpu_pressure()?;
+    let cores = get_cpu_core_loads()?;
+    Ok(CpuDetailedUsage { thermal, pressure, cores })
+}
+
+fn get_cpu_thermal() -> Result<CpuThermal, String> {
+    // Method 1: sysinfo temperature sensors (works on most macOS hardware)
+    use sysinfo::Components;
+    let components = Components::new_with_refreshed_list();
+    for component in &components {
+        let label = component.label().to_lowercase();
+        if label.contains("cpu") || label.contains("die") || label.contains("core") || label.contains("pkg") {
+            let temp = component.temperature();
+            if temp > 0.0 {
+                return Ok(CpuThermal { temperature_celsius: temp as f64 });
+            }
+        }
+    }
+
+    // Method 2: osx-cpu-temp (brew install osx-cpu-temp)
+    if let Ok(output) = Command::new("osx-cpu-temp").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(temp_str) = stdout.trim().split('°').next() {
+            if let Ok(temp) = temp_str.parse::<f64>() {
+                return Ok(CpuThermal { temperature_celsius: temp });
+            }
+        }
+    }
+
+    // Method 3: istats (gem install iStats)
+    if let Ok(output) = Command::new("istats").args(["cpu", "temp"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Some(temp_str) = line.split("°C").next() {
+                let temp_str = temp_str.trim();
+                if let Ok(temp) = temp_str.parse::<f64>() {
+                    return Ok(CpuThermal { temperature_celsius: temp });
+                }
+                let parts: Vec<&str> = temp_str.split_whitespace().collect();
+                if let Some(last) = parts.last() {
+                    if let Ok(temp) = last.parse::<f64>() {
+                        return Ok(CpuThermal { temperature_celsius: temp });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(CpuThermal { temperature_celsius: 0.0 })
+}
+
+fn get_cpu_pressure() -> Result<CpuPressure, String> {
+    // Use memory_pressure command on macOS
+    let output = Command::new("memory_pressure")
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let mut user_pressure = 0.0;
+    let mut system_pressure = 0.0;
+    let mut total_pressure = 0.0;
+
+    for line in stdout.lines() {
+        if line.contains("System-wide memory free percentage:") {
+            if let Some(percent_str) = line.split(':').nth(1) {
+                let percent_str = percent_str.trim().trim_end_matches('%');
+                if let Ok(percent) = percent_str.parse::<f64>() {
+                    // memory_pressure shows free percentage, convert to pressure
+                    total_pressure = 100.0 - percent;
+                }
+            }
+        }
+    }
+
+    // Also try to get from vm_stats if available
+    if let Ok(output) = Command::new("sh")
+        .args(["-c", "vm_stat 2>/dev/null | grep 'Pages free'"])
+        .output()
+    {
+        let _stdout = String::from_utf8_lossy(&output.stdout);
+        // This is a fallback, pressure is already estimated above
+    }
+
+    // If memory_pressure didn't work, estimate from vm_stat
+    if total_pressure == 0.0 {
+        if let Ok((_used_mb, _total_mb, percent)) = get_memory_usage() {
+            total_pressure = percent;
+        }
+    }
+
+    // Estimate user vs system split (rough approximation)
+    user_pressure = total_pressure * 0.7;
+    system_pressure = total_pressure * 0.3;
+
+    Ok(CpuPressure { user_pressure, system_pressure, total_pressure })
+}
+
+fn get_cpu_core_loads() -> Result<Vec<CpuCoreLoad>, String> {
+    use sysinfo::{CpuRefreshKind, RefreshKind, System};
+
+    let mut s = System::new_with_specifics(
+        RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
+    );
+
+    // sysinfo needs a delay between refreshes to calculate CPU usage accurately
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    s.refresh_cpu_all();
+
+    let mut cores = Vec::new();
+    for (i, cpu) in s.cpus().iter().enumerate() {
+        cores.push(CpuCoreLoad {
+            core_index: i as i32,
+            usage_percent: cpu.cpu_usage() as f64,
+        });
+    }
+
+    Ok(cores)
+}

@@ -367,55 +367,34 @@ export default function Tmux() {
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      {activeSession === s.name ? (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
-                            onClick={(e) => { e.stopPropagation(); handleDetach(); }}
-                            title="断开"
-                          >
-                            <Square className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
-                            onClick={(e) => { e.stopPropagation(); handleCopy(s); }} title="复制配置新建"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
-                            onClick={(e) => { e.stopPropagation(); handleGhostty(s.display_name); }} title="Ghostty 中打开"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
-                            onClick={(e) => { e.stopPropagation(); handleCopy(s); }} title="复制配置新建"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditTarget(s.display_name);
-                              setEditName(s.display_name);
-                              setEditCwd(s.start_directory || "");
-                              setEditOpen(true);
-                            }}
-                            title="编辑"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
-                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(s.display_name); setDeleteOpen(true); }}
-                            title="删除"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
-                      )}
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
+                        onClick={(e) => { e.stopPropagation(); handleGhostty(s.display_name); }} title="Ghostty 中打开"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
+                        onClick={(e) => { e.stopPropagation(); handleCopy(s); }} title="复制配置新建"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-secondary/60"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditTarget(s.display_name);
+                          setEditName(s.display_name);
+                          setEditCwd(s.start_directory || "");
+                          setEditOpen(true);
+                        }}
+                        title="编辑"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-500"
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(s.display_name); setDeleteOpen(true); }}
+                        title="删除"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </div>

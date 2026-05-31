@@ -8,6 +8,8 @@ import {
   MemoryStick,
   Activity,
   Clock,
+  Thermometer,
+  Gauge,
 } from "lucide-react";
 import {
   AreaChart,
@@ -18,9 +20,9 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import { getSystemInfo, getResourceUsage, getProcesses } from "@/lib/api";
+import { getSystemInfo, getResourceUsage, getProcesses, getCpuDetailedUsage } from "@/lib/api";
 import { formatUptime, formatBytes, processStatusVariant } from "@/lib/utils";
-import type { SystemInfo as SystemInfoType, ProcessInfo } from "@/types";
+import type { SystemInfo as SystemInfoType, ProcessInfo, CpuDetailedUsage } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /* 骨架屏                                                              */
@@ -96,6 +98,7 @@ export default function System() {
     disk_percent: 0,
   });
   const [initialLoading, setInitialLoading] = useState(true);
+  const [cpuDetailedUsage, setCpuDetailedUsage] = useState<CpuDetailedUsage | null>(null);
   const dataRef = useRef<ChartPoint[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -138,6 +141,15 @@ export default function System() {
     }
   }, []);
 
+  const loadCpuDetailedUsage = useCallback(async () => {
+    try {
+      const usage = await getCpuDetailedUsage();
+      setCpuDetailedUsage(usage);
+    } catch (err) {
+      console.error("Failed to load CPU detailed usage:", err);
+    }
+  }, []);
+
   const loadData = useCallback(async (showSkeleton: boolean) => {
     const start = Date.now();
     if (showSkeleton) setInitialLoading(true);
@@ -145,6 +157,7 @@ export default function System() {
       loadSystemInfo(),
       loadResourceUsage(),
       loadProcesses(),
+      loadCpuDetailedUsage(),
     ]);
     if (showSkeleton) {
       const remain = MIN_LOADING_MS - (Date.now() - start);
@@ -154,7 +167,7 @@ export default function System() {
         setInitialLoading(false);
       }
     }
-  }, [loadSystemInfo, loadResourceUsage, loadProcesses]);
+  }, [loadSystemInfo, loadResourceUsage, loadProcesses, loadCpuDetailedUsage]);
 
   useEffect(() => {
     loadData(true);
@@ -162,16 +175,17 @@ export default function System() {
       if (document.visibilityState === "visible") {
         loadResourceUsage();
         loadProcesses();
+        loadCpuDetailedUsage();
       }
     }, 3000);
     return () => {
       clearInterval(interval);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [loadData, loadResourceUsage, loadProcesses]);
+  }, [loadData, loadResourceUsage, loadProcesses, loadCpuDetailedUsage]);
 
   return (
-    <div className="flex flex-col gap-5 p-6 h-full animate-page-enter">
+    <div className="flex flex-col gap-5 p-6 min-h-full animate-page-enter">
       {/* Header */}
       <div className="animate-slide-up">
         <h1 className="text-[22px] font-bold tracking-tight">系统监控</h1>
@@ -293,6 +307,126 @@ export default function System() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* CPU 详细监控 */}
+      <div className="grid grid-cols-3 gap-4 animate-slide-up" style={{ animationDelay: "125ms" }}>
+        {/* CPU 温度 */}
+        <div className="card-macos overflow-hidden">
+          <div className="px-5 py-4 border-b border-[var(--glass-border)]">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center text-sm font-semibold tracking-tight">
+                <Thermometer className="mr-2 h-4 w-4 text-orange-500" />
+                CPU 温度
+              </h3>
+              <span className={`text-[22px] font-bold tracking-tight ${(cpuDetailedUsage?.thermal.temperature_celsius ?? 0) > 80 ? 'text-red-500' : 'text-orange-500'}`}>
+                {cpuDetailedUsage ? `${cpuDetailedUsage.thermal.temperature_celsius.toFixed(1)}°C` : "--"}
+              </span>
+            </div>
+          </div>
+          <div className="p-4">
+            {cpuDetailedUsage ? (
+              <div className="space-y-2">
+                <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${(cpuDetailedUsage.thermal.temperature_celsius ?? 0) > 80 ? 'bg-red-500' : 'bg-orange-500'}`}
+                    style={{ width: `${Math.min((cpuDetailedUsage.thermal.temperature_celsius / 100) * 100, 100)}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {(cpuDetailedUsage.thermal.temperature_celsius ?? 0) > 80 ? "温度过高，请注意散热" : "温度正常"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Skeleton className="h-2 w-full rounded-full" />
+                <Skeleton className="h-3 w-24 rounded-md" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* CPU 压力 */}
+        <div className="card-macos overflow-hidden">
+          <div className="px-5 py-4 border-b border-[var(--glass-border)]">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center text-sm font-semibold tracking-tight">
+                <Gauge className="mr-2 h-4 w-4 text-amber-500" />
+                CPU 压力
+              </h3>
+              <span className="text-[22px] font-bold text-amber-500 tracking-tight">
+                {cpuDetailedUsage ? `${cpuDetailedUsage.pressure.total_pressure.toFixed(1)}%` : "--"}
+              </span>
+            </div>
+          </div>
+          <div className="p-4">
+            {cpuDetailedUsage ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground">User</span>
+                  <span className="font-mono">{cpuDetailedUsage.pressure.user_pressure.toFixed(1)}%</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
+                  <div className="h-full rounded-full bg-amber-500 transition-all duration-500" style={{ width: `${cpuDetailedUsage.pressure.user_pressure}%` }} />
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground">System</span>
+                  <span className="font-mono">{cpuDetailedUsage.pressure.system_pressure.toFixed(1)}%</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
+                  <div className="h-full rounded-full bg-amber-400 transition-all duration-500" style={{ width: `${cpuDetailedUsage.pressure.system_pressure}%` }} />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-full rounded-md" />
+                <Skeleton className="h-1.5 w-full rounded-full" />
+                <Skeleton className="h-3 w-full rounded-md" />
+                <Skeleton className="h-1.5 w-full rounded-full" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* CPU 核心负载 */}
+        <div className="card-macos overflow-hidden">
+          <div className="px-5 py-4 border-b border-[var(--glass-border)]">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center text-sm font-semibold tracking-tight">
+                <Cpu className="mr-2 h-4 w-4 text-cyan-500" />
+                CPU 核心负载
+              </h3>
+              <span className="text-[22px] font-bold text-cyan-500 tracking-tight">
+                {cpuDetailedUsage ? `${(cpuDetailedUsage.cores.reduce((s, c) => s + c.usage_percent, 0) / cpuDetailedUsage.cores.length).toFixed(1)}%` : "--"}
+              </span>
+            </div>
+          </div>
+          <div className="p-4">
+            {cpuDetailedUsage ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 max-h-[120px] overflow-y-auto">
+                {cpuDetailedUsage.cores.map((core) => (
+                  <div key={core.core_index} className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground w-8">核心{core.core_index}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-cyan-500 transition-all duration-500"
+                        style={{ width: `${Math.min(core.usage_percent, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono w-10 text-right">{core.usage_percent.toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-full rounded-md" />
+                <Skeleton className="h-3 w-full rounded-md" />
+                <Skeleton className="h-3 w-full rounded-md" />
+                <Skeleton className="h-3 w-full rounded-md" />
+              </div>
+            )}
           </div>
         </div>
       </div>

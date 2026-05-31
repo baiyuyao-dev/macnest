@@ -362,7 +362,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
         </div>
 
         {/* FileList */}
-        <div className="flex-1 min-w-0 h-full">
+        <div className="flex-1 min-w-0 flex flex-col">
           <SftpFileList
             files={files}
             currentPath={currentPath}

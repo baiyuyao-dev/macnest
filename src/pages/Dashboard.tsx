@@ -22,7 +22,11 @@ import {
   MemoryStick,
   Loader2,
   FileText,
+  Copy,
+  Check,
 } from "lucide-react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { toast } from "sonner";
 import BookmarkIcon from "@/components/BookmarkIcon";
 import {
   listServices,
@@ -126,6 +130,75 @@ function StatCard({
   );
 }
 
+function IpStatCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  colorClass,
+  delay,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string | number;
+  sub?: string;
+  colorClass?: string;
+  delay: number;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!value || value === "-") return;
+    try {
+      await writeText(String(value));
+      setCopied(true);
+      toast.success("IP 已复制到剪贴板");
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      toast.error("复制失败");
+      console.error("Copy failed:", err);
+    }
+  };
+
+  return (
+    <div
+      className="card-macos p-5 cursor-default group"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <div className="flex items-start justify-between">
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground tracking-wide">{label}</p>
+          <div className="flex items-baseline gap-1.5">
+            <span className={`text-[26px] font-bold tracking-tight ${colorClass || ""}`}>{value}</span>
+            {sub && <span className="text-xs font-medium text-muted-foreground">{sub}</span>}
+          </div>
+        </div>
+        <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${colorClass ? colorClass.replace("text-", "bg-") + "/10" : "bg-muted"} ${colorClass || "text-muted-foreground"}`}>
+          <Icon className="h-[18px] w-[18px]" />
+        </div>
+      </div>
+      {/* Copy button */}
+      <button
+        onClick={handleCopy}
+        className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-primary active:scale-95 transition-all duration-150"
+        title="点击复制 IP"
+      >
+        {copied ? (
+          <>
+            <Check className="h-3 w-3 text-emerald-500 scale-110 transition-transform duration-150" />
+            <span className="inline-flex items-center rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-emerald-600 font-semibold">已复制</span>
+          </>
+        ) : (
+          <>
+            <Copy className="h-3 w-3 group-hover:scale-110 transition-transform duration-150" />
+            <span>点击复制</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 /* ── Main ── */
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -195,9 +268,17 @@ export default function Dashboard() {
         loadData(false);
       }
     }, 5000);
+    // Listen for Safari bookmark sync events
+    let unlisten: (() => void) | null = null;
+    listen("safari-bookmarks-synced", () => {
+      loadData(false);
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch(console.error);
     return () => {
       clearInterval(interval);
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (unlisten) unlisten();
     };
   }, [loadData]);
 
@@ -375,7 +456,7 @@ export default function Dashboard() {
           <StatCard icon={Server} label="运行中服务" value={`${runningServices}`} sub={`/ ${services.length}`} colorClass="text-emerald-500" delay={50} />
           <StatCard icon={Container} label="Docker 容器" value={`${runningContainers}`} sub={`/ ${containers.length}`} colorClass="text-blue-500" delay={100} />
           <StatCard icon={Bookmark} label="导航数量" value={bookmarks.length} colorClass="text-amber-500" delay={150} />
-          <StatCard icon={Globe} label="本机 IP" value={systemInfo?.local_ip || "-"} colorClass="text-purple-500" delay={200} />
+          <IpStatCard icon={Globe} label="本机 IP" value={systemInfo?.local_ip || "-"} colorClass="text-purple-500" delay={200} />
           <StatCard icon={LayoutGrid} label="Tmux 会话" value={tmuxSessions} colorClass="text-cyan-500" delay={250} />
           <StatCard icon={Terminal} label="SSH 终端" value={`${sshSessionCount}`} sub={`/ ${sshConnections}`} colorClass="text-rose-500" delay={300} />
         </div>

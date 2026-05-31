@@ -106,7 +106,7 @@ impl Database {
         Ok(Database { pool })
     }
 
-    fn conn(&self) -> Result<r2d2::PooledConnection<SqliteConnectionManager>> {
+    pub fn conn(&self) -> Result<r2d2::PooledConnection<SqliteConnectionManager>> {
         self.pool.get().map_err(|_| {
             rusqlite::Error::FromSqlConversionFailure(
                 0,

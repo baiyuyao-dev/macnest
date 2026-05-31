@@ -515,6 +515,9 @@ export default function Terminal() {
         sessionId: result.session_id,
         websocketUrl: result.websocket_url,
       });
+
+      // Shell Integration 通过 PTY ECHO=0 + 注入 + clear 实现，
+      // 服务器端无需安装任何脚本，当前会话立即生效。
     } catch (err) {
       console.error("Failed to connect:", err);
       alert("连接失败: " + String(err));
@@ -1062,7 +1065,7 @@ export default function Terminal() {
                 }}
               >
                 {/* Status bar */}
-                <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--glass-border)] bg-muted/30 shrink-0">
+                <div className="flex items-center px-3 py-1 border-b border-[var(--glass-border)] bg-muted/30 shrink-0">
                   <span className="text-[10px] text-primary flex items-center gap-1">
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
                     {tab.name} — {tab.websocketUrl}

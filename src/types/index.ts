@@ -253,3 +253,24 @@ export interface RenameTmuxSessionRequest {
   old_name: string;
   new_name: string;
 }
+
+export interface CpuThermal {
+  temperature_celsius: number;
+}
+
+export interface CpuPressure {
+  user_pressure: number;
+  system_pressure: number;
+  total_pressure: number;
+}
+
+export interface CpuCoreLoad {
+  core_index: number;
+  usage_percent: number;
+}
+
+export interface CpuDetailedUsage {
+  thermal: CpuThermal;
+  pressure: CpuPressure;
+  cores: CpuCoreLoad[];
+}

@@ -1,5 +1,5 @@
 import { useOutlet, useLocation, NavLink } from "react-router-dom";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard,
   Server,
@@ -9,7 +9,17 @@ import {
   Terminal as TerminalIcon,
   Monitor,
   Settings,
+  Copy,
+  Check,
+  Globe,
+  Thermometer,
+  Gauge,
+  Cpu,
 } from "lucide-react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { toast } from "sonner";
+import { getSystemInfo, getCpuDetailedUsage } from "@/lib/api";
+import type { SystemInfo, CpuDetailedUsage } from "@/types";
 import MacNestLogo from "@/components/icons/MacNestLogo";
 import { useThemeStore } from "@/stores/theme";
 
@@ -28,6 +38,9 @@ export default function Layout() {
   const outlet = useOutlet();
   const cacheRef = useRef<Map<string, React.ReactNode>>(new Map());
   const [collapsed, setCollapsed] = useState(false);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [cpuUsage, setCpuUsage] = useState<CpuDetailedUsage | null>(null);
+  const [ipCopied, setIpCopied] = useState(false);
 
   const currentPath = location.pathname;
   if (outlet && !cacheRef.current.has(currentPath)) {
@@ -35,6 +48,36 @@ export default function Layout() {
   }
 
   useThemeStore();
+
+  const loadSystemInfo = useCallback(async () => {
+    try {
+      const info = await getSystemInfo();
+      setSystemInfo(info);
+    } catch (err) {
+      console.error("Failed to load system info:", err);
+    }
+  }, []);
+
+  const loadCpuUsage = useCallback(async () => {
+    try {
+      const usage = await getCpuDetailedUsage();
+      setCpuUsage(usage);
+    } catch (err) {
+      console.error("Failed to load CPU usage:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSystemInfo();
+    loadCpuUsage();
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadSystemInfo();
+        loadCpuUsage();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [loadSystemInfo, loadCpuUsage]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
@@ -121,6 +164,121 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+
+        {/* System Monitor Section */}
+        <div className="relative px-2 py-2 border-t border-[var(--glass-border)]">
+          {/* IP Display */}
+          {systemInfo?.local_ip && (
+            <button
+              onClick={async () => {
+                if (!systemInfo?.local_ip) return;
+                try {
+                  await writeText(systemInfo.local_ip);
+                  setIpCopied(true);
+                  toast.success("IP 已复制到剪贴板");
+                  setTimeout(() => setIpCopied(false), 1500);
+                } catch (err) {
+                  toast.error("复制失败");
+                  console.error("Copy failed:", err);
+                }
+              }}
+              className="group flex items-center gap-2 w-full rounded-xl px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 active:scale-[0.97] transition-all duration-150 cursor-pointer"
+            >
+              <Globe className="relative h-[14px] w-[14px] shrink-0" />
+              <span
+                className="relative overflow-hidden whitespace-nowrap"
+                style={{
+                  opacity: collapsed ? 0 : 1,
+                  maxWidth: collapsed ? 0 : 120,
+                  transition: collapsed
+                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
+                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
+                }}
+              >
+                {systemInfo.local_ip}
+              </span>
+              <span className="flex-1" />
+              <span
+                className="shrink-0 transition-all duration-200"
+                style={{
+                  opacity: collapsed ? 0 : 1,
+                  maxWidth: collapsed ? 0 : undefined,
+                }}
+              >
+                {ipCopied ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-emerald-600 font-semibold">
+                    <Check className="h-2.5 w-2.5" />
+                    已复制
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground/60 group-hover:text-muted-foreground group-hover:bg-accent/50 transition-all duration-150">
+                    <Copy className="h-2.5 w-2.5" />
+                    复制
+                  </span>
+                )}
+              </span>
+            </button>
+          )}
+
+          {/* CPU Temperature */}
+          {cpuUsage?.thermal && (
+            <div className="flex items-center gap-2 w-full rounded-xl px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+              <Thermometer className="relative h-[14px] w-[14px] shrink-0" />
+              <span
+                className="relative overflow-hidden whitespace-nowrap flex-1"
+                style={{
+                  opacity: collapsed ? 0 : 1,
+                  maxWidth: collapsed ? 0 : 120,
+                  transition: collapsed
+                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
+                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
+                }}
+              >
+                <span className={cpuUsage.thermal.temperature_celsius > 80 ? "text-red-500 font-semibold" : ""}>
+                  {cpuUsage.thermal.temperature_celsius.toFixed(1)}°C
+                </span>
+              </span>
+            </div>
+          )}
+
+          {/* CPU Pressure */}
+          {cpuUsage?.pressure && (
+            <div className="flex items-center gap-2 w-full rounded-xl px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+              <Gauge className="relative h-[14px] w-[14px] shrink-0" />
+              <span
+                className="relative overflow-hidden whitespace-nowrap flex-1"
+                style={{
+                  opacity: collapsed ? 0 : 1,
+                  maxWidth: collapsed ? 0 : 120,
+                  transition: collapsed
+                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
+                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
+                }}
+              >
+                {cpuUsage.pressure.total_pressure.toFixed(1)}%
+              </span>
+            </div>
+          )}
+
+          {/* CPU Core Average Load */}
+          {cpuUsage?.cores && cpuUsage.cores.length > 0 && (
+            <div className="flex items-center gap-2 w-full rounded-xl px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+              <Cpu className="relative h-[14px] w-[14px] shrink-0" />
+              <span
+                className="relative overflow-hidden whitespace-nowrap flex-1"
+                style={{
+                  opacity: collapsed ? 0 : 1,
+                  maxWidth: collapsed ? 0 : 120,
+                  transition: collapsed
+                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
+                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
+                }}
+              >
+                {(cpuUsage.cores.reduce((sum, c) => sum + c.usage_percent, 0) / cpuUsage.cores.length).toFixed(1)}%
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* Bottom actions */}
         <div className="relative p-2 space-y-0.5">

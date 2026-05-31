@@ -11,7 +11,7 @@ struct SafariNode {
     children: Vec<SafariNode>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportResult {
     pub groups_imported: usize,
     pub bookmarks_imported: usize,
@@ -29,6 +29,17 @@ pub fn import_safari_bookmarks(db: &Database) -> Result<ImportResult, String> {
         return Err("Safari 书签文件未找到".to_string());
     }
 
+    // Log plist file modification time for debugging
+    let metadata = std::fs::metadata(&plist_path)
+        .map_err(|e| format!("无法读取书签文件元数据: {}", e))?;
+    let modified = metadata.modified()
+        .map_err(|e| format!("无法获取修改时间: {}", e))?;
+    let elapsed = modified.elapsed().unwrap_or_default();
+    eprintln!(
+        "[macnest] Safari Bookmarks.plist modified {} seconds ago",
+        elapsed.as_secs()
+    );
+
     let value = match plist::Value::from_file(&plist_path) {
         Ok(v) => v,
         Err(e) => {
@@ -44,9 +55,28 @@ pub fn import_safari_bookmarks(db: &Database) -> Result<ImportResult, String> {
 
     let root = parse_safari_plist(&value)?;
 
+    // Count Safari bookmarks before clearing
+    fn count_bookmarks(node: &SafariNode) -> usize {
+        if !node.children.is_empty() {
+            node.children.iter().map(count_bookmarks).sum()
+        } else if node.url.is_some() {
+            1
+        } else {
+            0
+        }
+    }
+    let safari_bookmark_count: usize = root.children.iter().map(count_bookmarks).sum();
+    eprintln!("[macnest] Safari plist contains {} bookmarks", safari_bookmark_count);
+
+    // Get a single connection and run everything in a transaction
+    let mut conn = db.conn().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
     // === Clear existing data ===
-    db.clear_all_bookmarks().map_err(|e| e.to_string())?;
-    db.clear_bookmark_groups().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM bookmarks", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM groups WHERE group_type = 'bookmark'", [])
+        .map_err(|e| e.to_string())?;
 
     // Collect all nodes into flat lists: folders (groups) and bookmarks
     let mut folders: Vec<(Vec<usize>, String)> = Vec::new(); // (path indices, name)
@@ -98,9 +128,11 @@ pub fn import_safari_bookmarks(db: &Database) -> Result<ImportResult, String> {
             group_id_map.get(parent_path).copied()
         };
 
-        let group_id = db
-            .create_group(&name, parent_id, groups_imported as i64, "bookmark")
-            .map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO groups (name, parent_id, sort_order, group_type) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![name, parent_id, groups_imported as i64, "bookmark"],
+        ).map_err(|e| e.to_string())?;
+        let group_id = tx.last_insert_rowid();
         group_id_map.insert(folder_path, group_id);
         groups_imported += 1;
     }
@@ -114,17 +146,17 @@ pub fn import_safari_bookmarks(db: &Database) -> Result<ImportResult, String> {
             group_id_map.get(folder_path).copied()
         };
 
-        let result = db.create_bookmark(
-            &name,
-            &url,
-            group_id,
-            "link",
+        let result = tx.execute(
+            "INSERT INTO bookmarks (name, url, group_id, icon) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![name, url, group_id, "link"],
         );
         match result {
             Ok(_) => bookmarks_imported += 1,
             Err(_) => skipped += 1,
         }
     }
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(ImportResult {
         groups_imported,

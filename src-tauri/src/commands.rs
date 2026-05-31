@@ -683,6 +683,11 @@ pub async fn get_processes() -> Result<Vec<system::ProcessInfo>, String> {
     system::get_processes()
 }
 
+#[tauri::command]
+pub async fn get_cpu_detailed_usage() -> Result<system::CpuDetailedUsage, String> {
+    system::get_cpu_detailed_usage()
+}
+
 // === Settings Commands ===
 
 #[tauri::command]
@@ -889,6 +894,115 @@ pub async fn ssh_disconnect(
 pub async fn ssh_active_sessions_count(state: State<'_, AppState>) -> Result<usize, String> {
     let count = state.ssh_session_manager.get_active_sessions_count().await;
     Ok(count)
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShellIntegrationResult {
+    pub bashrc_modified: bool,
+    pub zshrc_modified: bool,
+    pub script_uploaded: bool,
+}
+
+#[tauri::command]
+pub async fn install_ssh_shell_integration(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<ShellIntegrationResult, String> {
+    // 获取会话信息以确定用户名和 home 目录
+    let info = state
+        .ssh_session_manager
+        .get_session_info(&session_id)
+        .await
+        .ok_or("Session not found")?;
+
+    let db_conn = state
+        .db
+        .get_ssh_connection(info.connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let sftp = get_sftp_manager(&state, &session_id).await?;
+
+    // 通过 SSH exec 获取真实的 home 目录，而不是猜
+    let (home_dir, _, exit_code) = sftp
+        .exec_command("echo $HOME")
+        .map_err(|e| format!("获取 home 目录失败: {}", e))?;
+    if exit_code != 0 || home_dir.trim().is_empty() {
+        return Err("无法检测远程服务器的 home 目录".to_string());
+    }
+    let home_dir = home_dir.trim();
+
+    // Shell Integration 脚本内容（同时支持 bash 和 zsh）
+    const SCRIPT_CONTENT: &str = r#"#!/bin/bash
+# MacNest Shell Integration - OSC 7 路径同步
+# 由 macnest 自动安装，请勿手动修改
+
+__macnest_osc7() {
+    printf '\e]7;file://%s%s\a' "${HOSTNAME:-$(hostname)}" "$PWD"
+}
+
+__macnest_setup() {
+    if [ -n "$BASH_VERSION" ]; then
+        if [[ "$PROMPT_COMMAND" != *"__macnest_osc7"* ]]; then
+            # 去掉 PROMPT_COMMAND 末尾的分号和空格，避免追加后出现双分号
+            local trimmed="${PROMPT_COMMAND%"${PROMPT_COMMAND##*[![:space:];]}"}"
+            PROMPT_COMMAND="${trimmed:+$trimmed; }__macnest_osc7"
+        fi
+    elif [ -n "$ZSH_VERSION" ]; then
+        if [[ "${precmd_functions[(r)__macnest_osc7]}" != "__macnest_osc7" ]]; then
+            precmd_functions+=(__macnest_osc7)
+        fi
+    fi
+}
+
+__macnest_setup
+unset -f __macnest_setup
+"#;
+
+    const SOURCE_LINE: &str =
+        "[ -f ~/.macnest_shell_integration.sh ] && source ~/.macnest_shell_integration.sh";
+
+    let script_path = format!("{}/.macnest_shell_integration.sh", home_dir);
+    sftp.write_file(&script_path, SCRIPT_CONTENT.as_bytes())
+        .map_err(|e| format!("上传脚本失败: {}", e))?;
+
+    let bashrc_path = format!("{}/.bashrc", home_dir);
+    let bashrc_modified = modify_rc_file(&sftp, &bashrc_path, SOURCE_LINE)
+        .map_err(|e| format!("修改 .bashrc 失败: {}", e))?;
+
+    let zshrc_path = format!("{}/.zshrc", home_dir);
+    let zshrc_modified = modify_rc_file(&sftp, &zshrc_path, SOURCE_LINE)
+        .unwrap_or(false);
+
+    Ok(ShellIntegrationResult {
+        bashrc_modified,
+        zshrc_modified,
+        script_uploaded: true,
+    })
+}
+
+/// 检查 rc 文件是否已包含指定行，没有则追加
+fn modify_rc_file(
+    sftp: &crate::ssh::sftp::SftpManager,
+    path: &str,
+    line: &str,
+) -> anyhow::Result<bool> {
+    let content = match sftp.read_file(path) {
+        Ok(data) => String::from_utf8_lossy(&data).to_string(),
+        Err(_) => String::new(),
+    };
+
+    if content.contains(line) {
+        return Ok(false); // 已存在，无需修改
+    }
+
+    let new_content = if content.is_empty() {
+        format!("# MacNest Shell Integration\n{}\n", line)
+    } else {
+        format!("{}\n# MacNest Shell Integration\n{}\n", content.trim_end(), line)
+    };
+
+    sftp.write_file(path, new_content.as_bytes())?;
+    Ok(true)
 }
 
 // === SFTP Commands ===

@@ -122,6 +122,7 @@ impl SshConnectionManager {
         eprintln!("[ssh] Opening SSH channel...");
         let channel = self.session.channel_open_session().await?;
         eprintln!("[ssh] SSH channel opened, requesting PTY...");
+        // PTY 请求时关闭 ECHO，后续 channel.data() 写入的数据不会被回显到终端。
         channel
             .request_pty(
                 true,
@@ -130,17 +131,15 @@ impl SshConnectionManager {
                 24,
                 0,
                 0,
-                &[],
+                &[(Pty::ECHO, 0)],
             )
             .await?;
-        eprintln!("[ssh] PTY requested, requesting shell...");
         channel.request_shell(true).await?;
         eprintln!("[ssh] Shell request accepted");
 
-        // 注入 shell 路径同步配置（OSC 7）
-        // 避免在单引号内使用 \r（会被 icrnl 转成 \n 导致字符串跨行）
-        // 用 \x0d 表示回车，bash printf 会正确解释
-        let init: &[u8] = b"\rPROMPT_COMMAND='printf \"\x1B]7;file://%s\x07\" \"$PWD\"';[ -n \"$ZSH_VERSION\" ]&&precmd(){printf \"\x1B]7;file://%s\x07\" \"$PWD\"}\n";
+        // 注入 OSC 7 路径同步配置（当前 session 生效，服务器端无需安装）
+        // PTY ECHO 已关闭，注入命令不可见；clear 清屏消除所有痕迹。
+        let init: &[u8] = b"PROMPT_COMMAND=$'printf \"\\e]7;file://%s\\a\" \"$PWD\"'; [ -n \"$ZSH_VERSION\" ] && precmd() { printf $'\\e]7;file://%s\\a' \"$PWD\"; }; stty echo; clear\n";
         let _ = channel.data(init).await;
 
         Ok(channel)
