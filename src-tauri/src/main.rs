@@ -28,6 +28,7 @@ pub struct AppState {
     docker_terminal_manager: DockerTerminalManager,
     pub transfer_progress: Arc<Mutex<HashMap<String, TransferProgress>>>,
     pub tmux_pty_sessions: Mutex<HashMap<String, crate::tmux::pty::TmuxPtySession>>,
+    pub sftp_managers: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<crate::ssh::sftp::SftpManager>>>>>,
 }
 
 fn main() {
@@ -79,6 +80,7 @@ fn main() {
                 docker_terminal_manager: DockerTerminalManager::new(),
                 transfer_progress: Arc::new(Mutex::new(HashMap::new())),
                 tmux_pty_sessions: Mutex::new(HashMap::new()),
+                sftp_managers: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             };
             app.manage(state);
 
@@ -238,6 +240,8 @@ fn main() {
             commands::sftp_get_progress,
             commands::sftp_cancel_transfer,
             commands::sftp_clear_completed,
+            commands::sftp_read_file,
+            commands::sftp_write_file,
             // Tmux commands
             commands::tmux_list_sessions,
             commands::tmux_create_session,

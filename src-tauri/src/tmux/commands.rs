@@ -283,11 +283,23 @@ pub fn update_session_start_directory(
 /// 检查 tmux 是否安装
 pub fn is_tmux_available() -> bool {
     let path = crate::tmux::get_tmux_path();
-    Command::new(&path)
-        .arg("-V")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    eprintln!("[MacNest] is_tmux_available: trying path='{}'", path);
+    match Command::new(&path).arg("-V").output() {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout);
+            eprintln!("[MacNest] tmux detected: {}", version.trim());
+            true
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("[MacNest] tmux -V failed (path='{}'): {}", path, stderr.trim());
+            false
+        }
+        Err(e) => {
+            eprintln!("[MacNest] tmux -V spawn error (path='{}'): {}", path, e);
+            false
+        }
+    }
 }
 
 /// 通过 display_name 获取 tmux_name

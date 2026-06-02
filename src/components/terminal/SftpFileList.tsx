@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Folder, FileText, ArrowUp, ArrowDown, Trash2, FolderPlus, Pencil, RefreshCw, Terminal, FolderOpen, Clipboard } from "lucide-react";
+import { Folder, FileText, ArrowUp, ArrowDown, Trash2, FolderPlus, Pencil, RefreshCw, Terminal, FolderOpen, Clipboard, Edit3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,6 +25,7 @@ interface SftpFileListProps {
   onUpload: () => void;
   onDownload: () => void;
   onDropUpload: (localPath: string) => void;
+  onEdit?: (file: SftpFile) => void;
   onSyncToTerminal?: () => void;
 }
 
@@ -41,6 +42,7 @@ export default function SftpFileList({
   onUpload,
   onDownload,
   onDropUpload,
+  onEdit,
   onSyncToTerminal,
 }: SftpFileListProps) {
   const [showMkdirDialog, setShowMkdirDialog] = useState(false);
@@ -135,6 +137,16 @@ export default function SftpFileList({
             onSelectFile(file);
             onDownload();
           }
+        },
+      },
+      {
+        id: "edit",
+        label: "编辑",
+        icon: <Edit3 className="h-3.5 w-3.5" />,
+        disabled: file.is_dir || !onEdit,
+        onClick: () => {
+          onSelectFile(file);
+          onEdit?.(file);
         },
       },
       {

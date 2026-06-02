@@ -11,6 +11,9 @@ pub struct SftpManager {
     sftp: ssh2::Sftp,
 }
 
+// ssh2::Session 和 ssh2::Sftp 都是 Send，SftpManager 仅持有它们，因此也是 Send
+unsafe impl Send for SftpManager {}
+
 /// 将权限位转换为人类可读的 rwx 格式，例如 "rwxr-xr-x"
 fn format_permissions(perm: u32, is_dir: bool) -> String {
     let mode = perm & 0o777; // 只取低9位权限位

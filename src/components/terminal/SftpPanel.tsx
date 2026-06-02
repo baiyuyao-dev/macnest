@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { toast } from "sonner";
 import SftpTree from "./SftpTree";
 import SftpFileList from "./SftpFileList";
 import SftpFileDetail, { type SftpFileDetailHandle } from "./SftpFileDetail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload, sftpGetProgress, sftpCancelTransfer } from "@/lib/api";
+import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload, sftpGetProgress, sftpCancelTransfer, sftpReadFile, sftpWriteFile, getErrorMessage } from "@/lib/api";
 import type { SftpFile, SftpTransfer } from "@/types";
 
 interface SftpPanelProps {
@@ -24,6 +25,22 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteFile, setPendingDeleteFile] = useState<SftpFile | null>(null);
   const [autoSync, setAutoSync] = useState(true);
+
+  // ── 上传覆盖确认 ────────────────────────────────────────
+  const [uploadConfirmOpen, setUploadConfirmOpen] = useState(false);
+  const [pendingUpload, setPendingUpload] = useState<{
+    localPath: string;
+    remotePath: string;
+    fileName: string;
+    existingFile: SftpFile;
+  } | null>(null);
+
+  // ── 文件编辑器 ──────────────────────────────────────────
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorFile, setEditorFile] = useState<SftpFile | null>(null);
+  const [editorContent, setEditorContent] = useState("");
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorSaving, setEditorSaving] = useState(false);
 
   // ── Resizable widths ──────────────────────────────────
   const DEFAULT_TREE_WIDTH = 160;
@@ -189,7 +206,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       loadFiles(currentPath);
     } catch (err) {
       console.error("Failed to delete:", err);
-      alert("删除失败: " + String(err));
+      alert("删除失败: " + getErrorMessage(err));
     } finally {
       setPendingDeleteFile(null);
     }
@@ -216,6 +233,21 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
     }
   };
 
+  const performUpload = async (localPath: string, remotePath: string, fileName: string) => {
+    const transferId = crypto.randomUUID();
+    setTransfers(prev => [...prev, {
+      id: transferId,
+      file_name: fileName,
+      direction: "upload",
+      total_bytes: 0,
+      transferred_bytes: 0,
+      status: "in_progress",
+    }]);
+
+    await sftpUpload(sessionId, transferId, localPath, remotePath);
+    loadFiles(currentPath);
+  };
+
   const handleUpload = async () => {
     try {
       const selected = await open({
@@ -227,21 +259,17 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       const fileName = localPath.split(/[/\\]/).pop() || "uploaded_file";
       const remotePath = currentPath === "/" ? "/" + fileName : currentPath + "/" + fileName;
 
-      const transferId = crypto.randomUUID();
-      setTransfers(prev => [...prev, {
-        id: transferId,
-        file_name: fileName,
-        direction: "upload",
-        total_bytes: 0,
-        transferred_bytes: 0,
-        status: "in_progress",
-      }]);
+      const existing = files.find(f => f.name === fileName);
+      if (existing) {
+        setPendingUpload({ localPath, remotePath, fileName, existingFile: existing });
+        setUploadConfirmOpen(true);
+        return;
+      }
 
-      await sftpUpload(sessionId, transferId, localPath, remotePath);
-      loadFiles(currentPath);
+      await performUpload(localPath, remotePath, fileName);
     } catch (err) {
       console.error("Failed to upload:", err);
-      alert("上传失败: " + String(err));
+      alert("上传失败: " + getErrorMessage(err));
     }
   };
 
@@ -278,21 +306,64 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       const fileName = localPath.split(/[/\\]/).pop() || "uploaded_file";
       const remotePath = currentPath === "/" ? "/" + fileName : currentPath + "/" + fileName;
 
-      const transferId = crypto.randomUUID();
-      setTransfers(prev => [...prev, {
-        id: transferId,
-        file_name: fileName,
-        direction: "upload",
-        total_bytes: 0,
-        transferred_bytes: 0,
-        status: "in_progress",
-      }]);
+      const existing = files.find(f => f.name === fileName);
+      if (existing) {
+        setPendingUpload({ localPath, remotePath, fileName, existingFile: existing });
+        setUploadConfirmOpen(true);
+        return;
+      }
 
-      await sftpUpload(sessionId, transferId, localPath, remotePath);
-      loadFiles(currentPath);
+      await performUpload(localPath, remotePath, fileName);
     } catch (err) {
       console.error("Failed to upload:", err);
-      alert("上传失败: " + String(err));
+      alert("上传失败: " + getErrorMessage(err));
+    }
+  };
+
+  const confirmUpload = async () => {
+    if (!pendingUpload) return;
+    setUploadConfirmOpen(false);
+    try {
+      await performUpload(pendingUpload.localPath, pendingUpload.remotePath, pendingUpload.fileName);
+    } catch (err) {
+      console.error("Failed to upload:", err);
+      alert("上传失败: " + getErrorMessage(err));
+    } finally {
+      setPendingUpload(null);
+    }
+  };
+
+  const handleEdit = async (file: SftpFile) => {
+    if (file.is_dir) return;
+    setEditorFile(file);
+    setEditorOpen(true);
+    setEditorLoading(true);
+    setEditorContent("");
+    try {
+      const content = await sftpReadFile(sessionId, file.path);
+      setEditorContent(content);
+    } catch (err) {
+      console.error("Failed to read file:", err);
+      alert("读取文件失败: " + getErrorMessage(err));
+      setEditorOpen(false);
+    } finally {
+      setEditorLoading(false);
+    }
+  };
+
+  const saveEditor = async () => {
+    if (!editorFile) return;
+    setEditorSaving(true);
+    try {
+      await sftpWriteFile(sessionId, editorFile.path, editorContent);
+      setEditorOpen(false);
+      loadFiles(currentPath);
+      toast.success("保存成功");
+    } catch (err) {
+      console.error("Failed to save file:", err);
+      alert("保存失败: " + getErrorMessage(err));
+    } finally {
+      setEditorSaving(false);
     }
   };
 
@@ -376,6 +447,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
             onUpload={handleUpload}
             onDownload={handleDownload}
             onDropUpload={handleDropUpload}
+            onEdit={handleEdit}
             onSyncToTerminal={onSyncToTerminal ? () => onSyncToTerminal(currentPath) : undefined}
           />
         </div>
@@ -434,6 +506,81 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
                 onClick={confirmDelete}
               >
                 确认删除
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* 上传覆盖确认对话框 */}
+        <Dialog open={uploadConfirmOpen} onOpenChange={setUploadConfirmOpen}>
+          <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold">确认覆盖</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground py-2">
+              远程已存在同名
+              {pendingUpload?.existingFile?.is_dir ? "文件夹" : "文件"}
+              <strong className="text-foreground"> {pendingUpload?.fileName}</strong>
+              ，是否覆盖？
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                onClick={() => {
+                  setUploadConfirmOpen(false);
+                  setPendingUpload(null);
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="rounded-lg"
+                onClick={confirmUpload}
+              >
+                覆盖上传
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* 文件编辑器 */}
+        <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+          <DialogContent className="glass-strong border-[var(--glass-border-strong)] w-[90vw] max-w-[1400px] h-[85vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold">编辑: {editorFile?.name}</DialogTitle>
+            </DialogHeader>
+            {editorLoading ? (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">加载中...</div>
+            ) : (
+              <textarea
+                className="flex-1 w-full resize-none bg-muted/30 border border-[var(--glass-border)] rounded-lg p-3 text-xs font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-primary"
+                value={editorContent}
+                onChange={(e) => setEditorContent(e.target.value)}
+                spellCheck={false}
+              />
+            )}
+            <div className="flex justify-end gap-2 mt-2 shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                onClick={() => setEditorOpen(false)}
+                disabled={editorSaving}
+              >
+                取消
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="rounded-lg"
+                onClick={saveEditor}
+                disabled={editorLoading || editorSaving}
+              >
+                {editorSaving ? "保存中..." : "保存"}
               </Button>
             </div>
           </DialogContent>

@@ -42,6 +42,7 @@ import {
   createGroup,
   updateGroup,
   deleteGroup,
+  getErrorMessage,
 } from "@/lib/api";
 import { useTerminalStore } from "@/stores/terminal";
 import { buildGroupTree, flattenGroups, type GroupNode } from "@/lib/tree";
@@ -558,7 +559,7 @@ export default function Terminal() {
       loadConnections();
     } catch (err) {
       console.error("Failed to delete connection:", err);
-      alert("删除失败: " + String(err));
+      alert("删除失败: " + getErrorMessage(err));
     }
     setConnDeleteConfirmOpen(false);
     setConnDeleteTargetId(null);

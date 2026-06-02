@@ -11,6 +11,14 @@ export interface AppError {
   details?: string;
 }
 
+/** 从 invokeSafe 抛出的异常中提取可读消息 */
+export function getErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) return String((error as { message: unknown }).message);
+  return String(error);
+}
+
 /**
  * 统一 invoke wrapper：捕获后端错误并尝试解析为结构化 AppError
  * - 后端返回 JSON 格式错误（包含 code/message）
@@ -444,6 +452,21 @@ export async function sftpCancelTransfer(
 
 export async function sftpClearCompleted(): Promise<void> {
   return invokeSafe("sftp_clear_completed");
+}
+
+export async function sftpReadFile(
+  sessionId: string,
+  path: string
+): Promise<string> {
+  return invokeSafe("sftp_read_file", { sessionId, path });
+}
+
+export async function sftpWriteFile(
+  sessionId: string,
+  path: string,
+  content: string
+): Promise<void> {
+  return invokeSafe("sftp_write_file", { sessionId, path, content });
 }
 
 // ===== Tmux 管理 =====

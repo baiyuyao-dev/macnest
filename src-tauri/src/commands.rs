@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
 use crate::database;
@@ -920,7 +921,8 @@ pub async fn install_ssh_shell_integration(
         .get_ssh_connection(info.connection_id)
         .map_err(|e| e.to_string())?;
 
-    let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp_arc = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp_arc.lock().await;
 
     // 通过 SSH exec 获取真实的 home 目录，而不是猜
     let (home_dir, _, exit_code) = sftp
@@ -1010,7 +1012,16 @@ fn modify_rc_file(
 async fn get_sftp_manager(
     state: &State<'_, AppState>,
     session_id: &str,
-) -> Result<crate::ssh::sftp::SftpManager, String> {
+) -> Result<Arc<tokio::sync::Mutex<crate::ssh::sftp::SftpManager>>, String> {
+    // Fast path: 检查缓存
+    {
+        let managers = state.sftp_managers.lock().await;
+        if let Some(manager) = managers.get(session_id) {
+            return Ok(manager.clone());
+        }
+    }
+
+    // Slow path: 新建连接
     let info = state
         .ssh_session_manager
         .get_session_info(session_id)
@@ -1024,13 +1035,20 @@ async fn get_sftp_manager(
 
     let auth_type = decrypt_auth_data(&db_conn.auth_data)?;
 
-    crate::ssh::sftp::SftpManager::connect(
+    let manager = crate::ssh::sftp::SftpManager::connect(
         &db_conn.host,
         db_conn.port,
         &db_conn.username,
         &auth_type,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    let manager_arc = Arc::new(tokio::sync::Mutex::new(manager));
+
+    let mut managers = state.sftp_managers.lock().await;
+    managers.insert(session_id.to_string(), manager_arc.clone());
+
+    Ok(manager_arc)
 }
 
 #[tauri::command]
@@ -1040,6 +1058,7 @@ pub async fn sftp_list_dir(
     path: String,
 ) -> Result<Vec<crate::ssh::types::SftpFile>, String> {
     let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp.lock().await;
     sftp.list_dir(&path).map_err(|e| e.to_string())
 }
 
@@ -1051,6 +1070,7 @@ pub async fn sftp_delete(
     is_dir: bool,
 ) -> Result<(), String> {
     let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp.lock().await;
     sftp.delete(&path, is_dir).map_err(|e| e.to_string())
 }
 
@@ -1061,6 +1081,7 @@ pub async fn sftp_mkdir(
     path: String,
 ) -> Result<(), String> {
     let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp.lock().await;
     sftp.mkdir(&path).map_err(|e| e.to_string())
 }
 
@@ -1072,6 +1093,7 @@ pub async fn sftp_rename(
     new_path: String,
 ) -> Result<(), String> {
     let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp.lock().await;
     sftp.rename(&old_path, &new_path).map_err(|e| e.to_string())
 }
 
@@ -1082,6 +1104,7 @@ pub async fn sftp_get_file_info(
     path: String,
 ) -> Result<crate::ssh::types::SftpFile, String> {
     let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp.lock().await;
     sftp.get_file_info(&path).map_err(|e| e.to_string())
 }
 
@@ -1093,7 +1116,8 @@ pub async fn sftp_upload(
     local_path: String,
     remote_path: String,
 ) -> Result<(), String> {
-    let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp_arc = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp_arc.lock().await;
 
     let total = std::fs::metadata(&local_path).map(|m| m.len()).unwrap_or(0);
     let file_name = std::path::Path::new(&local_path)
@@ -1193,7 +1217,8 @@ pub async fn sftp_download(
     remote_path: String,
     local_path: String,
 ) -> Result<(), String> {
-    let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp_arc = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp_arc.lock().await;
 
     // 获取远程文件大小
     let total = sftp
@@ -1315,6 +1340,30 @@ pub fn sftp_clear_completed(state: State<AppState>) -> Result<(), String> {
     let mut map = state.transfer_progress.lock().map_err(|e| e.to_string())?;
     map.retain(|_, p| p.status == "in_progress");
     Ok(())
+}
+
+#[tauri::command]
+pub async fn sftp_read_file(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<String, String> {
+    let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp.lock().await;
+    let bytes = sftp.read_file(&path).map_err(|e| e.to_string())?;
+    String::from_utf8(bytes).map_err(|e| format!("文件不是有效的 UTF-8 文本: {}", e))
+}
+
+#[tauri::command]
+pub async fn sftp_write_file(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let sftp = get_sftp_manager(&state, &session_id).await?;
+    let sftp = sftp.lock().await;
+    sftp.write_file(&path, content.as_bytes()).map_err(|e| e.to_string())
 }
 
 // === Tmux 管理 ===
