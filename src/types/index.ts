@@ -110,6 +110,7 @@ export interface Group {
   parent_id: number | null;
   sort_order: number;
   group_type: string;
+  start_directory: string;
   created_at: string;
   updated_at: string;
 }
@@ -187,6 +188,26 @@ export interface SshConnection {
   updated_at: string;
 }
 
+export interface RemoteSystemInfo {
+  hostname: string;
+  os_version: string;
+  cpu_model: string;
+  cpu_cores: number;
+  memory_total_mb: number;
+  memory_used_mb: number;
+  memory_free_mb: number;
+  memory_percent: number;
+  disk_total: string;
+  disk_used: string;
+  disk_available: string;
+  disk_usage_percent: string;
+  disk_usage_percent_num: number;
+  load_1m: string;
+  load_5m: string;
+  load_15m: string;
+  latency_ms: number;
+}
+
 export interface SshSessionInfo {
   session_id: string;
   connection_id: number;
@@ -211,6 +232,16 @@ export interface SftpFile {
   permissions: string;
   owner: string;
   group: string;
+}
+
+export interface LocalFileNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  modified_time: string;
+  permissions: string;
+  children?: LocalFileNode[];
 }
 
 export interface SftpTransfer {
@@ -241,12 +272,18 @@ export interface TmuxSession {
   created_at: string;
   pid: number;
   start_directory?: string;
+  group_id?: number | null;
+  group_name?: string;
+  is_external?: boolean;
 }
 
 export interface CreateTmuxSessionRequest {
   name: string;
   start_directory?: string;
   command?: string;
+  group_id?: number | null;
+  pane_count?: number;
+  layout?: "horizontal" | "vertical";
 }
 
 export interface RenameTmuxSessionRequest {
@@ -273,4 +310,22 @@ export interface CpuDetailedUsage {
   thermal: CpuThermal;
   pressure: CpuPressure;
   cores: CpuCoreLoad[];
+}
+
+// ===== RDP 管理 =====
+
+export interface RdpConnection {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  domain: string;
+  screen_width: number;
+  screen_height: number;
+  color_depth: number;
+  group_id: number | null;
+  created_at: string;
+  updated_at: string;
 }
