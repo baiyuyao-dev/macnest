@@ -7,6 +7,9 @@ use crate::tmux::types::{CreateTmuxSessionRequest, RenameTmuxSessionRequest, Tmu
 pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
     // 1. 从 tmux 获取原始会话列表
     let tmux = crate::tmux::get_tmux_path();
+    if tmux.is_empty() {
+        return Err("tmux not installed".to_string());
+    }
     let output = Command::new(&tmux)
         .args([
             "list-sessions",
@@ -27,15 +30,26 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let now = chrono::Utc::now().timestamp();
 
-    // 2. 从数据库获取映射关系（包含 display_name 和 start_directory）
+    // 2. 从数据库获取映射关系（包含 display_name、start_directory 和 group_id）
     let db_sessions = db.list_tmux_sessions().unwrap_or_default();
     let name_map: std::collections::HashMap<String, String> = db_sessions
         .iter()
         .map(|r| (r.tmux_name.clone(), r.display_name.clone()))
         .collect();
     let dir_map: std::collections::HashMap<String, String> = db_sessions
-        .into_iter()
-        .map(|r| (r.tmux_name, r.start_directory))
+        .iter()
+        .map(|r| (r.tmux_name.clone(), r.start_directory.clone()))
+        .collect();
+    let group_map: std::collections::HashMap<String, Option<i64>> = db_sessions
+        .iter()
+        .map(|r| (r.tmux_name.clone(), r.group_id))
+        .collect();
+
+    // 3. 获取所有 tmux 类型的分组信息
+    let groups = db.list_groups("tmux").unwrap_or_default();
+    let group_name_map: std::collections::HashMap<i64, String> = groups
+        .iter()
+        .map(|g| (g.id, g.name.clone()))
         .collect();
 
     let sessions = stdout
@@ -52,6 +66,9 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
                 .get(&tmux_name)
                 .cloned()
                 .filter(|s| !s.is_empty());
+            let group_id = group_map.get(&tmux_name).copied().flatten();
+            let group_name = group_id.and_then(|id| group_name_map.get(&id).cloned());
+            let is_external = !name_map.contains_key(&tmux_name);
             TmuxSession {
                 name: tmux_name,
                 display_name,
@@ -60,6 +77,9 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
                 created_at: format_timestamp(parts.get(3).unwrap_or(&"0"), now),
                 pid: parts.get(4).unwrap_or(&"0").parse().unwrap_or(0),
                 start_directory,
+                group_id,
+                group_name,
+                is_external,
             }
         })
         .collect();
@@ -127,16 +147,32 @@ pub fn create_session(db: &Database, req: &CreateTmuxSessionRequest) -> Result<(
     let tmux_name = generate_tmux_name(display_name);
     validate_tmux_name(&tmux_name)?;
 
-    let tmux = crate::tmux::get_tmux_path();
-    let mut cmd = Command::new(&tmux);
-    cmd.args(["new-session", "-d", "-s", &tmux_name]);
-
-    let start_dir = req
+    // 如果传了 group_id，获取该工作空间的目录
+    let mut start_dir = req
         .start_directory
         .as_deref()
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
+        .map(|s| s.to_string());
+
+    if start_dir.is_none() {
+        if let Some(group_id) = req.group_id {
+            if let Ok(groups) = db.list_groups("tmux") {
+                if let Some(group) = groups.iter().find(|g| g.id == group_id) {
+                    if !group.start_directory.is_empty() {
+                        start_dir = Some(group.start_directory.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let start_dir = start_dir.unwrap_or_else(|| {
+        std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+    });
+
+    let tmux = crate::tmux::get_tmux_path();
+    let mut cmd = Command::new(&tmux);
+    cmd.args(["new-session", "-d", "-s", &tmux_name]);
 
     // 验证工作目录
     validate_directory(&start_dir)?;
@@ -160,9 +196,56 @@ pub fn create_session(db: &Database, req: &CreateTmuxSessionRequest) -> Result<(
     // 重新加载配置，确保新会话继承最新的 ~/.tmux.conf
     source_tmux_config();
 
+    // 根据 pane_count 和 layout 创建 pane 布局
+    let pane_count = req.pane_count.clamp(1, 4);
+    if pane_count > 1 {
+        let tmux = crate::tmux::get_tmux_path();
+
+        match pane_count {
+            2 => {
+                // 2 pane: 根据 layout 选择左右或上下
+                let split_flag = match req.layout.as_deref() {
+                    Some("vertical") => "-v",
+                    _ => "-h", // 默认左右
+                };
+                let _ = Command::new(&tmux)
+                    .args(["split-window", split_flag, "-t", &tmux_name])
+                    .output();
+            }
+            3 => {
+                // 3 pane 品字形: 先分两个，再用 main-horizontal 布局
+                let _ = Command::new(&tmux)
+                    .args(["split-window", "-h", "-t", &tmux_name])
+                    .output();
+                let _ = Command::new(&tmux)
+                    .args(["split-window", "-h", "-t", &tmux_name])
+                    .output();
+                let _ = Command::new(&tmux)
+                    .args(["select-layout", "-t", &tmux_name, "main-horizontal"])
+                    .output();
+            }
+            4 => {
+                // 4 pane 田字: 先分三个，再用 tiled 布局
+                let _ = Command::new(&tmux)
+                    .args(["split-window", "-h", "-t", &tmux_name])
+                    .output();
+                let _ = Command::new(&tmux)
+                    .args(["split-window", "-v", "-t", &tmux_name])
+                    .output();
+                let _ = Command::new(&tmux)
+                    .args(["split-window", "-v", "-t", &tmux_name])
+                    .output();
+                let _ = Command::new(&tmux)
+                    .args(["select-layout", "-t", &tmux_name, "tiled"])
+                    .output();
+            }
+            _ => {}
+        }
+    }
+
     // 存入数据库映射
     let command_str = req.command.as_deref().unwrap_or("");
-    db.create_tmux_session(&tmux_name, display_name, &start_dir, command_str)
+    db.create_tmux_session(&tmux_name, display_name, &start_dir, command_str, req.group_id)
         .map_err(|e| format!("保存会话映射失败: {}", e))?;
 
     Ok(())
@@ -386,6 +469,83 @@ pub fn source_tmux_config() {
     let _ = std::process::Command::new(&tmux)
         .args(["source-file", &config_path])
         .output();
+}
+
+/// 检查指定 tmux session 的 pane 进程树中是否有 claude 进程
+pub fn session_has_claude(session_name: &str) -> Result<bool, String> {
+    let tmux = crate::tmux::get_tmux_path();
+
+    // 1. 获取 session 中所有 pane 的 PID
+    let output = std::process::Command::new(&tmux)
+        .args(["list-panes", "-t", session_name, "-F", "#{pane_pid}"])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Ok(false);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for line in stdout.lines() {
+        let pane_pid = line.trim().parse::<i32>().ok();
+        if let Some(pid) = pane_pid {
+            if process_tree_has_claude(pid)? {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+/// 递归查找进程树中是否有 claude 进程
+fn process_tree_has_claude(root_pid: i32) -> Result<bool, String> {
+    let mut to_check = vec![root_pid];
+    let mut checked = std::collections::HashSet::new();
+
+    while let Some(pid) = to_check.pop() {
+        if !checked.insert(pid) {
+            continue;
+        }
+
+        // 检查当前进程
+        if is_claude_process(pid)? {
+            return Ok(true);
+        }
+
+        // 获取子进程（macOS: ps -o pid= -ppid <ppid>）
+        let children = get_child_pids(pid)?;
+        to_check.extend(children);
+    }
+
+    Ok(false)
+}
+
+fn is_claude_process(pid: i32) -> Result<bool, String> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let comm = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+    Ok(comm.contains("claude"))
+}
+
+fn get_child_pids(ppid: i32) -> Result<Vec<i32>, String> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "pid=", "-ppid", &ppid.to_string()])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let mut children = Vec::new();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Ok(pid) = line.trim().parse::<i32>() {
+            children.push(pid);
+        }
+    }
+    Ok(children)
 }
 
 /// 格式化时间戳为友好字符串
