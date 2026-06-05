@@ -632,6 +632,8 @@ export default function Tmux() {
   const [newName, setNewName] = useState("");
   const [newCwd, setNewCwd] = useState("");
   const [newGroupId, setNewGroupId] = useState<number | null>(null);
+  const [newPaneCount, setNewPaneCount] = useState<number>(1);
+  const [newLayout, setNewLayout] = useState<"horizontal" | "vertical">("horizontal");
   const [editTarget, setEditTarget] = useState("");
   const [editName, setEditName] = useState("");
   const [editCwd, setEditCwd] = useState("");
@@ -760,10 +762,14 @@ export default function Tmux() {
         name: newName.trim(),
         start_directory: newCwd.trim() || undefined,
         group_id: newGroupId,
+        pane_count: newPaneCount,
+        layout: newPaneCount === 2 ? newLayout : undefined,
       });
       setNewName("");
       setNewCwd("");
       setNewGroupId(null);
+      setNewPaneCount(1);       // 重置
+      setNewLayout("horizontal"); // 重置
       setCreateOpen(false);
       loadSessions();
     } catch (e: unknown) {
@@ -1749,6 +1755,68 @@ export default function Tmux() {
                 选择工作空间后，会话将自动进入该工作空间的目录
               </p>
             </div>
+
+            {/* Pane 数量选择 */}
+            <div>
+              <Label className="text-xs">Pane 数量</Label>
+              <div className="flex gap-2 mt-1.5">
+                {[1, 2, 3, 4].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setNewPaneCount(n)}
+                    className={`flex-1 h-9 rounded-xl border text-sm font-medium transition-all ${
+                      newPaneCount === n
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-[var(--glass-border)] hover:border-primary/50 text-muted-foreground hover:bg-accent/30"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                创建 {newPaneCount} 个终端窗格
+              </p>
+            </div>
+
+            {/* 2 pane 时显示布局选择 */}
+            {newPaneCount === 2 && (
+              <div>
+                <Label className="text-xs">布局方向</Label>
+                <div className="flex gap-2 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setNewLayout("horizontal")}
+                    className={`flex-1 h-9 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+                      newLayout === "horizontal"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-[var(--glass-border)] hover:border-primary/50 text-muted-foreground hover:bg-accent/30"
+                    }`}
+                  >
+                    <span className="inline-block w-4 h-3 border border-current rounded-sm">
+                      <span className="block w-1/2 h-full border-r border-current" />
+                    </span>
+                    左右
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewLayout("vertical")}
+                    className={`flex-1 h-9 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+                      newLayout === "vertical"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-[var(--glass-border)] hover:border-primary/50 text-muted-foreground hover:bg-accent/30"
+                    }`}
+                  >
+                    <span className="inline-block w-4 h-3 border border-current rounded-sm">
+                      <span className="block w-full h-1/2 border-b border-current" />
+                    </span>
+                    上下
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* 只有未分组时才显示工作目录输入 */}
             {newGroupId == null && (
               <div>
@@ -1785,6 +1853,8 @@ export default function Tmux() {
                   setNewName("");
                   setNewCwd("");
                   setNewGroupId(null);
+                  setNewPaneCount(1);       // 添加
+                  setNewLayout("horizontal"); // 添加
                   setCreateOpen(false);
                 }}
               >

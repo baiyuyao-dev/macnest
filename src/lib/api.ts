@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
-import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, CpuDetailedUsage, SshConnection, SftpFile, TransferProgress } from "@/types";
+import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, CpuDetailedUsage, SshConnection, SftpFile, TransferProgress, LocalFileNode, RemoteSystemInfo, RdpConnection } from "@/types";
 
 // ===== 统一错误处理 =====
 
@@ -239,11 +239,11 @@ export async function listGroups(groupType: string): Promise<Group[]> {
 export async function createGroup(
   data: Omit<Group, "id" | "created_at" | "updated_at">
 ): Promise<number> {
-  return invokeSafe("create_group", { req: { ...data, parent_id: data.parent_id ?? null } });
+  return invokeSafe("create_group", { req: { ...data, parent_id: data.parent_id ?? null, start_directory: data.start_directory ?? "" } });
 }
 
 export async function updateGroup(data: Group): Promise<void> {
-  return invokeSafe("update_group", { req: { ...data, parent_id: data.parent_id ?? null } });
+  return invokeSafe("update_group", { req: { ...data, parent_id: data.parent_id ?? null, start_directory: data.start_directory ?? "" } });
 }
 
 export async function deleteGroup(id: number): Promise<void> {
@@ -375,6 +375,10 @@ export interface ShellIntegrationResult {
   script_uploaded: boolean;
 }
 
+export async function getSshSystemInfo(sessionId: string): Promise<RemoteSystemInfo> {
+  return invokeSafe("get_ssh_system_info", { sessionId });
+}
+
 export async function installSshShellIntegration(
   sessionId: string
 ): Promise<ShellIntegrationResult> {
@@ -478,12 +482,19 @@ export interface TmuxSession {
   attached: boolean;
   created_at: string;
   pid: number;
+  start_directory?: string;
+  group_id?: number | null;
+  group_name?: string;
+  is_external?: boolean;
 }
 
 export interface CreateTmuxSessionRequest {
   name: string;
   start_directory?: string;
   command?: string;
+  group_id?: number | null;
+  pane_count?: number;
+  layout?: "horizontal" | "vertical";
 }
 
 export interface RenameTmuxSessionRequest {
@@ -514,6 +525,16 @@ export async function tmuxUpdateSessionStartDirectory(
   return invokeSafe("tmux_update_session_start_directory", {
     displayName: display_name,
     startDirectory: start_directory,
+  });
+}
+
+export async function tmuxUpdateSessionGroupId(
+  display_name: string,
+  group_id: number | null
+): Promise<void> {
+  return invokeSafe("tmux_update_session_group_id", {
+    displayName: display_name,
+    groupId: group_id,
   });
 }
 
@@ -548,4 +569,88 @@ export async function tmuxOpenInGhostty(sessionName: string): Promise<void> {
 
 export async function tmuxGenerateConfig(): Promise<string> {
   return invokeSafe("tmux_generate_config");
+}
+
+export async function tmuxHasClaudeProcess(sessionName: string): Promise<boolean> {
+  return invokeSafe("tmux_has_claude_process", { sessionName });
+}
+
+// ===== 本地文件管理 =====
+
+export async function localListDir(path: string): Promise<LocalFileNode[]> {
+  return invokeSafe("local_list_dir", { path });
+}
+
+export async function localReadFile(path: string): Promise<string> {
+  return invokeSafe("local_read_file", { path });
+}
+
+export async function localWriteFile(path: string, content: string): Promise<void> {
+  return invokeSafe("local_write_file", { path, content });
+}
+
+export async function localOpenFile(path: string, app?: string): Promise<void> {
+  return invokeSafe("local_open_file", { path, app });
+}
+
+export interface InstalledApp {
+  name: string;
+  bundle_id: string;
+  path: string;
+}
+
+export async function localGetInstalledApps(): Promise<InstalledApp[]> {
+  return invokeSafe("local_get_installed_apps");
+}
+
+export async function localGetRecommendedApps(extension: string): Promise<string[]> {
+  return invokeSafe("local_get_recommended_apps", { extension });
+}
+
+// ===== RDP 管理 =====
+
+export async function createRdpConnection(
+  data: Omit<RdpConnection, "id" | "created_at" | "updated_at">
+): Promise<number> {
+  return invokeSafe("create_rdp_connection", { req: data });
+}
+
+export async function listRdpConnections(): Promise<RdpConnection[]> {
+  return invokeSafe("list_rdp_connections");
+}
+
+export async function updateRdpConnection(data: RdpConnection): Promise<void> {
+  return invokeSafe("update_rdp_connection", { req: data });
+}
+
+export async function deleteRdpConnection(id: number): Promise<void> {
+  return invokeSafe("delete_rdp_connection", { id });
+}
+
+export async function rdpConnect(connectionId: number): Promise<void> {
+  return invokeSafe("rdp_connect", { connectionId });
+}
+
+export async function rdpStartSession(connectionId: number): Promise<{ session_id: string }> {
+  return invokeSafe("rdp_start_session", { connectionId });
+}
+
+export async function rdpStopSession(sessionId: string): Promise<void> {
+  return invokeSafe("rdp_stop_session", { sessionId });
+}
+
+export interface RdpInputEvent {
+  event_type: "mousemove" | "mousedown" | "mouseup" | "keydown" | "keyup";
+  x?: number;
+  y?: number;
+  button?: number;
+  scancode?: number;
+}
+
+export async function rdpSendInput(sessionId: string, event: RdpInputEvent): Promise<void> {
+  return invokeSafe("rdp_send_input", { sessionId, ...event });
+}
+
+export async function localRevealInFinder(path: string): Promise<void> {
+  return invokeSafe("local_reveal_in_finder", { path });
 }
