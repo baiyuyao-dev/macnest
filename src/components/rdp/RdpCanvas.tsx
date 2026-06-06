@@ -38,6 +38,10 @@ export default function RdpCanvas({
           if (cancelled) return;
           const base64Data = event.payload;
           const img = new Image();
+          img.onerror = () => {
+            if (cancelled) return;
+            console.error("RDP frame decode failed");
+          };
           img.onload = () => {
             if (cancelled) return;
             const canvas = canvasRef.current;

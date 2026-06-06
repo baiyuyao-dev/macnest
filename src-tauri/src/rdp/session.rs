@@ -6,6 +6,8 @@ use std::time::Duration;
 use anyhow::Context as _;
 use ironrdp_connector::{self, ClientConnector, ConnectionResult, Credentials};
 use ironrdp_pdu::gcc::KeyboardType;
+use ironrdp_pdu::input::fast_path::{FastPathInputEvent, KeyboardFlags};
+use ironrdp_pdu::input::mouse::{MousePdu, PointerFlags};
 use ironrdp_pdu::rdp::capability_sets::MajorPlatformType;
 use ironrdp_pdu::rdp::client_info::{CompressionType, PerformanceFlags, TimezoneInfo};
 use ironrdp_session::image::DecodedImage;
@@ -184,10 +186,6 @@ fn connect(
         .map_err(|e| anyhow::anyhow!("TCP connect to {} failed: {}", server_addr, e))?;
     eprintln!("[rdp] TCP connected");
 
-    tcp_stream
-        .set_read_timeout(Some(Duration::from_secs(30)))
-        .expect("set_read_timeout call failed");
-
     let client_addr = tcp_stream.local_addr()
         .map_err(|e| anyhow::anyhow!("get local addr failed: {}", e))?;
     let mut framed = ironrdp_blocking::Framed::new(tcp_stream);
@@ -245,22 +243,51 @@ fn active_stage_loop(
     let rt = tokio::runtime::Handle::current();
     let mut last_frame_time = std::time::Instant::now();
 
+    // Use short read timeout so the loop can poll shutdown/input frequently.
+    framed
+        .get_inner_mut()
+        .0
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .expect("set_read_timeout call failed");
+
     'outer: loop {
         if shutdown.load(Ordering::Relaxed) {
             eprintln!("[rdp] shutdown requested");
             break;
         }
 
-        // Non-blocking check for input events
-        if let Ok(_event) = input_rx.try_recv() {
-            // TODO: convert InputEvent to FastPathInputEvent and process
-            // For now, skip input handling in MVP
+        // Drain pending input events and forward them.
+        let mut events = Vec::new();
+        while let Ok(event) = input_rx.try_recv() {
+            events.push(input_event_to_fastpath(event, &mut active_stage));
+        }
+        if !events.is_empty() {
+            match active_stage.process_fastpath_input(image, &events) {
+                Ok(outputs) => {
+                    for out in outputs {
+                        if let ActiveStageOutput::ResponseFrame(frame) = out {
+                            if let Err(e) = framed.write_all(&frame).context("write input response") {
+                                eprintln!("[rdp] failed to write input response: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[rdp] process input failed: {}", e);
+                }
+            }
         }
 
-        // Read PDU with timeout to allow periodic checks
+        // Read PDU (blocks at most 100ms due to read timeout).
         let (action, payload) = match framed.read_pdu() {
             Ok((action, payload)) => (action, payload),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                continue;
+            }
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 eprintln!("[rdp] connection closed by server");
                 break;
@@ -284,14 +311,14 @@ fn active_stage_loop(
             }
         }
 
-        // Send frame if enough time has passed and there was a graphics update
-        if has_graphics_update && last_frame_time.elapsed().as_millis() as u64 >= FRAME_SEND_INTERVAL_MS {
+        // Send frame if enough time has passed and there was a graphics update.
+        if has_graphics_update
+            && last_frame_time.elapsed().as_millis() as u64 >= FRAME_SEND_INTERVAL_MS
+        {
             last_frame_time = std::time::Instant::now();
 
-            // Encode full frame as PNG
             match encode_frame_png(image) {
                 Ok(png_data) => {
-                    // Use block_on to send through tokio channel from blocking thread
                     if let Err(_e) = rt.block_on(frame_tx.send(png_data)) {
                         eprintln!("[rdp] frame receiver dropped, shutting down session");
                         break;
@@ -305,6 +332,57 @@ fn active_stage_loop(
     }
 
     Ok(())
+}
+
+fn input_event_to_fastpath(
+    event: InputEvent,
+    active_stage: &mut ActiveStage,
+) -> FastPathInputEvent {
+    match event {
+        InputEvent::MouseMove { x, y } => {
+            active_stage.update_mouse_pos(x, y);
+            FastPathInputEvent::MouseEvent(MousePdu {
+                flags: PointerFlags::MOVE,
+                number_of_wheel_rotation_units: 0,
+                x_position: x,
+                y_position: y,
+            })
+        }
+        InputEvent::MouseDown { x, y, button } => {
+            let flags = match button {
+                0 => PointerFlags::LEFT_BUTTON | PointerFlags::DOWN,
+                1 => PointerFlags::MIDDLE_BUTTON_OR_WHEEL | PointerFlags::DOWN,
+                2 => PointerFlags::RIGHT_BUTTON | PointerFlags::DOWN,
+                _ => PointerFlags::DOWN,
+            };
+            FastPathInputEvent::MouseEvent(MousePdu {
+                flags,
+                number_of_wheel_rotation_units: 0,
+                x_position: x,
+                y_position: y,
+            })
+        }
+        InputEvent::MouseUp { x, y, button } => {
+            let flags = match button {
+                0 => PointerFlags::LEFT_BUTTON,
+                1 => PointerFlags::MIDDLE_BUTTON_OR_WHEEL,
+                2 => PointerFlags::RIGHT_BUTTON,
+                _ => PointerFlags::empty(),
+            };
+            FastPathInputEvent::MouseEvent(MousePdu {
+                flags,
+                number_of_wheel_rotation_units: 0,
+                x_position: x,
+                y_position: y,
+            })
+        }
+        InputEvent::KeyDown { scancode } => {
+            FastPathInputEvent::KeyboardEvent(KeyboardFlags::empty(), scancode as u8)
+        }
+        InputEvent::KeyUp { scancode } => {
+            FastPathInputEvent::KeyboardEvent(KeyboardFlags::RELEASE, scancode as u8)
+        }
+    }
 }
 
 fn encode_frame_png(image: &DecodedImage) -> anyhow::Result<Vec<u8>> {
