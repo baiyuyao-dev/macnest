@@ -13,7 +13,8 @@ use ironrdp_pdu::rdp::client_info::{CompressionType, PerformanceFlags, TimezoneI
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStage, ActiveStageOutput};
 use ironrdp_graphics::image_processing::PixelFormat;
-use image::ImageEncoder;
+
+use crate::rdp::encoder::{merge_regions, FrameEncoder, FramePayload, RawRgbaEncoder};
 use rustls::pki_types::ServerName;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
@@ -43,7 +44,7 @@ pub enum InputEvent {
 }
 
 pub struct SessionHandle {
-    pub frame_rx: Option<mpsc::Receiver<Vec<u8>>>,
+    pub frame_rx: Option<mpsc::Receiver<FramePayload>>,
     pub input_tx: mpsc::Sender<InputEvent>,
     shutdown: Arc<AtomicBool>,
     _join_handle: JoinHandle<()>,
@@ -60,7 +61,7 @@ pub fn start_session(
     app_handle: AppHandle,
     session_id: String,
 ) -> anyhow::Result<SessionHandle> {
-    let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(4);
+    let (frame_tx, frame_rx) = mpsc::channel::<FramePayload>(4);
     let (input_tx, mut input_rx) = mpsc::channel::<InputEvent>(64);
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
@@ -86,7 +87,7 @@ pub fn start_session(
 
 fn run_session_blocking(
     config: SessionConfig,
-    frame_tx: mpsc::Sender<Vec<u8>>,
+    frame_tx: mpsc::Sender<FramePayload>,
     input_rx: &mut mpsc::Receiver<InputEvent>,
     shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
@@ -235,13 +236,14 @@ fn active_stage_loop(
     connection_result: ConnectionResult,
     mut framed: UpgradedFramed,
     image: &mut DecodedImage,
-    frame_tx: mpsc::Sender<Vec<u8>>,
+    frame_tx: mpsc::Sender<FramePayload>,
     input_rx: &mut mpsc::Receiver<InputEvent>,
     shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let mut active_stage = ActiveStage::new(connection_result);
     let rt = tokio::runtime::Handle::current();
     let mut last_frame_time = std::time::Instant::now();
+    let mut dirty_regions: Vec<ironrdp_pdu::geometry::InclusiveRectangle> = Vec::new();
 
     // Use short read timeout so the loop can poll shutdown/input frequently.
     framed
@@ -297,29 +299,31 @@ fn active_stage_loop(
 
         let outputs = active_stage.process(image, action, &payload)?;
 
-        let mut has_graphics_update = false;
         for out in &outputs {
             match out {
                 ActiveStageOutput::ResponseFrame(frame) => {
                     framed.write_all(frame).context("write response")?;
                 }
-                ActiveStageOutput::GraphicsUpdate(_region) => {
-                    has_graphics_update = true;
+                ActiveStageOutput::GraphicsUpdate(region) => {
+                    dirty_regions.push(region.clone());
                 }
                 ActiveStageOutput::Terminate(_) => break 'outer,
                 _ => {}
             }
         }
 
-        // Send frame if enough time has passed and there was a graphics update.
-        if has_graphics_update
+        // Send frame if enough time has passed and there are dirty regions.
+        if !dirty_regions.is_empty()
             && last_frame_time.elapsed().as_millis() as u64 >= FRAME_SEND_INTERVAL_MS
         {
             last_frame_time = std::time::Instant::now();
 
-            match encode_frame_png(image) {
-                Ok(png_data) => {
-                    if let Err(_e) = rt.block_on(frame_tx.send(png_data)) {
+            let encoder = RawRgbaEncoder;
+            let merged = merge_regions(&dirty_regions);
+
+            match encoder.encode(image, &merged) {
+                Ok(payload) => {
+                    if let Err(_e) = rt.block_on(frame_tx.send(payload)) {
                         eprintln!("[rdp] frame receiver dropped, shutting down session");
                         break;
                     }
@@ -328,6 +332,8 @@ fn active_stage_loop(
                     eprintln!("[rdp] failed to encode frame: {}", e);
                 }
             }
+
+            dirty_regions.clear();
         }
     }
 
@@ -383,29 +389,6 @@ fn input_event_to_fastpath(
             FastPathInputEvent::KeyboardEvent(KeyboardFlags::RELEASE, scancode as u8)
         }
     }
-}
-
-fn encode_frame_png(image: &DecodedImage) -> anyhow::Result<Vec<u8>> {
-    let width = image.width() as u32;
-    let height = image.height() as u32;
-    let data = image.data();
-
-    let img_buffer: image::ImageBuffer<image::Rgba<u8>, _> =
-        image::ImageBuffer::from_raw(width, height, data.to_vec())
-            .context("invalid image dimensions")?;
-
-    let mut png_data = Vec::new();
-    {
-        let mut encoder = image::codecs::png::PngEncoder::new(&mut png_data);
-        encoder.write_image(
-            img_buffer.as_raw(),
-            width,
-            height,
-            image::ExtendedColorType::Rgba8,
-        ).context("PNG encode failed")?;
-    }
-
-    Ok(png_data)
 }
 
 fn lookup_addr(hostname: &str, port: u16) -> anyhow::Result<std::net::SocketAddr> {

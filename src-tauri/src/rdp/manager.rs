@@ -1,11 +1,37 @@
 use std::collections::HashMap;
 
 use base64::Engine;
+use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::rdp::session::{InputEvent, SessionConfig, SessionHandle, start_session};
+
+#[derive(Debug, Clone, Serialize)]
+struct FrameEventPayload {
+    regions: Vec<RegionDto>,
+    data: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RegionDto {
+    left: u16,
+    top: u16,
+    right: u16,
+    bottom: u16,
+}
+
+impl From<&ironrdp_pdu::geometry::InclusiveRectangle> for RegionDto {
+    fn from(r: &ironrdp_pdu::geometry::InclusiveRectangle) -> Self {
+        Self {
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+        }
+    }
+}
 
 pub struct RdpSessionManager {
     sessions: Mutex<HashMap<String, RdpSessionEntry>>,
@@ -39,11 +65,13 @@ impl RdpSessionManager {
         tokio::spawn(async move {
             loop {
                 match frame_rx.recv().await {
-                    Some(frame_data) => {
+                    Some(payload) => {
                         let event_name = format!("rdp-frame-{}", session_id_clone);
-                        let base64_frame = base64::engine::general_purpose::STANDARD.encode(&frame_data);
-                        if let Err(e) = app_handle_clone.emit(
-                            &event_name, base64_frame) {
+                        let dto = FrameEventPayload {
+                            regions: payload.regions.iter().map(RegionDto::from).collect(),
+                            data: base64::engine::general_purpose::STANDARD.encode(&payload.data),
+                        };
+                        if let Err(e) = app_handle_clone.emit(&event_name, dto) {
                             eprintln!("[rdp] failed to emit frame: {}", e);
                             break;
                         }
