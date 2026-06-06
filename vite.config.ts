@@ -16,6 +16,10 @@ export default defineConfig(async () => ({
         main: path.resolve(__dirname, "index.html"),
         "tray-popup": path.resolve(__dirname, "tray-popup.html"),
       },
+      external: [
+        // 运行时动态加载的 ironrdp-wasm 模块，构建时忽略
+        "/rdp-wasm/rdp_client.js",
+      ],
     },
   },
   server: {

@@ -7,6 +7,7 @@ import Bookmarks from "./pages/Bookmarks";
 import System from "./pages/System";
 import Terminal from "./pages/Terminal";
 import Tmux from "./pages/Tmux";
+import Rdp from "./pages/Rdp";
 import Settings from "./pages/Settings";
 import { useThemeStore } from "./stores/theme";
 import { useEffect } from "react";
@@ -79,6 +80,7 @@ function App() {
             <Route path="bookmarks" element={<Bookmarks />} />
             <Route path="terminal" element={<Terminal />} />
             <Route path="tmux" element={<Tmux />} />
+            <Route path="rdp" element={<Rdp />} />
             <Route path="system" element={<System />} />
             <Route path="settings" element={<Settings />} />
           </Route>

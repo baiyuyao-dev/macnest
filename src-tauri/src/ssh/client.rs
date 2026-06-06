@@ -164,6 +164,42 @@ impl SshConnectionManager {
         Ok(())
     }
 
+    pub async fn exec_command(
+        &mut self,
+        command: &str,
+    ) -> anyhow::Result<(String, String, i32)> {
+        let mut channel = self.session.channel_open_session().await?;
+        channel.exec(true, command).await?;
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut exit_code: i32 = -1;
+
+        loop {
+            match channel.wait().await {
+                Some(russh::ChannelMsg::Data { data }) => {
+                    stdout.extend_from_slice(&data);
+                }
+                Some(russh::ChannelMsg::ExtendedData { data, ext }) => {
+                    if ext == 1 {
+                        stderr.extend_from_slice(&data);
+                    }
+                }
+                Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
+                    exit_code = exit_status as i32;
+                }
+                Some(russh::ChannelMsg::Close) | None => break,
+                _ => {}
+            }
+        }
+
+        Ok((
+            String::from_utf8_lossy(&stdout).to_string(),
+            String::from_utf8_lossy(&stderr).to_string(),
+            exit_code,
+        ))
+    }
+
     pub fn session(&self) -> &client::Handle<SshClientHandler> {
         &self.session
     }

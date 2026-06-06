@@ -412,6 +412,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
         {/* Tree */}
         <div ref={treeRef} className="shrink-0 h-full" style={{ width: treeWidth }}>
           <SftpTree
+            sessionId={sessionId}
             currentPath={currentPath}
             onPathChange={loadFiles}
           />

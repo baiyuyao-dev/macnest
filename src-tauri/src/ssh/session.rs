@@ -133,5 +133,17 @@ impl SshSessionManager {
         let sessions = self.sessions.lock().await;
         sessions.len()
     }
+
+    pub async fn exec_command(
+        &self,
+        session_id: &str,
+        command: &str,
+    ) -> anyhow::Result<(String, String, i32)> {
+        let mut sessions = self.sessions.lock().await;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+        session.connection_manager.exec_command(command).await
+    }
 }
 

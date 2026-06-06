@@ -6,6 +6,7 @@ mod docker;
 mod docker_terminal;
 mod error;
 mod process;
+mod rdp;
 mod safari_bookmarks;
 mod security;
 mod system;
@@ -26,6 +27,7 @@ pub struct AppState {
     process_manager: Mutex<ProcessManager>,
     ssh_session_manager: SshSessionManager,
     docker_terminal_manager: DockerTerminalManager,
+    pub rdp_session_manager: rdp::RdpSessionManager,
     pub transfer_progress: Arc<Mutex<HashMap<String, TransferProgress>>>,
     pub tmux_pty_sessions: Mutex<HashMap<String, crate::tmux::pty::TmuxPtySession>>,
     pub sftp_managers: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<crate::ssh::sftp::SftpManager>>>>>,
@@ -42,6 +44,7 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // Initialize database
             let app_handle = app.handle();
@@ -78,6 +81,7 @@ fn main() {
                 process_manager,
                 ssh_session_manager: SshSessionManager::new(),
                 docker_terminal_manager: DockerTerminalManager::new(),
+                rdp_session_manager: rdp::RdpSessionManager::new(),
                 transfer_progress: Arc::new(Mutex::new(HashMap::new())),
                 tmux_pty_sessions: Mutex::new(HashMap::new()),
                 sftp_managers: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -228,6 +232,7 @@ fn main() {
             commands::ssh_connect,
             commands::ssh_disconnect,
             commands::ssh_active_sessions_count,
+            commands::get_ssh_system_info,
             commands::install_ssh_shell_integration,
             // SFTP commands
             commands::sftp_list_dir,
@@ -248,6 +253,7 @@ fn main() {
             commands::tmux_kill_session,
             commands::tmux_rename_session,
             commands::tmux_update_session_start_directory,
+            commands::tmux_update_session_group_id,
             commands::tmux_is_available,
             commands::tmux_attach_pty,
             commands::tmux_pty_write,
@@ -255,9 +261,34 @@ fn main() {
             commands::tmux_pty_close,
             commands::tmux_open_in_ghostty,
             commands::tmux_generate_config,
+            commands::tmux_has_claude_process,
             // App commands
             commands::show_main_window,
             commands::exit_app,
+            // Local file commands
+            commands::local_list_dir,
+            commands::local_read_file,
+            commands::local_write_file,
+            commands::local_open_file,
+            commands::local_reveal_in_finder,
+            commands::local_get_installed_apps,
+            commands::local_get_recommended_apps,
+            // RDP commands
+            commands::create_rdp_connection,
+            commands::list_rdp_connections,
+            commands::update_rdp_connection,
+            commands::delete_rdp_connection,
+            commands::rdp_connect,
+            commands::rdp_start_session,
+            commands::rdp_stop_session,
+            commands::rdp_send_input,
+            // Notification commands (osascript fallback)
+            commands::send_osascript_notification,
+            commands::check_macos_notification_permission,
+            commands::get_bundle_id,
+            commands::get_app_path,
+            commands::is_in_applications,
+            commands::reinstall_to_applications,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

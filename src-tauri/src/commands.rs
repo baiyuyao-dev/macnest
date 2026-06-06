@@ -575,7 +575,7 @@ pub fn create_group(
 ) -> Result<i64, String> {
     state
         .db
-        .create_group(&req.name, req.parent_id, req.sort_order, &req.group_type)
+        .create_group(&req.name, req.parent_id, req.sort_order, &req.group_type, "")
         .map_err(|e| e.to_string())
 }
 
@@ -586,7 +586,7 @@ pub fn update_group(
 ) -> Result<(), String> {
     state
         .db
-        .update_group(req.id, &req.name, req.parent_id, req.sort_order, &req.group_type)
+        .update_group(req.id, &req.name, req.parent_id, req.sort_order, &req.group_type, "")
         .map_err(|e| e.to_string())
 }
 
@@ -895,6 +895,180 @@ pub async fn ssh_disconnect(
 pub async fn ssh_active_sessions_count(state: State<'_, AppState>) -> Result<usize, String> {
     let count = state.ssh_session_manager.get_active_sessions_count().await;
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn get_ssh_system_info(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<crate::ssh::types::RemoteSystemInfo, String> {
+    // 先测一个极简命令的 RTT，作为网络延迟指标
+    let latency_ms = {
+        let start = std::time::Instant::now();
+        let _ = state
+            .ssh_session_manager
+            .exec_command(&session_id, "echo pong")
+            .await;
+        start.elapsed().as_millis() as i32
+    };
+
+    // 复用已有的 russh session 执行命令，避免新建 ssh2 连接导致服务器拒绝
+
+    // hostname
+    let (hostname, _, _) = state
+        .ssh_session_manager
+        .exec_command(&session_id, "hostname")
+        .await
+        .map_err(|e| format!("获取主机名失败: {}", e))?;
+    let hostname = hostname.trim().to_string();
+
+    // OS version
+    let (os_version, _, exit_code) = state
+        .ssh_session_manager
+        .exec_command(&session_id, "cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'\"' -f2")
+        .await
+        .unwrap_or_default();
+    let os_version = if exit_code == 0 && !os_version.trim().is_empty() {
+        os_version.trim().to_string()
+    } else {
+        let (uname, _, _) = state
+            .ssh_session_manager
+            .exec_command(&session_id, "uname -sr")
+            .await
+            .unwrap_or_default();
+        uname.trim().to_string()
+    };
+
+    // CPU model
+    let (cpu_model, _, _) = state
+        .ssh_session_manager
+        .exec_command(&session_id, "cat /proc/cpuinfo 2>/dev/null | grep 'model name' | head -1 | cut -d':' -f2 | sed 's/^ *//' || echo 'Unknown'")
+        .await
+        .unwrap_or_default();
+    let cpu_model = cpu_model.trim().to_string();
+
+    // CPU cores
+    let (cpu_cores_str, _, _) = state
+        .ssh_session_manager
+        .exec_command(&session_id, "nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo '1'")
+        .await
+        .unwrap_or_default();
+    let cpu_cores = cpu_cores_str.trim().parse::<i32>().unwrap_or(1);
+
+    // Memory: try /proc/meminfo first (Linux, locale-independent), then free -m, then vm_stat (macOS)
+    let mut memory_total_mb = 0_i32;
+    let mut memory_used_mb = 0_i32;
+    let mut memory_free_mb = 0_i32;
+
+    // 1. Linux: /proc/meminfo — always in English, no locale issues
+    let (mem_str, _, _) = state
+        .ssh_session_manager
+        .exec_command(&session_id, "cat /proc/meminfo 2>/dev/null | awk '/MemTotal:/ {t=int($2/1024)} /MemAvailable:/ {a=int($2/1024)} /MemFree:/ {f=int($2/1024)} END {print t,a,f}'")
+        .await
+        .unwrap_or_default();
+    let mem_parts: Vec<&str> = mem_str.trim().split_whitespace().collect();
+    if mem_parts.len() >= 3 {
+        memory_total_mb = mem_parts[0].parse().unwrap_or(0);
+        let available_mb = mem_parts[1].parse::<i32>().unwrap_or(0);
+        let free_mb = mem_parts[2].parse::<i32>().unwrap_or(0);
+        // Use MemAvailable (Linux 3.14+) if present, otherwise fall back to MemFree
+        memory_free_mb = if available_mb > 0 { available_mb } else { free_mb };
+        memory_used_mb = memory_total_mb.saturating_sub(memory_free_mb);
+    } else {
+        // 2. Fallback: LC_ALL=C free -m (forces English headers)
+        let (free_str, _, _) = state
+            .ssh_session_manager
+            .exec_command(&session_id, "LC_ALL=C free -m 2>/dev/null | awk 'NR==2 {print $2,$3,$4}'")
+            .await
+            .unwrap_or_default();
+        let free_parts: Vec<&str> = free_str.trim().split_whitespace().collect();
+        if free_parts.len() >= 3 {
+            memory_total_mb = free_parts[0].parse().unwrap_or(0);
+            memory_used_mb = free_parts[1].parse().unwrap_or(0);
+            memory_free_mb = free_parts[2].parse().unwrap_or(0);
+        } else {
+            // 3. macOS fallback: vm_stat + sysctl hw.memsize
+            let (vm_str, _, _) = state
+                .ssh_session_manager
+                .exec_command(&session_id, "vm_stat 2>/dev/null | tr -d '.' | awk '/Pages free/ {f=$3} /Pages active/ {a=$3} /Pages inactive/ {i=$3} /Pages speculative/ {s=$3} /Pages wired down/ {w=$3} /Pages occupied by compressor/ {c=$3} END {print f,a,i,s,w,c}'")
+                .await
+                .unwrap_or_default();
+            let vm_parts: Vec<&str> = vm_str.trim().split_whitespace().collect();
+            if vm_parts.len() >= 5 {
+                let page_size = 4096_i64;
+                let free_pages = vm_parts[0].parse::<i64>().unwrap_or(0);
+                let active_pages = vm_parts[1].parse::<i64>().unwrap_or(0);
+                let inactive_pages = vm_parts[2].parse::<i64>().unwrap_or(0);
+                let speculative_pages = vm_parts[3].parse::<i64>().unwrap_or(0);
+                let wired_pages = vm_parts[4].parse::<i64>().unwrap_or(0);
+                let compressed_pages = if vm_parts.len() >= 6 {
+                    vm_parts[5].parse::<i64>().unwrap_or(0)
+                } else {
+                    0
+                };
+
+                let (total_str, _, _) = state
+                    .ssh_session_manager
+                    .exec_command(&session_id, "sysctl -n hw.memsize 2>/dev/null || echo '0'")
+                    .await
+                    .unwrap_or_default();
+                let total_bytes = total_str.trim().parse::<i64>().unwrap_or(0);
+                memory_total_mb = (total_bytes / 1024 / 1024) as i32;
+                memory_used_mb = ((active_pages + inactive_pages + speculative_pages + wired_pages + compressed_pages) * page_size / 1024 / 1024) as i32;
+                memory_free_mb = (free_pages * page_size / 1024 / 1024) as i32;
+            }
+        }
+    }
+
+    let memory_percent = if memory_total_mb > 0 {
+        (memory_used_mb as f32 / memory_total_mb as f32 * 100.0) as i32
+    } else {
+        0
+    };
+
+    // Disk: total used available usage_percent
+    let (disk_str, _, _) = state
+        .ssh_session_manager
+        .exec_command(&session_id, "LC_ALL=C df -h / 2>/dev/null | tail -1 | awk '{print $2,$3,$4,$5}'")
+        .await
+        .unwrap_or_default();
+    let disk_parts: Vec<&str> = disk_str.trim().split_whitespace().collect();
+    let disk_total = disk_parts.get(0).unwrap_or(&"-").to_string();
+    let disk_used = disk_parts.get(1).unwrap_or(&"-").to_string();
+    let disk_available = disk_parts.get(2).unwrap_or(&"-").to_string();
+    let disk_usage_percent = disk_parts.get(3).unwrap_or(&"-").to_string();
+    let disk_usage_percent_num = disk_usage_percent.trim_end_matches('%').parse::<i32>().unwrap_or(0);
+
+    // Load average: split into 1m, 5m, 15m
+    let (load_str, _, _) = state
+        .ssh_session_manager
+        .exec_command(&session_id, "uptime 2>/dev/null | awk -F'load average[s]*:' '{print $2}' | sed 's/^ *//;s/,//g'")
+        .await
+        .unwrap_or_default();
+    let load_parts: Vec<&str> = load_str.trim().split_whitespace().collect();
+    let load_1m = load_parts.get(0).unwrap_or(&"-").to_string();
+    let load_5m = load_parts.get(1).unwrap_or(&"-").to_string();
+    let load_15m = load_parts.get(2).unwrap_or(&"-").to_string();
+
+    Ok(crate::ssh::types::RemoteSystemInfo {
+        hostname,
+        os_version,
+        cpu_model,
+        cpu_cores,
+        memory_total_mb,
+        memory_used_mb,
+        memory_free_mb,
+        memory_percent,
+        disk_total,
+        disk_used,
+        disk_available,
+        disk_usage_percent,
+        disk_usage_percent_num,
+        load_1m,
+        load_5m,
+        load_15m,
+        latency_ms,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -1599,6 +1773,337 @@ pub fn tmux_generate_config() -> Result<String, String> {
     crate::tmux::commands::generate_config()
 }
 
+#[tauri::command]
+pub fn tmux_update_session_group_id(
+    state: State<AppState>,
+    display_name: String,
+    group_id: Option<i64>,
+) -> Result<(), String> {
+    let tmux_name = crate::tmux::commands::resolve_tmux_name(&state.db, &display_name)?;
+    state
+        .db
+        .update_tmux_session_group_id(&tmux_name, group_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn tmux_has_claude_process(session_name: String) -> Result<bool, String> {
+    // 检查 tmux session 中是否有 claude 相关进程
+    let output = std::process::Command::new("tmux")
+        .args(["list-panes", "-t", &session_name, "-F", "#{pane_pid}"])
+        .output()
+        .map_err(|e| format!("tmux 命令失败: {}", e))?;
+    if !output.status.success() {
+        return Ok(false);
+    }
+    let pids: Vec<u32> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse().ok())
+        .collect();
+    for pid in pids {
+        let ps_out = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output();
+        if let Ok(ps) = ps_out {
+            let comm = String::from_utf8_lossy(&ps.stdout).trim().to_lowercase();
+            if comm.contains("claude") {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalFileNode {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub modified_time: String,
+    pub permissions: String,
+    pub children: Option<Vec<LocalFileNode>>,
+}
+
+#[tauri::command]
+pub fn local_list_dir(path: String) -> Result<Vec<LocalFileNode>, String> {
+    let entries = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
+    let mut nodes = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let metadata = entry.metadata().map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path().to_string_lossy().to_string();
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default();
+        #[cfg(unix)]
+        let permissions = {
+            use std::os::unix::fs::PermissionsExt;
+            format!("{:o}", metadata.permissions().mode())
+        };
+        #[cfg(not(unix))]
+        let permissions = String::new();
+        nodes.push(LocalFileNode {
+            name,
+            path,
+            is_dir: metadata.is_dir(),
+            size: metadata.len(),
+            modified_time: modified,
+            permissions,
+            children: None,
+        });
+    }
+    nodes.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
+    Ok(nodes)
+}
+
+#[tauri::command]
+pub fn local_read_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn local_write_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn local_open_file(path: String, app: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = std::process::Command::new("open");
+        if let Some(app_name) = app {
+            cmd.args(["-a", &app_name, &path]);
+        } else {
+            cmd.arg(&path);
+        }
+        cmd.spawn()
+            .map_err(|e| format!("打开文件失败: {}", e))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        let _ = app;
+        return Err("当前平台不支持打开文件".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct InstalledApp {
+    pub name: String,
+    pub bundle_id: String,
+    pub path: String,
+}
+
+/// 扫描 /Applications 和 ~/Applications 获取安装的应用列表
+#[tauri::command]
+pub fn local_get_installed_apps() -> Result<Vec<InstalledApp>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut apps = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        let search_paths = [
+            "/Applications",
+            &format!("{}/Applications", std::env::var("HOME").unwrap_or_default()),
+        ];
+
+        for base_path in &search_paths {
+            let entries = match std::fs::read_dir(base_path) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            for entry in entries {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                let path = entry.path();
+                let name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n,
+                    None => continue,
+                };
+
+                if !name.ends_with(".app") {
+                    continue;
+                }
+
+                let app_name = name.trim_end_matches(".app").to_string();
+                if seen.contains(&app_name) {
+                    continue;
+                }
+                seen.insert(app_name.clone());
+
+                // 尝试读取 bundle identifier from Info.plist
+                let plist_path = path.join("Contents/Info.plist");
+                let bundle_id = if plist_path.exists() {
+                    let output = std::process::Command::new("defaults")
+                        .args(["read", plist_path.to_str().unwrap_or(""), "CFBundleIdentifier"])
+                        .output();
+                    match output {
+                        Ok(o) if o.status.success() => {
+                            String::from_utf8_lossy(&o.stdout).trim().to_string()
+                        }
+                        _ => String::new(),
+                    }
+                } else {
+                    String::new()
+                };
+
+                apps.push(InstalledApp {
+                    name: app_name,
+                    bundle_id,
+                    path: path.to_string_lossy().to_string(),
+                });
+            }
+        }
+
+        apps.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(apps)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("当前平台不支持获取应用列表".to_string())
+    }
+}
+
+/// 根据文件扩展名推荐应用（结合系统扫描结果和常见映射）
+#[tauri::command]
+pub fn local_get_recommended_apps(extension: String) -> Result<Vec<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let all_apps = local_get_installed_apps()?;
+        let all_names: Vec<String> = all_apps.iter().map(|a| a.name.clone()).collect();
+
+        let ext = extension.to_lowercase();
+        let mut recommended: Vec<String> = Vec::new();
+
+        // 常见扩展名到推荐应用的映射
+        let candidates: &[&str] = match ext.as_str() {
+            "js" | "ts" | "jsx" | "tsx" | "json" | "html" | "css" | "scss" | "less" | "vue" | "svelte" => {
+                &["Visual Studio Code", "Cursor", "WebStorm", "Sublime Text", "Zed"]
+            }
+            "py" | "pyw" | "ipynb" => {
+                &["PyCharm", "Visual Studio Code", "Cursor", "Sublime Text", "Zed"]
+            }
+            "rs" => {
+                &["RustRover", "Visual Studio Code", "Cursor", "Zed"]
+            }
+            "go" => {
+                &["GoLand", "Visual Studio Code", "Cursor", "Zed"]
+            }
+            "java" | "kt" | "gradle" => {
+                &["IntelliJ IDEA", "Android Studio", "Visual Studio Code", "Cursor"]
+            }
+            "swift" => {
+                &["Xcode", "Visual Studio Code", "Cursor"]
+            }
+            "c" | "cpp" | "h" | "hpp" | "m" | "mm" => {
+                &["Xcode", "CLion", "Visual Studio Code", "Cursor"]
+            }
+            "rb" => {
+                &["RubyMine", "Visual Studio Code", "Cursor"]
+            }
+            "php" => {
+                &["PhpStorm", "Visual Studio Code", "Cursor"]
+            }
+            "md" | "markdown" | "mdx" => {
+                &["Typora", "Visual Studio Code", "Cursor", "Obsidian", "Bear"]
+            }
+            "txt" | "log" | "conf" | "cfg" | "ini" | "env" => {
+                &["TextEdit", "Visual Studio Code", "Cursor", "Sublime Text", "Zed", "BBEdit"]
+            }
+            "sh" | "bash" | "zsh" | "fish" => {
+                &["Visual Studio Code", "Cursor", "Sublime Text", "Zed", "BBEdit"]
+            }
+            "sql" => {
+                &["DataGrip", "TablePlus", "Sequel Ace", "Visual Studio Code", "Cursor"]
+            }
+            "xml" | "yaml" | "yml" | "toml" => {
+                &["Visual Studio Code", "Cursor", "Sublime Text", "Zed"]
+            }
+            "dockerfile" => {
+                &["Visual Studio Code", "Cursor", "Docker Desktop"]
+            }
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tiff" | "heic" => {
+                &["Preview", "Pixelmator Pro", "Photoshop", "Acorn"]
+            }
+            "svg" => {
+                &["Pixelmator Pro", "Affinity Designer", "Sketch", "Visual Studio Code"]
+            }
+            "pdf" => {
+                &["Preview", "PDF Expert", "Skim"]
+            }
+            "doc" | "docx" => {
+                &["Microsoft Word", "Pages"]
+            }
+            "xls" | "xlsx" | "csv" => {
+                &["Microsoft Excel", "Numbers"]
+            }
+            "ppt" | "pptx" => {
+                &["Microsoft PowerPoint", "Keynote"]
+            }
+            "mp3" | "wav" | "aac" | "flac" | "m4a" => {
+                &["Music", "VOX", "Swinsian"]
+            }
+            "mp4" | "mov" | "avi" | "mkv" | "wmv" => {
+                &["QuickTime Player", "IINA", "VLC"]
+            }
+            "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" => {
+                &["The Unarchiver", "Keka", "BetterZip"]
+            }
+            "dmg" | "pkg" | "app" => {
+                &["Installer"]
+            }
+            _ => &[],
+        };
+
+        // 优先返回已安装的应用
+        for &candidate in candidates {
+            if all_names.iter().any(|n| n == candidate) {
+                recommended.push(candidate.to_string());
+            }
+        }
+
+        // 如果没有找到推荐应用，返回一些通用的已安装编辑器
+        if recommended.is_empty() {
+            for generic in &["Visual Studio Code", "Cursor", "Sublime Text", "Zed", "TextEdit"] {
+                if all_names.iter().any(|n| n == *generic) {
+                    recommended.push(generic.to_string());
+                }
+            }
+        }
+
+        Ok(recommended)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("当前平台不支持获取推荐应用".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn local_reveal_in_finder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("在 Finder 中显示失败: {}", e))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Err("当前平台不支持在 Finder 中显示".to_string());
+    }
+    Ok(())
+}
+
 pub fn show_or_create_main_window(app: &AppHandle) -> Result<(), String> {
     match app.get_webview_window("main") {
         Some(window) => {
@@ -1627,6 +2132,285 @@ pub fn show_or_create_main_window(app: &AppHandle) -> Result<(), String> {
     }
 }
 
+// === RDP Commands ===
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRdpConnectionRequest {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub domain: String,
+    pub screen_width: i32,
+    pub screen_height: i32,
+    pub color_depth: i32,
+    pub group_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRdpConnectionRequest {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub domain: String,
+    pub screen_width: i32,
+    pub screen_height: i32,
+    pub color_depth: i32,
+    pub group_id: Option<i64>,
+}
+
+#[tauri::command]
+pub fn create_rdp_connection(
+    state: State<AppState>,
+    req: CreateRdpConnectionRequest,
+) -> Result<i64, String> {
+    state
+        .db
+        .create_rdp_connection(
+            &req.name,
+            &req.host,
+            req.port,
+            &req.username,
+            &req.password,
+            &req.domain,
+            req.screen_width,
+            req.screen_height,
+            req.color_depth,
+            req.group_id,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_rdp_connections(
+    state: State<AppState>,
+) -> Result<Vec<crate::database::RdpConnection>, String> {
+    state.db.list_rdp_connections().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_rdp_connection(
+    state: State<AppState>,
+    req: UpdateRdpConnectionRequest,
+) -> Result<(), String> {
+    state
+        .db
+        .update_rdp_connection(
+            req.id,
+            &req.name,
+            &req.host,
+            req.port,
+            &req.username,
+            &req.password,
+            &req.domain,
+            req.screen_width,
+            req.screen_height,
+            req.color_depth,
+            req.group_id,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_rdp_connection(state: State<AppState>, id: i64) -> Result<(), String> {
+    state.db.delete_rdp_connection(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rdp_connect(
+    state: State<'_, AppState>,
+    connection_id: i64,
+) -> Result<(), String> {
+    let conn = state
+        .db
+        .get_rdp_connection(connection_id)
+        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let address = format!("{}:{}", conn.host, conn.port);
+
+        // 构建 .rdp 文件内容（最可靠的方式）
+        let rdp_file_content = format!(
+            "full address:s:{}\nusername:s:{}\ndomain:s:{}\ndesktopwidth:i:{}\ndesktopheight:i:{}\nsession bpp:i:{}\nscreen mode id:i:1\n",
+            address,
+            conn.username,
+            conn.domain,
+            conn.screen_width,
+            conn.screen_height,
+            conn.color_depth
+        );
+
+        let temp_dir = std::env::temp_dir();
+        let rdp_file_path = temp_dir.join(format!("macnest_rdp_{}.rdp", conn.id));
+        std::fs::write(&rdp_file_path, rdp_file_content)
+            .map_err(|e| format!("写入 RDP 文件失败: {}", e))?;
+
+        // 尝试的应用列表（按优先级）
+        let app_candidates = [
+            "Microsoft Remote Desktop",
+            "Microsoft Remote Desktop.app",
+            "Windows App",
+            "Windows App.app",
+        ];
+
+        // 1. 尝试用已知应用名打开 .rdp 文件
+        for app in &app_candidates {
+            let result = std::process::Command::new("open")
+                .args(["-a", app, rdp_file_path.to_str().unwrap_or("")])
+                .output();
+
+            match result {
+                Ok(output) if output.status.success() => {
+                    // 再确认一下是否真的启动了目标应用（open -a 即使应用不存在也可能返回成功）
+                    // 通过检查 stderr 来判断
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if !stderr.contains("Unable") && !stderr.contains("No such file") {
+                        return Ok(());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 2. 尝试用 bundle ID 打开（App Store 版 Microsoft Remote Desktop）
+        let bundle_candidates = [
+            "com.microsoft.rdc.macos",
+            "com.microsoft.rdc.osx",
+            "com.microsoft.windowsapp",
+        ];
+
+        for bundle in &bundle_candidates {
+            let result = std::process::Command::new("open")
+                .args(["-b", bundle, rdp_file_path.to_str().unwrap_or("")])
+                .output();
+
+            match result {
+                Ok(output) if output.status.success() => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if !stderr.contains("Unable") && !stderr.contains("No such file") {
+                        return Ok(());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 3. 最后回退：用默认应用打开 .rdp 文件
+        // 如果用户默认是 RoyalTSX，那就会打开 RoyalTSX
+        std::process::Command::new("open")
+            .arg(&rdp_file_path)
+            .spawn()
+            .map_err(|e| format!("打开 RDP 客户端失败: {}", e))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("RDP 连接仅在 macOS 上支持".to_string())
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct RdpStartSessionResponse {
+    pub session_id: String,
+}
+
+#[tauri::command]
+pub async fn rdp_start_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: i64,
+) -> Result<RdpStartSessionResponse, String> {
+    let conn = state
+        .db
+        .get_rdp_connection(connection_id)
+        .map_err(|e| e.to_string())?;
+
+    let config = crate::rdp::SessionConfig {
+        host: conn.host,
+        port: conn.port as u16,
+        username: conn.username,
+        password: conn.password,
+        domain: if conn.domain.is_empty() { None } else { Some(conn.domain) },
+        screen_width: conn.screen_width as u16,
+        screen_height: conn.screen_height as u16,
+    };
+
+    let session_id = state
+        .rdp_session_manager
+        .create_session(app, config, conn.name)
+        .await
+        .map_err(|e| format!("启动 RDP 会话失败: {}", e))?;
+
+    Ok(RdpStartSessionResponse { session_id })
+}
+
+#[tauri::command]
+pub async fn rdp_stop_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state
+        .rdp_session_manager
+        .close_session(&session_id)
+        .await
+        .map_err(|e| format!("停止 RDP 会话失败: {}", e))?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RdpSendInputRequest {
+    pub session_id: String,
+    pub event_type: String,
+    pub x: Option<u16>,
+    pub y: Option<u16>,
+    pub button: Option<u8>,
+    pub scancode: Option<u16>,
+}
+
+#[tauri::command]
+pub async fn rdp_send_input(
+    state: State<'_, AppState>,
+    req: RdpSendInputRequest,
+) -> Result<(), String> {
+    let event = match req.event_type.as_str() {
+        "mousemove" => crate::rdp::InputEvent::MouseMove {
+            x: req.x.unwrap_or(0),
+            y: req.y.unwrap_or(0),
+        },
+        "mousedown" => crate::rdp::InputEvent::MouseDown {
+            x: req.x.unwrap_or(0),
+            y: req.y.unwrap_or(0),
+            button: req.button.unwrap_or(0),
+        },
+        "mouseup" => crate::rdp::InputEvent::MouseUp {
+            x: req.x.unwrap_or(0),
+            y: req.y.unwrap_or(0),
+            button: req.button.unwrap_or(0),
+        },
+        "keydown" => crate::rdp::InputEvent::KeyDown {
+            scancode: req.scancode.unwrap_or(0),
+        },
+        "keyup" => crate::rdp::InputEvent::KeyUp {
+            scancode: req.scancode.unwrap_or(0),
+        },
+        _ => return Err(format!("未知的输入事件类型: {}", req.event_type)),
+    };
+
+    state
+        .rdp_session_manager
+        .send_input(&req.session_id, event)
+        .await
+        .map_err(|e| format!("发送输入失败: {}", e))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
     show_or_create_main_window(&app)
@@ -1635,4 +2419,118 @@ pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn exit_app(app: AppHandle) {
     app.exit(0);
+}
+
+// === Notification Commands ===
+
+/// 通过 osascript 发送 macOS 系统通知（绕过 Tauri 插件，用于诊断和备选）
+#[tauri::command]
+pub async fn send_osascript_notification(title: String, body: String) -> Result<(), String> {
+    let script = format!(r#"display notification "{}" with title "{}""#, body.replace('"', "\\\""), title.replace('"', "\\\""));
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("执行 osascript 失败: {}", e))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("osascript 错误: {}", stderr));
+    }
+    
+    Ok(())
+}
+
+/// 获取当前应用的 Bundle Identifier（用于诊断通知权限问题）
+#[tauri::command]
+pub fn get_bundle_id() -> String {
+    std::env::var("CFBundleIdentifier").unwrap_or_else(|_| "not-set".to_string())
+}
+
+/// 检查 macOS 通知权限状态（通过查询系统数据库）
+#[tauri::command]
+pub async fn check_macos_notification_permission() -> Result<bool, String> {
+    // 通过 osascript 检查通知权限
+    let script = r#"tell application "System Events" to return name of every application process"#;
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .map_err(|e| format!("执行失败: {}", e))?;
+    
+    if !output.status.success() {
+        return Ok(false);
+    }
+    
+    // 如果能执行 AppleScript，说明有基本的自动化权限
+    // 但无法直接查询通知权限状态
+    Ok(true)
+}
+
+/// 获取当前应用的可执行路径
+#[tauri::command]
+pub fn get_app_path() -> String {
+    std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// 检查当前应用是否在 /Applications 目录下
+#[tauri::command]
+pub fn is_in_applications() -> bool {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(path) = exe.to_str() {
+            return path.starts_with("/Applications/");
+        }
+    }
+    false
+}
+
+/// 将当前应用重新安装到 /Applications 并重启（需要管理员权限）
+#[tauri::command]
+pub async fn reinstall_to_applications() -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("无法获取当前路径: {}", e))?;
+    let exe_str = exe.to_string_lossy();
+
+    // 找到 .app 包根目录
+    // 路径通常是 /xxx/MacNest.app/Contents/MacOS/MacNest
+    let app_bundle = exe
+        .ancestors()
+        .find(|p| {
+            p.extension()
+                .map(|ext| ext == "app")
+                .unwrap_or(false)
+        })
+        .ok_or("无法定位 .app 包目录")?;
+
+    let app_bundle_str = app_bundle.to_string_lossy();
+    let app_name = app_bundle
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "MacNest".to_string());
+
+    // 用 osascript 请求管理员权限复制并重启
+    let script = format!(
+        r##"do shell script "rm -rf '/Applications/{}.app' && cp -R '{}' '/Applications/'" with administrator privileges
+        tell application "{0}"
+            if it is running then quit
+            delay 1
+            activate
+        end tell"##,
+        app_name.replace("'", "'\\''"),
+        app_bundle_str.replace("'", "'\\''")
+    );
+
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("执行安装脚本失败: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("安装失败: {}", stderr));
+    }
+
+    Ok(format!("{} 已重新安装到 /Applications", app_name))
 }

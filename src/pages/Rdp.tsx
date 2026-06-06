@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,331 +9,51 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Plus,
   X,
   Server,
   Folder,
   ChevronRight,
   ChevronDown,
-  ChevronUp,
   Search,
   Trash2,
   Pencil,
-  Terminal as TerminalIcon,
   Play,
   Loader2,
-  Cpu,
-  HardDrive,
-  MemoryStick,
-  Activity,
+  Monitor,
+  ExternalLink,
 } from "lucide-react";
-import XTerm, { type XTermHandle } from "@/components/terminal/XTerm";
-import SftpPanel from "@/components/terminal/SftpPanel";
 import {
-  createSshConnection,
-  listSshConnections,
-  updateSshConnection,
-  deleteSshConnection,
-  sshConnect,
-  sshDisconnect,
-  getSshSystemInfo,
+  createRdpConnection,
+  listRdpConnections,
+  updateRdpConnection,
+  deleteRdpConnection,
+  rdpConnect,
+  rdpStartSession,
+  rdpStopSession,
   listGroups,
   createGroup,
   updateGroup,
   deleteGroup,
   getErrorMessage,
 } from "@/lib/api";
-import { useTerminalStore } from "@/stores/terminal";
 import { buildGroupTree, flattenGroups, type GroupNode } from "@/lib/tree";
-import type { SshConnection, Group } from "@/types";
+import type { RdpConnection, Group } from "@/types";
+import { toast } from "sonner";
+import RdpCanvas from "@/components/rdp/RdpCanvas";
 
 /* ── Types ── */
 
-interface TerminalGroupNode extends Omit<GroupNode, "children"> {
-  connections: SshConnection[];
-  children: TerminalGroupNode[];
+interface RdpGroupNode extends Omit<GroupNode, "children"> {
+  connections: RdpConnection[];
+  children: RdpGroupNode[];
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 280;
 
-/* 内存大小自动转换: >=1024MB 用 G，否则用 MB */
-function formatMemSize(mb: number): string {
-  if (mb >= 1024) {
-    return `${(mb / 1024).toFixed(1)}G`;
-  }
-  return `${mb}MB`;
-}
-
-/**
- * 每个 Tab 独立的终端+SFTP 分栏，自带 ref 和高度状态。
- * 避免多 tab 共用 ref 导致拖动和布局异常。
- */
-function TerminalSplitPane({
-  tab,
-  isActive,
-  xtermRefs,
-  onDragOverlayChange,
-}: {
-  tab: { id: string; name: string; sessionId: string; websocketUrl: string };
-  isActive: boolean;
-  xtermRefs: React.MutableRefObject<Map<string, XTermHandle>>;
-  onDragOverlayChange: (v: "row-resize" | null) => void;
-}) {
-  const [splitPct, setSplitPct] = useState(60);
-  const [terminalPath, setTerminalPath] = useState<string | null>(null);
-  const [infoCollapsed, setInfoCollapsed] = useState(false);
-  const [systemInfo, setSystemInfo] = useState<import("@/types").RemoteSystemInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const termRef = useRef<HTMLDivElement>(null);
-  const sftpRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
-  const startY = useRef(0);
-  const startPct = useRef(60);
-  // 用 ref 持有回调，避免 useEffect 依赖变化导致重新注册
-  const onDragOverlayChangeRef = useRef(onDragOverlayChange);
-  onDragOverlayChangeRef.current = onDragOverlayChange;
-
-  // 动态刷新远程系统信息: mount 时获取一次，然后每 5s 刷新
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchInfo() {
-      if (!cancelled) setIsLoading(true);
-      try {
-        const info = await getSshSystemInfo(tab.sessionId);
-        if (!cancelled) {
-          setSystemInfo(info);
-          setIsLoading(false);
-        }
-      } catch (err) {
-        console.error("[TerminalSplitPane] fetch system info failed:", err);
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
-    fetchInfo(); // 首次获取
-    const id = setInterval(fetchInfo, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [tab.sessionId]);
-
-  useEffect(() => {
-    const handleMove = (e: MouseEvent) => {
-      if (!isDragging.current || !termRef.current || !sftpRef.current) return;
-      e.preventDefault();
-      const parent = sftpRef.current.parentElement;
-      if (!parent) return;
-      const rect = parent.getBoundingClientRect();
-      const delta = e.clientY - startY.current;
-      const deltaPct = (delta / rect.height) * 100;
-      const pct = Math.max(20, Math.min(80, startPct.current + deltaPct));
-      termRef.current.style.flex = String(pct);
-      sftpRef.current.style.flex = String(100 - pct);
-    };
-    const handleUp = () => {
-      if (!isDragging.current) return;
-      isDragging.current = false;
-      const pct = Number(termRef.current?.style.flex ?? 60);
-      setSplitPct(pct);
-      onDragOverlayChangeRef.current(null);
-    };
-    window.addEventListener("mousemove", handleMove, { passive: false });
-    window.addEventListener("mouseup", handleUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-    };
-  }, []);
-
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* 远程系统信息栏 */}
-      {(systemInfo || isLoading) && (
-        <div className="shrink-0 border-b border-[var(--glass-border)] bg-muted/20">
-          {isLoading && !systemInfo ? (
-            <div className="px-3 py-1.5 text-[11px] text-muted-foreground/60 flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              正在获取系统信息...
-            </div>
-          ) : systemInfo ? (
-            <div className="flex items-center gap-5 px-3 py-1.5 overflow-x-auto scrollbar-hide">
-              {/* CPU */}
-              <div className="flex items-center gap-1.5 whitespace-nowrap">
-                <Cpu className="h-3 w-3 shrink-0 text-blue-400" />
-                <span className="text-[11px] text-blue-400/80 font-medium">
-                  {systemInfo.cpu_cores}核
-                </span>
-              </div>
-
-              {/* Latency */}
-              {systemInfo.latency_ms != null && (
-                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                  <Activity className="h-3 w-3 shrink-0 text-cyan-400" />
-                  <span
-                    className={`text-[11px] font-medium ${
-                      systemInfo.latency_ms < 100
-                        ? "text-emerald-400"
-                        : systemInfo.latency_ms < 300
-                        ? "text-amber-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {systemInfo.latency_ms}ms
-                  </span>
-                </div>
-              )}
-
-              {/* Memory with bar */}
-              <div className="flex items-center gap-1.5 whitespace-nowrap min-w-[120px]">
-                <MemoryStick className="h-3 w-3 shrink-0 text-emerald-400" />
-                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] text-muted-foreground">
-                      {formatMemSize(systemInfo.memory_used_mb)} / {formatMemSize(systemInfo.memory_total_mb)}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold ${
-                        systemInfo.memory_percent >= 80
-                          ? "text-red-400"
-                          : systemInfo.memory_percent >= 50
-                          ? "text-amber-400"
-                          : "text-emerald-400"
-                      }`}
-                    >
-                      {systemInfo.memory_percent}%
-                    </span>
-                  </div>
-                  <div className="w-20 h-1 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        systemInfo.memory_percent >= 80
-                          ? "bg-red-400"
-                          : systemInfo.memory_percent >= 50
-                          ? "bg-amber-400"
-                          : "bg-emerald-400"
-                      }`}
-                      style={{ width: `${Math.min(100, systemInfo.memory_percent)}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Disk with bar */}
-              <div className="flex items-center gap-1.5 whitespace-nowrap min-w-[120px]">
-                <HardDrive className="h-3 w-3 shrink-0 text-violet-400" />
-                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] text-muted-foreground">
-                      {systemInfo.disk_used} / {systemInfo.disk_total}
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold ${
-                        systemInfo.disk_usage_percent_num >= 80
-                          ? "text-red-400"
-                          : systemInfo.disk_usage_percent_num >= 50
-                          ? "text-amber-400"
-                          : "text-violet-400"
-                      }`}
-                    >
-                      {systemInfo.disk_usage_percent}
-                    </span>
-                  </div>
-                  <div className="w-20 h-1 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        systemInfo.disk_usage_percent_num >= 80
-                          ? "bg-red-400"
-                          : systemInfo.disk_usage_percent_num >= 50
-                          ? "bg-amber-400"
-                          : "bg-violet-400"
-                      }`}
-                      style={{ width: `${Math.min(100, systemInfo.disk_usage_percent_num)}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Load average */}
-              <div className="flex items-center gap-1.5 whitespace-nowrap">
-                <Server className="h-3 w-3 shrink-0 text-orange-400" />
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-muted-foreground">负载</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-orange-400/70 font-medium">1m</span>
-                    <span className="text-[11px] text-orange-400 font-semibold">{systemInfo.load_1m}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-orange-400/70 font-medium">5m</span>
-                    <span className="text-[11px] text-orange-400 font-semibold">{systemInfo.load_5m}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-orange-400/70 font-medium">15m</span>
-                    <span className="text-[11px] text-orange-400 font-semibold">{systemInfo.load_15m}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
-  <div className="overflow-hidden bg-muted/30" ref={termRef} style={{ flex: splitPct }}>
-        <XTerm
-          ref={(el) => {
-            if (el) xtermRefs.current.set(tab.id, el);
-            else xtermRefs.current.delete(tab.id);
-          }}
-          websocketUrl={tab.websocketUrl}
-          active={isActive}
-          onPathChange={setTerminalPath}
-        />
-      </div>
-      {/* Vertical splitter */}
-      <div
-        className="h-3 shrink-0 z-10 group relative cursor-row-resize"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          isDragging.current = true;
-          startY.current = e.clientY;
-          const parent = sftpRef.current?.parentElement;
-          if (parent) {
-            const rect = parent.getBoundingClientRect();
-            const top = termRef.current?.getBoundingClientRect().top ?? rect.top;
-            startPct.current = ((e.clientY - top) / rect.height) * 100;
-          }
-          onDragOverlayChange("row-resize");
-        }}
-      >
-        <div className="absolute inset-0 -top-1 -bottom-1" />
-        <div className="h-[3px] w-full my-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
-      </div>
-      <div className="overflow-hidden" ref={sftpRef} style={{ flex: 100 - splitPct }}>
-        <SftpPanel
-          sessionId={tab.sessionId}
-          syncPath={terminalPath}
-          onSyncToTerminal={(path) => {
-            const xterm = xtermRefs.current.get(tab.id);
-            if (xterm) {
-              xterm.sendCommand(`cd ${path}`);
-            }
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function buildTerminalGroupTree(groups: Group[], connections: SshConnection[]): TerminalGroupNode[] {
+function buildRdpGroupTree(groups: Group[], connections: RdpConnection[]): RdpGroupNode[] {
   const tree = buildGroupTree(groups);
-  const map = new Map<number, TerminalGroupNode>();
+  const map = new Map<number, RdpGroupNode>();
 
   function collect(nodes: GroupNode[]) {
     for (const n of nodes) {
@@ -349,7 +69,7 @@ function buildTerminalGroupTree(groups: Group[], connections: SshConnection[]): 
     }
   }
 
-  const roots: TerminalGroupNode[] = [];
+  const roots: RdpGroupNode[] = [];
   for (const n of tree) {
     const node = map.get(n.id)!;
     if (n.parent_id != null && map.has(n.parent_id)) {
@@ -378,13 +98,13 @@ function SidebarTreeNode({
   selectedConnectionId,
   connectingId,
 }: {
-  node: TerminalGroupNode;
+  node: RdpGroupNode;
   depth: number;
   expandedIds: Set<number>;
   toggleExpand: (id: number) => void;
-  onConnect: (conn: SshConnection) => void;
-  onSelectConnection: (conn: SshConnection) => void;
-  onEditConnection: (conn: SshConnection) => void;
+  onConnect: (conn: RdpConnection) => void;
+  onSelectConnection: (conn: RdpConnection) => void;
+  onEditConnection: (conn: RdpConnection) => void;
   onDeleteConnection: (id: number) => void;
   onNewConnection: (groupId: number | null) => void;
   onEditGroup: (group: Group) => void;
@@ -437,7 +157,7 @@ function SidebarTreeNode({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onEditGroup(node);
+              onEditGroup(node as unknown as Group);
             }}
             className="h-6 w-6 rounded-lg hover:bg-secondary/60 flex items-center justify-center"
             title="编辑分组"
@@ -484,7 +204,6 @@ function SidebarTreeNode({
             <div
               key={conn.id}
               onClick={() => onSelectConnection(conn)}
-              onDoubleClick={() => onConnect(conn)}
               className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
                 selectedConnectionId === conn.id
                   ? "bg-primary text-primary-foreground shadow-glass"
@@ -492,7 +211,7 @@ function SidebarTreeNode({
               }`}
               style={{ paddingLeft: `${12 + (depth + 1) * 16}px` }}
             >
-              <TerminalIcon className="h-4 w-4 shrink-0" />
+              <Monitor className="h-4 w-4 shrink-0" />
               <span className="truncate flex-1 cursor-default">{conn.name}</span>
               <span className={`text-xs shrink-0 opacity-70 ${selectedConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
               <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -547,50 +266,19 @@ function SidebarTreeNode({
 
 /* ── Main Component ── */
 
-export default function Terminal() {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore();
-
-  const [connections, setConnections] = useState<SshConnection[]>([]);
+export default function Rdp() {
+  const [connections, setConnections] = useState<RdpConnection[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [connectingId, setConnectingId] = useState<number | null>(null);
 
+  // 内嵌 RDP 会话状态
+  const [embeddedSession, setEmbeddedSession] = useState<{
+    sessionId: string;
+    connection: RdpConnection;
+  } | null>(null);
+
   // Resizable state
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-  const tabContentRef = useRef<HTMLDivElement>(null);
-  const xtermRefs = useRef<Map<string, XTermHandle>>(new Map());
-  const isDraggingH = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
-  const [dragOverlay, setDragOverlay] = useState<"col-resize" | "row-resize" | null>(null);
-
-  // Drag handlers — sidebar only, V drag is per-tab in TerminalSplitPane
-  useEffect(() => {
-    const handleMove = (e: MouseEvent) => {
-      e.preventDefault();
-      if (isDraggingH.current && sidebarRef.current) {
-        const delta = e.clientX - startXRef.current;
-        const w = Math.max(240, Math.min(420, startWidthRef.current + delta));
-        sidebarRef.current.style.width = w + "px";
-      }
-    };
-    const handleUp = () => {
-      if (isDraggingH.current) {
-        isDraggingH.current = false;
-        const w = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
-        setSidebarWidth(w);
-      }
-      setDragOverlay(null);
-    };
-    window.addEventListener("mousemove", handleMove, { passive: false });
-    window.addEventListener("mouseup", handleUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-    };
-  }, []);
-
-  // Sidebar state
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [selectedConnectionId, setSelectedConnectionId] = useState<number | null>(null);
@@ -607,35 +295,36 @@ export default function Terminal() {
 
   // Connection edit dialog
   const [editConnDialogOpen, setEditConnDialogOpen] = useState(false);
-  const [editingConnection, setEditingConnection] = useState<SshConnection | null>(null);
+  const [editingConnection, setEditingConnection] = useState<RdpConnection | null>(null);
 
   // Form state (shared for new + edit)
   const [formName, setFormName] = useState("");
   const [formHost, setFormHost] = useState("");
-  const [formPort, setFormPort] = useState("22");
+  const [formPort, setFormPort] = useState("3389");
   const [formUsername, setFormUsername] = useState("");
-  const [formAuthType, setFormAuthType] = useState<"password" | "publickey">("password");
   const [formPassword, setFormPassword] = useState("");
-  const [formKeyPath, setFormKeyPath] = useState("");
-  const [formKeyPassphrase, setFormKeyPassphrase] = useState("");
+  const [formDomain, setFormDomain] = useState("");
+  const [formScreenWidth, setFormScreenWidth] = useState("1920");
+  const [formScreenHeight, setFormScreenHeight] = useState("1080");
+  const [formColorDepth, setFormColorDepth] = useState("32");
   const [formGroupId, setFormGroupId] = useState<number | null>(null);
 
   // Group form
-  const [groupForm, setGroupForm] = useState({ name: "", parent_id: null as number | null, group_type: "terminal" });
-  const [editGroupForm, setEditGroupForm] = useState({ id: 0, name: "", parent_id: null as number | null, group_type: "terminal" });
+  const [groupForm, setGroupForm] = useState({ name: "", parent_id: null as number | null, group_type: "rdp" });
+  const [editGroupForm, setEditGroupForm] = useState({ id: 0, name: "", parent_id: null as number | null, group_type: "rdp" });
 
   const loadConnections = useCallback(async () => {
     try {
-      const list = await listSshConnections();
+      const list = await listRdpConnections();
       setConnections(list);
     } catch (err) {
-      console.error("Failed to load connections:", err);
+      console.error("Failed to load RDP connections:", err);
     }
   }, []);
 
   const loadGroups = useCallback(async () => {
     try {
-      const data = await listGroups("terminal");
+      const data = await listGroups("rdp");
       setGroups(data);
     } catch (err) {
       console.error("Failed to load groups:", err);
@@ -647,20 +336,12 @@ export default function Terminal() {
     loadGroups();
   }, [loadConnections, loadGroups]);
 
-  const groupTree = useMemo(() => buildTerminalGroupTree(groups, connections), [groups, connections]);
-
+  const groupTree = useMemo(() => buildRdpGroupTree(groups, connections), [groups, connections]);
   const flatGroups = useMemo(() => flattenGroups(groupTree), [groupTree]);
 
-  const activeConnectionId = useMemo(() => {
-    const activeTab = tabs.find((t) => t.id === activeTabId);
-    return activeTab?.connectionId ?? null;
-  }, [tabs, activeTabId]);
-
-  useEffect(() => {
-    if (activeConnectionId != null) {
-      setSelectedConnectionId(activeConnectionId);
-    }
-  }, [activeConnectionId]);
+  const selectedConnection = useMemo(() => {
+    return connections.find((c) => c.id === selectedConnectionId) ?? null;
+  }, [connections, selectedConnectionId]);
 
   const toggleExpand = (id: number) => {
     setExpandedIds((prev) => {
@@ -671,49 +352,49 @@ export default function Terminal() {
     });
   };
 
-  const handleConnect = async (conn: SshConnection) => {
-    const existing = tabs.find((t) => t.connectionId === conn.id);
-    if (existing) {
-      setActiveTab(existing.id);
-      return;
-    }
-
+  const handleConnect = async (conn: RdpConnection) => {
     setConnectingId(conn.id);
     try {
-      const result = await sshConnect(conn.id);
-      addTab({
-        id: crypto.randomUUID(),
-        name: conn.name,
-        connectionId: conn.id,
-        sessionId: result.session_id,
-        websocketUrl: result.websocket_url,
-      });
+      await rdpConnect(conn.id);
+      toast.success(`已启动外部 RDP 客户端: ${conn.name}`);
     } catch (err) {
-      console.error("Failed to connect:", err);
-      alert("连接失败: " + getErrorMessage(err));
+      console.error("Failed to connect RDP:", err);
+      toast.error("RDP 连接失败: " + getErrorMessage(err));
     } finally {
       setConnectingId(null);
     }
   };
 
-  const handleSelectConnection = (conn: SshConnection) => {
-    setSelectedConnectionId(conn.id);
-    const existing = tabs.find((t) => t.connectionId === conn.id);
-    if (existing) {
-      setActiveTab(existing.id);
+  const handleEmbeddedConnect = async (conn: RdpConnection) => {
+    setConnectingId(conn.id);
+    try {
+      const result = await rdpStartSession(conn.id);
+      setEmbeddedSession({
+        sessionId: result.session_id,
+        connection: conn,
+      });
+      toast.success(`RDP 内嵌会话已启动: ${conn.name}`);
+    } catch (err) {
+      console.error("Failed to start embedded RDP:", err);
+      toast.error("内嵌 RDP 启动失败: " + getErrorMessage(err));
+    } finally {
+      setConnectingId(null);
     }
   };
 
-  const handleCloseTab = async (tabId: string) => {
-    const tab = tabs.find((t) => t.id === tabId);
-    if (tab) {
+  const handleEmbeddedDisconnect = async () => {
+    if (embeddedSession) {
       try {
-        await sshDisconnect(tab.sessionId);
+        await rdpStopSession(embeddedSession.sessionId);
       } catch (err) {
-        console.error("Failed to disconnect:", err);
+        console.error("Failed to disconnect embedded RDP:", err);
       }
+      setEmbeddedSession(null);
     }
-    removeTab(tabId);
+  };
+
+  const handleSelectConnection = (conn: RdpConnection) => {
+    setSelectedConnectionId(conn.id);
   };
 
   const handleDeleteConnection = (id: number) => {
@@ -724,11 +405,15 @@ export default function Terminal() {
   const confirmDeleteConnection = async () => {
     if (connDeleteTargetId == null) return;
     try {
-      await deleteSshConnection(connDeleteTargetId);
+      await deleteRdpConnection(connDeleteTargetId);
+      if (selectedConnectionId === connDeleteTargetId) {
+        setSelectedConnectionId(null);
+      }
       loadConnections();
+      toast.success("连接已删除");
     } catch (err) {
       console.error("Failed to delete connection:", err);
-      alert("删除失败: " + getErrorMessage(err));
+      toast.error("删除失败: " + getErrorMessage(err));
     }
     setConnDeleteConfirmOpen(false);
     setConnDeleteTargetId(null);
@@ -737,12 +422,13 @@ export default function Terminal() {
   const resetForm = () => {
     setFormName("");
     setFormHost("");
-    setFormPort("22");
+    setFormPort("3389");
     setFormUsername("");
-    setFormAuthType("password");
     setFormPassword("");
-    setFormKeyPath("");
-    setFormKeyPassphrase("");
+    setFormDomain("");
+    setFormScreenWidth("1920");
+    setFormScreenHeight("1080");
+    setFormColorDepth("32");
     setFormGroupId(null);
   };
 
@@ -753,68 +439,61 @@ export default function Terminal() {
     setShowNewDialog(true);
   };
 
-  const handleEditConnection = (conn: SshConnection) => {
+  const handleEditConnection = (conn: RdpConnection) => {
     setEditingConnection(conn);
     setFormName(conn.name);
     setFormHost(conn.host);
     setFormPort(conn.port.toString());
     setFormUsername(conn.username);
+    setFormPassword(conn.password);
+    setFormDomain(conn.domain);
+    setFormScreenWidth(conn.screen_width.toString());
+    setFormScreenHeight(conn.screen_height.toString());
+    setFormColorDepth(conn.color_depth.toString());
     setFormGroupId(conn.group_id);
-
-    if (conn.auth_type.type === "Password") {
-      setFormAuthType("password");
-      setFormPassword(conn.auth_type.password);
-      setFormKeyPath("");
-      setFormKeyPassphrase("");
-    } else {
-      setFormAuthType("publickey");
-      setFormPassword("");
-      setFormKeyPath(conn.auth_type.key_path);
-      setFormKeyPassphrase(conn.auth_type.passphrase || "");
-    }
-
     setEditConnDialogOpen(true);
   };
 
   const handleSaveConnection = async () => {
-    const authType =
-      formAuthType === "password"
-        ? { type: "Password" as const, password: formPassword }
-        : {
-            type: "PublicKey" as const,
-            key_path: formKeyPath,
-            passphrase: formKeyPassphrase || undefined,
-          };
-
     try {
       if (editingConnection) {
-        await updateSshConnection({
+        await updateRdpConnection({
           ...editingConnection,
           name: formName,
           host: formHost,
-          port: parseInt(formPort, 10) || 22,
+          port: parseInt(formPort, 10) || 3389,
           username: formUsername,
-          auth_type: authType,
+          password: formPassword,
+          domain: formDomain,
+          screen_width: parseInt(formScreenWidth, 10) || 1920,
+          screen_height: parseInt(formScreenHeight, 10) || 1080,
+          color_depth: parseInt(formColorDepth, 10) || 32,
           group_id: formGroupId,
         });
         setEditConnDialogOpen(false);
         setEditingConnection(null);
+        toast.success("连接已更新");
       } else {
-        await createSshConnection({
+        await createRdpConnection({
           name: formName,
           host: formHost,
-          port: parseInt(formPort, 10) || 22,
+          port: parseInt(formPort, 10) || 3389,
           username: formUsername,
-          auth_type: authType,
+          password: formPassword,
+          domain: formDomain,
+          screen_width: parseInt(formScreenWidth, 10) || 1920,
+          screen_height: parseInt(formScreenHeight, 10) || 1080,
+          color_depth: parseInt(formColorDepth, 10) || 32,
           group_id: formGroupId,
         });
         setShowNewDialog(false);
+        toast.success("连接已创建");
       }
       resetForm();
       loadConnections();
     } catch (err) {
       console.error("Failed to save connection:", err);
-      alert("保存失败: " + String(err));
+      toast.error("保存失败: " + getErrorMessage(err));
     }
   };
 
@@ -825,14 +504,16 @@ export default function Terminal() {
         name: groupForm.name.trim(),
         parent_id: groupForm.parent_id,
         sort_order: groups.length,
-        group_type: "terminal",
+        group_type: "rdp",
         start_directory: "",
       });
-      setGroupForm({ name: "", parent_id: null, group_type: "terminal" });
+      setGroupForm({ name: "", parent_id: null, group_type: "rdp" });
       setGroupDialogOpen(false);
       loadGroups();
+      toast.success("分组已创建");
     } catch (error) {
       console.error("Failed to create group:", error);
+      toast.error("创建分组失败");
     }
   };
 
@@ -846,11 +527,13 @@ export default function Terminal() {
     try {
       const group = groups.find((g) => g.id === editGroupForm.id);
       if (!group) return;
-      await updateGroup({ ...group, name: editGroupForm.name.trim(), parent_id: editGroupForm.parent_id, group_type: "terminal" });
+      await updateGroup({ ...group, name: editGroupForm.name.trim(), parent_id: editGroupForm.parent_id, group_type: "rdp" });
       setEditGroupDialogOpen(false);
       loadGroups();
+      toast.success("分组已更新");
     } catch (error) {
       console.error("Failed to update group:", error);
+      toast.error("更新分组失败");
     }
   };
 
@@ -865,8 +548,10 @@ export default function Terminal() {
       await deleteGroup(deleteTargetId);
       loadGroups();
       loadConnections();
+      toast.success("分组已删除");
     } catch (error) {
       console.error("Failed to delete group:", error);
+      toast.error("删除分组失败");
     }
     setDeleteConfirmOpen(false);
     setDeleteTargetId(null);
@@ -877,8 +562,8 @@ export default function Terminal() {
     if (!sidebarSearch.trim()) return groupTree;
     const q = sidebarSearch.toLowerCase();
 
-    function filterNodes(nodes: TerminalGroupNode[]): TerminalGroupNode[] {
-      const result: TerminalGroupNode[] = [];
+    function filterNodes(nodes: RdpGroupNode[]): RdpGroupNode[] {
+      const result: RdpGroupNode[] = [];
       for (const node of nodes) {
         const matchName = node.name.toLowerCase().includes(q);
         const filteredChildren = filterNodes(node.children);
@@ -905,7 +590,7 @@ export default function Terminal() {
   useEffect(() => {
     if (sidebarSearch.trim()) {
       const allIds = new Set<number>();
-      function collect(nodes: TerminalGroupNode[]) {
+      function collect(nodes: RdpGroupNode[]) {
         for (const n of nodes) {
           allIds.add(n.id);
           collect(n.children);
@@ -921,21 +606,31 @@ export default function Terminal() {
     <div className="space-y-3 py-2">
       <div className="space-y-1">
         <Label className="text-xs">名称</Label>
-        <Input placeholder="例如：生产服务器" value={formName} onChange={(e) => setFormName(e.target.value)} className="input-macos" />
+        <Input placeholder="例如：Windows 服务器" value={formName} onChange={(e) => setFormName(e.target.value)} className="input-macos" />
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div className="col-span-2 space-y-1">
           <Label className="text-xs">主机</Label>
-          <Input placeholder="192.168.1.1" value={formHost} onChange={(e) => setFormHost(e.target.value)} className="input-macos" />
+          <Input placeholder="192.168.1.100" value={formHost} onChange={(e) => setFormHost(e.target.value)} className="input-macos" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">端口</Label>
-          <Input placeholder="22" value={formPort} onChange={(e) => setFormPort(e.target.value)} className="input-macos" />
+          <Input placeholder="3389" value={formPort} onChange={(e) => setFormPort(e.target.value)} className="input-macos" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">用户名</Label>
+          <Input placeholder="Administrator" value={formUsername} onChange={(e) => setFormUsername(e.target.value)} className="input-macos" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">密码</Label>
+          <Input type="password" placeholder="可选" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} className="input-macos" />
         </div>
       </div>
       <div className="space-y-1">
-        <Label className="text-xs">用户名</Label>
-        <Input placeholder="root" value={formUsername} onChange={(e) => setFormUsername(e.target.value)} className="input-macos" />
+        <Label className="text-xs">域（可选）</Label>
+        <Input placeholder="WORKGROUP" value={formDomain} onChange={(e) => setFormDomain(e.target.value)} className="input-macos" />
       </div>
       <div className="space-y-1">
         <Label className="text-xs">分组</Label>
@@ -950,36 +645,26 @@ export default function Terminal() {
           ))}
         </select>
       </div>
-      <div className="space-y-1">
-        <Label className="text-xs">认证方式</Label>
-        <Select value={formAuthType} onValueChange={(v) => setFormAuthType(v as "password" | "publickey")}>
-          <SelectTrigger className="input-macos h-10">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="glass-strong border-[var(--glass-border-strong)]"
-          >
-            <SelectItem value="password">密码</SelectItem>
-            <SelectItem value="publickey">公钥</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      {formAuthType === "password" ? (
+      <div className="grid grid-cols-3 gap-2">
         <div className="space-y-1">
-          <Label className="text-xs">密码</Label>
-          <Input type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} className="input-macos" />
+          <Label className="text-xs">宽度</Label>
+          <Input placeholder="1920" value={formScreenWidth} onChange={(e) => setFormScreenWidth(e.target.value)} className="input-macos" />
         </div>
-      ) : (
-        <>
-          <div className="space-y-1">
-            <Label className="text-xs">密钥路径</Label>
-            <Input placeholder="~/.ssh/id_rsa" value={formKeyPath} onChange={(e) => setFormKeyPath(e.target.value)} className="input-macos" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">密钥密码（可选）</Label>
-            <Input type="password" value={formKeyPassphrase} onChange={(e) => setFormKeyPassphrase(e.target.value)} className="input-macos" />
-          </div>
-        </>
-      )}
+        <div className="space-y-1">
+          <Label className="text-xs">高度</Label>
+          <Input placeholder="1080" value={formScreenHeight} onChange={(e) => setFormScreenHeight(e.target.value)} className="input-macos" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">色深</Label>
+          <select value={formColorDepth} onChange={(e) => setFormColorDepth(e.target.value)}
+            className="flex h-10 w-full rounded-xl border border-[var(--glass-border-strong)] bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus:border-primary/50 transition-all"
+          >
+            <option value="16">16 bit</option>
+            <option value="24">24 bit</option>
+            <option value="32">32 bit</option>
+          </select>
+        </div>
+      </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="outline" size="sm" className="rounded-lg" onClick={() => {
           if (editingConnection) { setEditConnDialogOpen(false); setEditingConnection(null); }
@@ -989,7 +674,7 @@ export default function Terminal() {
         >
           取消
         </Button>
-        <Button size="sm" className="btn-macos rounded-lg" onClick={handleSaveConnection} disabled={!formName || !formHost || !formUsername}
+        <Button size="sm" className="btn-macos rounded-lg" onClick={handleSaveConnection} disabled={!formName || !formHost}
         >
           {editingConnection ? "保存修改" : "保存连接"}
         </Button>
@@ -999,21 +684,13 @@ export default function Terminal() {
 
   return (
     <div className="flex h-full bg-background animate-page-enter relative">
-      {/* 拖动时全屏透明覆盖层，防止 xterm/sftp 拦截鼠标事件 */}
-      {dragOverlay && (
-        <div
-          className="fixed inset-0 z-[9999]"
-          style={{ cursor: dragOverlay }}
-        />
-      )}
       {/* ── Sidebar ── */}
       <div
         className="border-r border-[var(--glass-border)] flex flex-col shrink-0 bg-muted/20"
         style={{ width: sidebarWidth }}
-        ref={sidebarRef}
       >
         <div className="p-4 border-b border-[var(--glass-border)] flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">连接管理</span>
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">RDP 连接</span>
           <div className="flex items-center gap-1.5">
             <Button
               size="sm"
@@ -1028,7 +705,7 @@ export default function Terminal() {
               variant="outline"
               className="h-7 rounded-lg text-xs px-2.5 btn-macos-secondary"
               onClick={() => {
-                setGroupForm({ name: "", parent_id: null, group_type: "terminal" });
+                setGroupForm({ name: "", parent_id: null, group_type: "rdp" });
                 setGroupDialogOpen(true);
               }}
             >
@@ -1055,8 +732,8 @@ export default function Terminal() {
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {filteredTree.length === 0 && connections.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 px-4">
-              <Server className="h-8 w-8 text-muted-foreground/40 mb-2" />
-              <p className="text-sm text-muted-foreground text-center">暂无连接</p>
+              <Monitor className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground text-center">暂无 RDP 连接</p>
               <Button
                 size="sm"
                 className="mt-2 text-sm btn-macos rounded-lg h-8 px-3"
@@ -1083,7 +760,6 @@ export default function Terminal() {
                       <div
                         key={conn.id}
                         onClick={() => handleSelectConnection(conn)}
-                        onDoubleClick={() => handleConnect(conn)}
                         className={`group flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
                           selectedConnectionId === conn.id
                             ? "bg-primary text-primary-foreground shadow-glass"
@@ -1091,7 +767,7 @@ export default function Terminal() {
                         }`}
                         style={{ paddingLeft: `${12 + 16}px` }}
                       >
-                        <TerminalIcon className="h-4 w-4 shrink-0" />
+                        <Monitor className="h-4 w-4 shrink-0" />
                         <span className="truncate flex-1 cursor-default">{conn.name}</span>
                         <span className={`text-xs shrink-0 opacity-70 ${selectedConnectionId === conn.id ? "text-primary-foreground" : "text-muted-foreground"}`}>{conn.host}</span>
                         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1160,99 +836,127 @@ export default function Terminal() {
             </>
           )}
         </div>
-
-      </div>
-
-      {/* Horizontal splitter */}
-      <div
-        className="w-2 shrink-0 z-20 group relative cursor-col-resize"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          isDraggingH.current = true;
-          startXRef.current = e.clientX;
-          startWidthRef.current = sidebarRef.current?.offsetWidth ?? DEFAULT_SIDEBAR_WIDTH;
-          setDragOverlay("col-resize");
-        }}
-      >
-        <div className="absolute inset-0 -left-1 -right-1" />
-        <div className="w-[3px] h-full mx-auto bg-border group-hover:bg-primary rounded-full transition-colors" />
       </div>
 
       {/* ── Main Content ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Tab bar */}
-        {tabs.length > 0 && (
-          <div className="flex items-center border-b border-[var(--glass-border)] bg-muted/30 overflow-x-auto">
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`group flex items-center gap-1.5 px-3 py-2 text-xs cursor-pointer border-r border-[var(--glass-border)] shrink-0 transition-colors min-w-0 ${
-                  activeTabId === tab.id
-                    ? "bg-card text-primary border-t-2 border-t-primary"
-                    : "bg-muted/50 text-muted-foreground hover:bg-card hover:text-foreground"
-                }`}
-              >
-                <TerminalIcon className="h-3 w-3 shrink-0" />
-                <span className="truncate max-w-[120px]">{tab.name}</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCloseTab(tab.id);
-                  }}
-                  className={`p-0.5 rounded hover:bg-secondary/60 shrink-0 ${
-                    activeTabId === tab.id ? "text-muted-foreground" : "text-muted-foreground/60"
-                  }`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
+        {embeddedSession ? (
+          <RdpCanvas
+            sessionId={embeddedSession.sessionId}
+            connection={embeddedSession.connection}
+            onDisconnect={handleEmbeddedDisconnect}
+            onExternalClient={() => {
+              handleEmbeddedDisconnect();
+              handleConnect(embeddedSession.connection);
+            }}
+          />
+        ) : selectedConnection ? (
+          <div className="flex-1 flex flex-col p-6 overflow-y-auto">
+            <div className="max-w-2xl mx-auto w-full space-y-6">
+              {/* Header */}
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Monitor className="h-6 w-6 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-semibold">{selectedConnection.name}</h2>
+                  <p className="text-sm text-muted-foreground">{selectedConnection.host}:{selectedConnection.port}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    className="btn-macos rounded-lg"
+                    onClick={() => handleEmbeddedConnect(selectedConnection)}
+                    disabled={connectingId === selectedConnection.id}
+                  >
+                    {connectingId === selectedConnection.id ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Monitor className="h-4 w-4 mr-2" />
+                    )}
+                    内嵌连接
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => handleConnect(selectedConnection)}
+                    disabled={connectingId === selectedConnection.id}
+                  >
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    外部客户端
+                  </Button>
+                </div>
               </div>
-            ))}
+
+              {/* Info Cards */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl border border-[var(--glass-border)] bg-card p-4 space-y-1">
+                  <Label className="text-xs text-muted-foreground">主机</Label>
+                  <p className="text-sm font-medium">{selectedConnection.host}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--glass-border)] bg-card p-4 space-y-1">
+                  <Label className="text-xs text-muted-foreground">端口</Label>
+                  <p className="text-sm font-medium">{selectedConnection.port}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--glass-border)] bg-card p-4 space-y-1">
+                  <Label className="text-xs text-muted-foreground">用户名</Label>
+                  <p className="text-sm font-medium">{selectedConnection.username || "-"}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--glass-border)] bg-card p-4 space-y-1">
+                  <Label className="text-xs text-muted-foreground">域</Label>
+                  <p className="text-sm font-medium">{selectedConnection.domain || "-"}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--glass-border)] bg-card p-4 space-y-1">
+                  <Label className="text-xs text-muted-foreground">分辨率</Label>
+                  <p className="text-sm font-medium">{selectedConnection.screen_width} × {selectedConnection.screen_height}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--glass-border)] bg-card p-4 space-y-1">
+                  <Label className="text-xs text-muted-foreground">色深</Label>
+                  <p className="text-sm font-medium">{selectedConnection.color_depth} bit</p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="rounded-lg"
+                  onClick={() => handleEditConnection(selectedConnection)}
+                >
+                  <Pencil className="h-4 w-4 mr-2" />
+                  编辑
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-lg text-destructive hover:bg-destructive/10"
+                  onClick={() => handleDeleteConnection(selectedConnection.id)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  删除
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full">
+            <Monitor className="h-16 w-16 text-muted-foreground/30 mb-4" />
+            <h3 className="text-lg font-semibold text-muted-foreground/50">未选择 RDP 连接</h3>
+            <p className="mt-2 text-sm text-muted-foreground/40">从左侧选择一个连接，或新建一个 RDP 连接</p>
+            <Button
+              className="mt-6 btn-macos"
+              onClick={() => handleNewConnection(null)}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              新建连接
+            </Button>
           </div>
         )}
-
-        {/* Content area */}
-        <div className="flex-1 relative overflow-hidden">
-          {tabs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Server className="h-16 w-16 text-muted-foreground/30 mb-4" />
-              <h3 className="text-lg font-semibold text-muted-foreground/50">未打开任何会话</h3>
-              <p className="mt-2 text-sm text-muted-foreground/40">双击左侧连接或点击连接按钮，或新建一个连接</p>
-              <Button
-                className="mt-6 btn-macos"
-                onClick={() => handleNewConnection(null)}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                新建连接
-              </Button>
-            </div>
-          ) : (
-            tabs.map((tab) => (
-              <div
-                key={tab.id}
-                className="absolute inset-0 flex flex-col"
-                style={{
-                  display: activeTabId === tab.id ? "flex" : "none",
-                }}
-              >
-                {/* Terminal + SFTP — per-tab 独立管理 */}
-                <TerminalSplitPane
-                  tab={tab}
-                  isActive={activeTabId === tab.id}
-                  xtermRefs={xtermRefs}
-                  onDragOverlayChange={(v) => setDragOverlay(v ? "row-resize" : null)}
-                />
-              </div>
-            ))
-          )}
-        </div>
       </div>
 
       {/* ── New Connection Dialog ── */}
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
         <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">新建 SSH 连接</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">新建 RDP 连接</DialogTitle>
           </DialogHeader>
           {connectionFormContent}
         </DialogContent>
@@ -1262,7 +966,7 @@ export default function Terminal() {
       <Dialog open={editConnDialogOpen} onOpenChange={setEditConnDialogOpen}>
         <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">编辑 SSH 连接</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">编辑 RDP 连接</DialogTitle>
           </DialogHeader>
           {connectionFormContent}
         </DialogContent>
@@ -1425,7 +1129,7 @@ export default function Terminal() {
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">确认删除连接</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground py-2">确定要删除该 SSH 连接吗？此操作不可撤销。</p>
+          <p className="text-sm text-muted-foreground py-2">确定要删除该 RDP 连接吗？此操作不可撤销。</p>
           <div className="flex justify-end gap-2 mt-4">
             <Button
               variant="outline"

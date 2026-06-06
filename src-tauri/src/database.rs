@@ -67,6 +67,7 @@ pub struct Group {
     pub parent_id: Option<i64>,
     pub sort_order: i64,
     pub group_type: String,
+    pub start_directory: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -86,12 +87,30 @@ pub struct SshConnection {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct RdpConnection {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub domain: String,
+    pub screen_width: i32,
+    pub screen_height: i32,
+    pub color_depth: i32,
+    pub group_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TmuxSessionRecord {
     pub id: i64,
     pub tmux_name: String,
     pub display_name: String,
     pub start_directory: String,
     pub command: String,
+    pub group_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -233,6 +252,23 @@ impl Database {
                 display_name TEXT NOT NULL,
                 start_directory TEXT DEFAULT '',
                 command TEXT DEFAULT '',
+                group_id INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS rdp_connections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER DEFAULT 3389,
+                username TEXT DEFAULT '',
+                password TEXT DEFAULT '',
+                domain TEXT DEFAULT '',
+                screen_width INTEGER DEFAULT 1920,
+                screen_height INTEGER DEFAULT 1080,
+                color_depth INTEGER DEFAULT 32,
+                group_id INTEGER,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -260,6 +296,12 @@ impl Database {
 
         // Migration: add auto_sync_bookmarks_interval to settings
         let _ = conn.execute("ALTER TABLE settings ADD COLUMN auto_sync_bookmarks_interval INTEGER DEFAULT 0", []);
+
+        // Migration: add start_directory to groups
+        let _ = conn.execute("ALTER TABLE groups ADD COLUMN start_directory TEXT DEFAULT ''", []);
+
+        // Migration: add group_id to tmux_sessions
+        let _ = conn.execute("ALTER TABLE tmux_sessions ADD COLUMN group_id INTEGER", []);
 
         // Migration: prune redundant columns from bookmarks (rebuild table)
         let bookmarks_sql: String = conn
@@ -574,7 +616,7 @@ impl Database {
     pub fn list_groups(&self, group_type: &str) -> Result<Vec<Group>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, parent_id, sort_order, group_type, created_at, updated_at FROM groups WHERE group_type = ?1 ORDER BY sort_order, name"
+            "SELECT id, name, parent_id, sort_order, group_type, start_directory, created_at, updated_at FROM groups WHERE group_type = ?1 ORDER BY sort_order, name"
         )?;
         let groups = stmt
             .query_map(params![group_type], |row| {
@@ -584,27 +626,28 @@ impl Database {
                     parent_id: row.get(2)?,
                     sort_order: row.get(3)?,
                     group_type: row.get(4)?,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    start_directory: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>>>()?;
         Ok(groups)
     }
 
-    pub fn create_group(&self, name: &str, parent_id: Option<i64>, sort_order: i64, group_type: &str) -> Result<i64> {
+    pub fn create_group(&self, name: &str, parent_id: Option<i64>, sort_order: i64, group_type: &str, start_directory: &str) -> Result<i64> {
         let conn = self.conn()?;
         conn.execute(
-            "INSERT INTO groups (name, parent_id, sort_order, group_type) VALUES (?1, ?2, ?3, ?4)",
-            params![name, parent_id, sort_order, group_type],
+            "INSERT INTO groups (name, parent_id, sort_order, group_type, start_directory) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![name, parent_id, sort_order, group_type, start_directory],
         )?;
         Ok(conn.last_insert_rowid())
     }
 
-    pub fn update_group(&self, id: i64, name: &str, parent_id: Option<i64>, sort_order: i64, group_type: &str) -> Result<()> {
+    pub fn update_group(&self, id: i64, name: &str, parent_id: Option<i64>, sort_order: i64, group_type: &str, start_directory: &str) -> Result<()> {
         self.conn()?.execute(
-            "UPDATE groups SET name = ?1, parent_id = ?2, sort_order = ?3, group_type = ?4, updated_at = CURRENT_TIMESTAMP WHERE id = ?5",
-            params![name, parent_id, sort_order, group_type, id],
+            "UPDATE groups SET name = ?1, parent_id = ?2, sort_order = ?3, group_type = ?4, start_directory = ?5, updated_at = CURRENT_TIMESTAMP WHERE id = ?6",
+            params![name, parent_id, sort_order, group_type, start_directory, id],
         )?;
         Ok(())
     }
@@ -624,6 +667,11 @@ impl Database {
         // Set group_id to NULL for ssh_connections in this group
         conn.execute(
             "UPDATE ssh_connections SET group_id = NULL WHERE group_id = ?1",
+            params![id],
+        )?;
+        // Set group_id to NULL for rdp_connections in this group
+        conn.execute(
+            "UPDATE rdp_connections SET group_id = NULL WHERE group_id = ?1",
             params![id],
         )?;
         conn.execute(
@@ -905,11 +953,11 @@ impl Database {
 
     // === Tmux Session Mappings ===
 
-    pub fn create_tmux_session(&self, tmux_name: &str, display_name: &str, start_directory: &str, command: &str) -> Result<i64> {
+    pub fn create_tmux_session(&self, tmux_name: &str, display_name: &str, start_directory: &str, command: &str, group_id: Option<i64>) -> Result<i64> {
         let conn = self.conn()?;
         conn.execute(
-            "INSERT INTO tmux_sessions (tmux_name, display_name, start_directory, command) VALUES (?1, ?2, ?3, ?4)",
-            params![tmux_name, display_name, start_directory, command],
+            "INSERT INTO tmux_sessions (tmux_name, display_name, start_directory, command, group_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![tmux_name, display_name, start_directory, command, group_id],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -917,7 +965,7 @@ impl Database {
     pub fn get_tmux_session_by_tmux_name(&self, tmux_name: &str) -> Result<Option<TmuxSessionRecord>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, tmux_name, display_name, start_directory, command, created_at, updated_at FROM tmux_sessions WHERE tmux_name = ?1"
+            "SELECT id, tmux_name, display_name, start_directory, command, group_id, created_at, updated_at FROM tmux_sessions WHERE tmux_name = ?1"
         )?;
         let mut rows = stmt.query(params![tmux_name])?;
         if let Some(row) = rows.next()? {
@@ -927,8 +975,9 @@ impl Database {
                 display_name: row.get(2)?,
                 start_directory: row.get(3)?,
                 command: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                group_id: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             }))
         } else {
             Ok(None)
@@ -938,7 +987,7 @@ impl Database {
     pub fn get_tmux_session_by_display_name(&self, display_name: &str) -> Result<Option<TmuxSessionRecord>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, tmux_name, display_name, start_directory, command, created_at, updated_at FROM tmux_sessions WHERE display_name = ?1"
+            "SELECT id, tmux_name, display_name, start_directory, command, group_id, created_at, updated_at FROM tmux_sessions WHERE display_name = ?1 ORDER BY id DESC LIMIT 1"
         )?;
         let mut rows = stmt.query(params![display_name])?;
         if let Some(row) = rows.next()? {
@@ -948,8 +997,9 @@ impl Database {
                 display_name: row.get(2)?,
                 start_directory: row.get(3)?,
                 command: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                group_id: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             }))
         } else {
             Ok(None)
@@ -959,7 +1009,7 @@ impl Database {
     pub fn list_tmux_sessions(&self) -> Result<Vec<TmuxSessionRecord>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, tmux_name, display_name, start_directory, command, created_at, updated_at FROM tmux_sessions ORDER BY created_at DESC"
+            "SELECT id, tmux_name, display_name, start_directory, command, group_id, created_at, updated_at FROM tmux_sessions ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(TmuxSessionRecord {
@@ -968,8 +1018,9 @@ impl Database {
                 display_name: row.get(2)?,
                 start_directory: row.get(3)?,
                 command: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                group_id: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             })
         })?;
         rows.collect()
@@ -986,16 +1037,146 @@ impl Database {
 
     pub fn update_tmux_session_start_directory(&self, tmux_name: &str, start_directory: &str) -> Result<()> {
         let conn = self.conn()?;
-        conn.execute(
+        let affected = conn.execute(
             "UPDATE tmux_sessions SET start_directory = ?1, updated_at = CURRENT_TIMESTAMP WHERE tmux_name = ?2",
             params![start_directory, tmux_name],
         )?;
+        if affected == 0 {
+            return Err(rusqlite::Error::InvalidParameterName(
+                format!("未找到 tmux 会话 '{}' 的数据库记录", tmux_name)
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn update_tmux_session_group_id(&self, tmux_name: &str, group_id: Option<i64>) -> Result<()> {
+        let conn = self.conn()?;
+        let affected = conn.execute(
+            "UPDATE tmux_sessions SET group_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE tmux_name = ?2",
+            params![group_id, tmux_name],
+        )?;
+        if affected == 0 {
+            return Err(rusqlite::Error::InvalidParameterName(
+                format!("未找到 tmux 会话 '{}' 的数据库记录", tmux_name)
+            ));
+        }
         Ok(())
     }
 
     pub fn delete_tmux_session_by_tmux_name(&self, tmux_name: &str) -> Result<()> {
         let conn = self.conn()?;
         conn.execute("DELETE FROM tmux_sessions WHERE tmux_name = ?1", params![tmux_name])?;
+        Ok(())
+    }
+
+    // === RDP Connection CRUD ===
+
+    pub fn create_rdp_connection(
+        &self,
+        name: &str,
+        host: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+        domain: &str,
+        screen_width: i32,
+        screen_height: i32,
+        color_depth: i32,
+        group_id: Option<i64>,
+    ) -> Result<i64> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO rdp_connections (name, host, port, username, password, domain, screen_width, screen_height, color_depth, group_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![name, host, port, username, password, domain, screen_width, screen_height, color_depth, group_id],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_rdp_connections(&self) -> Result<Vec<RdpConnection>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, host, port, username, password, domain, screen_width, screen_height, color_depth, group_id, created_at, updated_at
+             FROM rdp_connections ORDER BY created_at DESC"
+        )?;
+        let connections = stmt
+            .query_map([], |row| {
+                Ok(RdpConnection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    password: row.get(5)?,
+                    domain: row.get(6)?,
+                    screen_width: row.get(7)?,
+                    screen_height: row.get(8)?,
+                    color_depth: row.get(9)?,
+                    group_id: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(connections)
+    }
+
+    pub fn get_rdp_connection(&self, id: i64) -> Result<RdpConnection> {
+        let conn = self.conn()?;
+        let connection = conn.query_row(
+            "SELECT id, name, host, port, username, password, domain, screen_width, screen_height, color_depth, group_id, created_at, updated_at
+             FROM rdp_connections WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(RdpConnection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    password: row.get(5)?,
+                    domain: row.get(6)?,
+                    screen_width: row.get(7)?,
+                    screen_height: row.get(8)?,
+                    color_depth: row.get(9)?,
+                    group_id: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                })
+            },
+        )?;
+        Ok(connection)
+    }
+
+    pub fn update_rdp_connection(
+        &self,
+        id: i64,
+        name: &str,
+        host: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+        domain: &str,
+        screen_width: i32,
+        screen_height: i32,
+        color_depth: i32,
+        group_id: Option<i64>,
+    ) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE rdp_connections
+             SET name = ?1, host = ?2, port = ?3, username = ?4, password = ?5, domain = ?6,
+                 screen_width = ?7, screen_height = ?8, color_depth = ?9, group_id = ?10,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?11",
+            params![name, host, port, username, password, domain, screen_width, screen_height, color_depth, group_id, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_rdp_connection(&self, id: i64) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM rdp_connections WHERE id = ?1", params![id])?;
         Ok(())
     }
 }

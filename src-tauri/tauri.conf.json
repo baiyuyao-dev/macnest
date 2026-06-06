@@ -46,7 +46,8 @@
       "frameworks": [],
       "minimumSystemVersion": "11.0",
       "signingIdentity": "-",
-      "entitlements": null
+      "entitlements": null,
+      "infoPlist": "./Info.plist"
     }
   }
 }

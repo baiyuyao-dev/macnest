@@ -65,51 +65,60 @@ pub(crate) fn get_tmux_path() -> String {
         }
     }
 
-    // 回退：尝试通过 shell 解析 PATH（-l 加载 profile，不加载 rc 以减少污染）。
-    // 使用标记符包裹 command -v 输出，避免被 shell 配置文件（主题、欢迎信息、motd 等）污染 stdout。
+    // 回退：尝试通过 shell 解析 PATH（-l 加载 profile，-il 额外加载 rc）。
+    // 很多用户把 Homebrew 的 PATH 放在 .zshrc/.bashrc 中，-l 可能无法获取，
+    // 因此先尝试 -lc 减少输出污染，失败后回退到 -ilc 加载 rc 文件。
     let start_marker = "___MACNEST_TMUX_START___";
     let end_marker = "___MACNEST_TMUX_END___";
     for shell in ["zsh", "bash"] {
-        let script = format!(
-            "printf '{}\\n'; command -v tmux 2>/dev/null; printf '{}\\n'",
-            start_marker, end_marker
-        );
-        let Ok(output) = Command::new(shell).args(["-lc", &script]).output() else {
-            continue;
+        // type -P / whence -p 只返回可执行文件路径，不会受 alias/函数干扰
+        let cmd = if shell == "zsh" {
+            "whence -p tmux 2>/dev/null"
+        } else {
+            "type -P tmux 2>/dev/null"
         };
-        if !output.status.success() {
-            continue;
-        }
-        let raw = String::from_utf8_lossy(&output.stdout);
-        match extract_between_markers(&raw, start_marker, end_marker) {
-            Some(path) if !path.is_empty() => {
-                eprintln!(
-                    "[MacNest] {} detected tmux path: '{}' (raw preview: {:?})",
-                    shell,
-                    path,
-                    raw.trim().lines().take(3).collect::<Vec<_>>()
-                );
-                if std::path::Path::new(&path).exists() {
-                    if Command::new(&path)
-                        .arg("-V")
-                        .output()
-                        .map(|o| o.status.success())
-                        .unwrap_or(false)
-                    {
-                        return path;
+        let script = format!(
+            "printf '{}\\n'; {}; printf '{}\\n'",
+            start_marker, cmd, end_marker
+        );
+        for args in [["-lc"], ["-ilc"]] {
+            let Ok(output) = Command::new(shell).args([args[0], &script]).output() else {
+                continue;
+            };
+            if !output.status.success() {
+                continue;
+            }
+            let raw = String::from_utf8_lossy(&output.stdout);
+            match extract_between_markers(&raw, start_marker, end_marker) {
+                Some(path) if !path.is_empty() => {
+                    eprintln!(
+                        "[MacNest] {} detected tmux path: '{}' (raw preview: {:?})",
+                        shell,
+                        path,
+                        raw.trim().lines().take(3).collect::<Vec<_>>()
+                    );
+                    if std::path::Path::new(&path).exists() {
+                        if Command::new(&path)
+                            .arg("-V")
+                            .output()
+                            .map(|o| o.status.success())
+                            .unwrap_or(false)
+                        {
+                            return path;
+                        }
                     }
                 }
-            }
-            _ => {
-                eprintln!(
-                    "[MacNest] {} failed to parse path from output: {:?}",
-                    shell,
-                    raw.trim()
-                );
+                _ => {
+                    eprintln!(
+                        "[MacNest] {} failed to parse path from output: {:?}",
+                        shell,
+                        raw.trim()
+                    );
+                }
             }
         }
     }
 
-    // 最后的回退，让后续命令报错时给出清晰的错误信息
-    "tmux".to_string()
+    // 所有方法都找不到，返回空字符串让调用者明确处理
+    String::new()
 }

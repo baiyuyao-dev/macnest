@@ -344,6 +344,7 @@ export default function BookmarksPage() {
         parent_id: groupForm.parent_id,
         sort_order: groups.length,
         group_type: "bookmark",
+        start_directory: "",
       });
       setGroupForm({ id: 0, name: "", parent_id: null, group_type: "bookmark" });
       setGroupDialogOpen(false);

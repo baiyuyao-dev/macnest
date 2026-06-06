@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build-install": "tauri build && cp -R src-tauri/target/release/bundle/macos/MacNest.app /Applications/ && open /Applications/MacNest.app"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -15,6 +16,7 @@
     "@tauri-apps/plugin-clipboard-manager": "^2.2.2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-positioner": "^2.0.0",
+    "@tauri-apps/plugin-notification": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
     "@xterm/addon-fit": "^0.11.0",

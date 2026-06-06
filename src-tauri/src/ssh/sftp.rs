@@ -122,7 +122,15 @@ impl SftpManager {
     pub fn delete(&self, path: &str, is_dir: bool) -> anyhow::Result<()> {
         self.validate_sftp_path(path)?;
         if is_dir {
-            self.sftp.rmdir(Path::new(path))?;
+            // 先尝试 rmdir（仅空目录）
+            if self.sftp.rmdir(Path::new(path)).is_err() {
+                // 非空目录回退到 rm -rf
+                let (_, stderr, exit_code) =
+                    self.exec_command(&format!("rm -rf {}", shell_escape(path)))?;
+                if exit_code != 0 {
+                    anyhow::bail!("删除目录失败: {}", stderr);
+                }
+            }
         } else {
             self.sftp.unlink(Path::new(path))?;
         }
@@ -219,4 +227,9 @@ impl SftpManager {
 
         Ok((stdout, stderr, exit_code as i32))
     }
+}
+
+/// 简单 shell 转义：用单引号包裹，内部单引号转义
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }

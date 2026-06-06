@@ -54,3 +54,24 @@ pub struct TransferProgress {
     pub transferred_bytes: u64,
     pub status: String,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteSystemInfo {
+    pub hostname: String,
+    pub os_version: String,
+    pub cpu_model: String,
+    pub cpu_cores: i32,
+    pub memory_total_mb: i32,
+    pub memory_used_mb: i32,
+    pub memory_free_mb: i32,
+    pub memory_percent: i32,
+    pub disk_total: String,
+    pub disk_used: String,
+    pub disk_available: String,
+    pub disk_usage_percent: String,
+    pub disk_usage_percent_num: i32,
+    pub load_1m: String,
+    pub load_5m: String,
+    pub load_15m: String,
+    pub latency_ms: i32,
+}

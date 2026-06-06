@@ -15,6 +15,7 @@ import {
   Thermometer,
   Gauge,
   Cpu,
+  ScreenShare,
 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { toast } from "sonner";
@@ -30,6 +31,8 @@ const navItems = [
   { to: "/bookmarks", icon: Bookmark, label: "导航" },
   { to: "/terminal", icon: TerminalIcon, label: "终端" },
   { to: "/tmux", icon: Monitor, label: "Tmux" },
+  // RDP 功能暂时隐藏菜单入口（功能保留）
+  // { to: "/rdp", icon: ScreenShare, label: "RDP" },
   { to: "/system", icon: Activity, label: "系统" },
 ];
 
