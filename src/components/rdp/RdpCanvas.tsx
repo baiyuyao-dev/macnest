@@ -5,6 +5,11 @@ import { toast } from "sonner";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { rdpStopSession, rdpSendInput } from "@/lib/api";
 
+interface RdpFramePayload {
+  regions: Array<{ left: number; top: number; right: number; bottom: number }>;
+  data: string;
+}
+
 interface RdpCanvasProps {
   sessionId: string;
   connection: {
@@ -34,26 +39,38 @@ export default function RdpCanvas({
     async function init() {
       try {
         const eventName = `rdp-frame-${sessionId}`;
-        const unlisten = await listen<string>(eventName, (event) => {
+        const unlisten = await listen<RdpFramePayload>(eventName, (event) => {
           if (cancelled) return;
-          const base64Data = event.payload;
-          const img = new Image();
-          img.onerror = () => {
-            if (cancelled) return;
-            console.error("RDP frame decode failed");
-          };
-          img.onload = () => {
-            if (cancelled) return;
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) return;
-            ctx.drawImage(img, 0, 0);
+          const payload = event.payload;
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+
+          try {
+            const binary = atob(payload.data);
+            const bytes = new Uint8ClampedArray(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i);
+            }
+
+            let offset = 0;
+            for (const region of payload.regions) {
+              const width = region.right - region.left;
+              const height = region.bottom - region.top;
+              const regionSize = width * height * 4;
+              const regionBytes = bytes.subarray(offset, offset + regionSize);
+              const imageData = new ImageData(regionBytes, width, height);
+              ctx.putImageData(imageData, region.left, region.top);
+              offset += regionSize;
+            }
+
             if (status !== "connected") {
               setStatus("connected");
             }
-          };
-          img.src = `data:image/png;base64,${base64Data}`;
+          } catch (err) {
+            console.error("RDP frame render failed:", err);
+          }
         });
 
         unlistenRef.current = unlisten;
