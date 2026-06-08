@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Save, RotateCcw, Calendar } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { ChevronLeft, ChevronRight, Save, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMysqlStore } from "@/stores/mysql";
 
@@ -69,23 +69,33 @@ export default function ResultTable() {
     row: number;
     col: number;
   } | null>(null);
-  const [previewCell, setPreviewCell] = useState<{
+  const [popupCell, setPopupCell] = useState<{
     row: number;
     col: number;
     editorType: EditorType;
+    colName: string;
+    value: unknown;
+    rect: DOMRect;
   } | null>(null);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+  const popupInputRef = useRef<HTMLInputElement>(null);
 
   const hasEdits = pendingEdits.size > 0;
 
-  // 点击表格外部取消 preview/edit
+  // 点击表格外部取消 edit / popup
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      if (popupCell) {
+        // 如果点击在弹出面板内，不处理
+        const popupEl = document.querySelector("[data-popup='datetime-picker']");
+        if (popupEl && popupEl.contains(e.target as Node)) return;
+        setPopupCell(null);
+        return;
+      }
       if (!tableRef.current) return;
       if (!tableRef.current.contains(e.target as Node)) {
-        setPreviewCell(null);
         if (editingCell) {
           handleCellBlur();
         }
@@ -93,13 +103,13 @@ export default function ResultTable() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [editingCell, previewCell, editValue]);
+  }, [editingCell, popupCell, editValue]);
 
   // Escape 取消
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setPreviewCell(null);
+        setPopupCell(null);
         setEditingCell(null);
       }
     };
@@ -113,19 +123,21 @@ export default function ResultTable() {
       if (inputRef.current.type === "text" || inputRef.current.type === "number") {
         inputRef.current.select();
       }
-      // 对日期时间类型，尝试主动弹出选择器
-      const et = previewCell?.editorType;
-      if (et && isDateTimeType(et)) {
-        setTimeout(() => {
-          try {
-            (inputRef.current as any)?.showPicker?.();
-          } catch {
-            // 浏览器不支持 showPicker，用户需手动点击日历图标
-          }
-        }, 50);
-      }
     }
   }, [editingCell]);
+
+  useEffect(() => {
+    if (popupCell && popupInputRef.current) {
+      popupInputRef.current.focus();
+      setTimeout(() => {
+        try {
+          (popupInputRef.current as any)?.showPicker?.();
+        } catch {
+          // 浏览器不支持 showPicker
+        }
+      }, 50);
+    }
+  }, [popupCell]);
 
   if (!queryResult || queryResult.columns.length === 0) {
     const affected = queryResult?.affected_rows;
@@ -194,7 +206,8 @@ export default function ResultTable() {
     rowIdx: number,
     colIdx: number,
     colName: string,
-    value: unknown
+    value: unknown,
+    cellEl?: HTMLElement
   ) => {
     if (!selectedTable) return;
     if (pkColIndex === -1 && colIdx === 0) return;
@@ -206,21 +219,53 @@ export default function ResultTable() {
     setEditValue(initialValue);
 
     if (isDateTimeType(editorType)) {
-      // 日期时间类型：先进入 preview 状态，用户需主动点击才打开选择器
-      setPreviewCell({ row: rowIdx, col: colIdx, editorType });
+      // 日期时间类型：弹出浮动面板
+      const rect = cellEl?.getBoundingClientRect();
+      if (rect) {
+        const tableRect = tableRef.current?.getBoundingClientRect();
+        const relRect = {
+          left: rect.left - (tableRect?.left ?? 0),
+          top: rect.top - (tableRect?.top ?? 0),
+          width: rect.width,
+          height: rect.height,
+        } as DOMRect;
+        setPopupCell({ row: rowIdx, col: colIdx, editorType, colName, value, rect: relRect });
+      }
       setEditingCell(null);
     } else {
       // 其他类型：直接进入编辑
-      setPreviewCell(null);
+      setPopupCell(null);
       setEditingCell({ row: rowIdx, col: colIdx });
     }
   };
 
-  const handleOpenDatePicker = useCallback(() => {
-    if (!previewCell) return;
-    setEditingCell({ row: previewCell.row, col: previewCell.col });
-    setPreviewCell(null);
-  }, [previewCell]);
+  const handlePopupConfirm = () => {
+    if (!popupCell || !selectedTable || !queryResult) return;
+    const { row, col, colName, editorType, value } = popupCell;
+    const rawValue = queryResult.rows[start + row][col];
+    const oldValue = formatValue(rawValue);
+
+    let newValue = editValue;
+    if (editorType === "datetime") {
+      newValue = fromDatetimeLocal(editValue);
+    }
+
+    if (newValue !== oldValue) {
+      setCellEdit({
+        rowIndex: start + row,
+        colName,
+        oldValue: rawValue,
+        newValue,
+      });
+    } else {
+      removeCellEdit(start + row, colName);
+    }
+    setPopupCell(null);
+  };
+
+  const handlePopupCancel = () => {
+    setPopupCell(null);
+  };
 
   const handleCellBlur = () => {
     if (!editingCell || !selectedTable) {
@@ -262,7 +307,6 @@ export default function ResultTable() {
     }
     if (e.key === "Escape") {
       setEditingCell(null);
-      setPreviewCell(null);
     }
   };
 
@@ -479,9 +523,6 @@ export default function ResultTable() {
                   const isEditing =
                     editingCell?.row === rowIdx &&
                     editingCell?.col === cellIdx;
-                  const isPreview =
-                    previewCell?.row === rowIdx &&
-                    previewCell?.col === cellIdx;
                   const isModified = pendingEdits.has(
                     getEditKey(rowIdx, colName)
                   );
@@ -506,20 +547,12 @@ export default function ResultTable() {
                         !isPk && !isEditing ? "cursor-pointer" : ""
                       }`}
                       title={displayValue}
-                      onDoubleClick={() =>
-                        handleCellDoubleClick(rowIdx, cellIdx, colName, cell)
+                      onDoubleClick={(e) =>
+                        handleCellDoubleClick(rowIdx, cellIdx, colName, cell, e.currentTarget as HTMLElement)
                       }
                     >
                       {isEditing ? (
                         renderEditor(editorType)
-                      ) : isPreview ? (
-                        <div
-                          className="flex items-center justify-between gap-1 w-full h-full cursor-pointer rounded px-1 py-0.5 bg-primary/10 hover:bg-primary/20 transition-colors"
-                          onClick={handleOpenDatePicker}
-                        >
-                          <span className="truncate">{displayValue}</span>
-                          <Calendar className="h-3 w-3 shrink-0 text-primary" />
-                        </div>
                       ) : cell === null ? (
                         <span className="text-muted-foreground italic">
                           NULL
@@ -535,6 +568,62 @@ export default function ResultTable() {
           </tbody>
         </table>
       </div>
+
+      {/* 日期时间弹出选择器 */}
+      {popupCell && (
+        <div
+          data-popup="datetime-picker"
+          className="absolute z-50 bg-popover border border-[var(--glass-border)] rounded-lg shadow-lg p-3 flex flex-col gap-2 min-w-[240px]"
+          style={{
+            left: popupCell.rect.left,
+            top: popupCell.rect.top + popupCell.rect.height + 4,
+          }}
+        >
+          <div className="text-xs text-muted-foreground font-medium">
+            {popupCell.colName}
+          </div>
+          <input
+            ref={popupInputRef}
+            type={
+              popupCell.editorType === "datetime"
+                ? "datetime-local"
+                : popupCell.editorType === "date"
+                  ? "date"
+                  : "time"
+            }
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            className="w-full h-8 text-xs font-mono border border-input rounded px-2 bg-background outline-none focus:border-primary"
+            step={popupCell.editorType === "datetime" || popupCell.editorType === "time" ? 1 : undefined}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handlePopupConfirm();
+              }
+              if (e.key === "Escape") {
+                handlePopupCancel();
+              }
+            }}
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-xs"
+              onClick={handlePopupCancel}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="h-6 text-xs"
+              onClick={handlePopupConfirm}
+            >
+              确定
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
