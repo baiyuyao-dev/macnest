@@ -115,6 +115,55 @@ pub struct TmuxSessionRecord {
     pub updated_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Notification {
+    pub id: i64,
+    pub name: String,
+    pub notify_type: String,
+    pub content: String,
+    pub trigger_condition: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NotificationLog {
+    pub id: i64,
+    pub notification_id: i64,
+    pub title: String,
+    pub body: String,
+    pub triggered_at: String,
+    pub trigger_value: Option<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MysqlConnection {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub database: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MysqlBackupTask {
+    pub id: i64,
+    pub connection_id: i64,
+    pub database_name: String,
+    pub cron_expression: String,
+    pub backup_path: String,
+    pub is_enabled: bool,
+    pub last_run_at: Option<String>,
+    pub last_status: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 impl Database {
     pub fn new(path: &str) -> Result<Self> {
         let manager = SqliteConnectionManager::file(path);
@@ -446,6 +495,63 @@ impl Database {
                 params![group_id, &category],
             );
         }
+
+        // Create notifications tables
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                notify_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                trigger_condition TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS notification_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notification_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                trigger_value REAL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_notification_logs_notification_id ON notification_logs(notification_id);
+            CREATE INDEX IF NOT EXISTS idx_notification_logs_triggered_at ON notification_logs(triggered_at);
+            "
+        );
+
+        // MySQL connection management
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS mysql_connections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL DEFAULT 'localhost',
+                port INTEGER NOT NULL DEFAULT 3306,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                database TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS mysql_backup_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id INTEGER NOT NULL,
+                database_name TEXT NOT NULL,
+                cron_expression TEXT NOT NULL,
+                backup_path TEXT NOT NULL,
+                is_enabled BOOLEAN DEFAULT 1,
+                last_run_at DATETIME,
+                last_status TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (connection_id) REFERENCES mysql_connections(id) ON DELETE CASCADE
+            );
+            "
+        );
 
         Ok(())
     }
@@ -1177,6 +1283,326 @@ impl Database {
     pub fn delete_rdp_connection(&self, id: i64) -> Result<()> {
         let conn = self.conn()?;
         conn.execute("DELETE FROM rdp_connections WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // === Notification CRUD ===
+
+    pub fn create_notification(
+        &self,
+        name: &str,
+        notify_type: &str,
+        content: &str,
+        trigger_condition: &str,
+    ) -> Result<i64> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO notifications (name, notify_type, content, trigger_condition, enabled)
+             VALUES (?1, ?2, ?3, ?4, 1)",
+            params![name, notify_type, content, trigger_condition],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_notifications(&self) -> Result<Vec<Notification>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, notify_type, content, trigger_condition, enabled, created_at, updated_at
+             FROM notifications ORDER BY created_at DESC"
+        )?;
+        let notifications = stmt
+            .query_map([], |row| {
+                Ok(Notification {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    notify_type: row.get(2)?,
+                    content: row.get(3)?,
+                    trigger_condition: row.get(4)?,
+                    enabled: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(notifications)
+    }
+
+    pub fn get_notification(&self, id: i64) -> Result<Notification> {
+        let conn = self.conn()?;
+        let notification = conn.query_row(
+            "SELECT id, name, notify_type, content, trigger_condition, enabled, created_at, updated_at
+             FROM notifications WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(Notification {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    notify_type: row.get(2)?,
+                    content: row.get(3)?,
+                    trigger_condition: row.get(4)?,
+                    enabled: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
+            },
+        )?;
+        Ok(notification)
+    }
+
+    pub fn update_notification(
+        &self,
+        id: i64,
+        name: &str,
+        notify_type: &str,
+        content: &str,
+        trigger_condition: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        self.conn()?.execute(
+            "UPDATE notifications
+             SET name = ?1, notify_type = ?2, content = ?3, trigger_condition = ?4,
+                 enabled = ?5, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?6",
+            params![name, notify_type, content, trigger_condition, enabled, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn toggle_notification(&self, id: i64, enabled: bool) -> Result<()> {
+        self.conn()?.execute(
+            "UPDATE notifications SET enabled = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![enabled, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_notification(&self, id: i64) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM notification_logs WHERE notification_id = ?1", params![id])?;
+        conn.execute("DELETE FROM notifications WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // === Notification Logs ===
+
+    pub fn add_notification_log(
+        &self,
+        notification_id: i64,
+        title: &str,
+        body: &str,
+        trigger_value: Option<f64>,
+    ) -> Result<()> {
+        let conn = self.conn()?;
+
+        // Keep only last 50 logs per notification
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notification_logs WHERE notification_id = ?1",
+            params![notification_id],
+            |row| row.get(0),
+        )?;
+
+        if count >= 50 {
+            conn.execute(
+                "DELETE FROM notification_logs WHERE notification_id = ?1 AND id IN (
+                    SELECT id FROM notification_logs WHERE notification_id = ?1 ORDER BY triggered_at ASC LIMIT 1
+                )",
+                params![notification_id],
+            )?;
+        }
+
+        conn.execute(
+            "INSERT INTO notification_logs (notification_id, title, body, trigger_value)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![notification_id, title, body, trigger_value],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_notification_logs(&self, notification_id: i64) -> Result<Vec<NotificationLog>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, notification_id, title, body, triggered_at, trigger_value
+             FROM notification_logs WHERE notification_id = ?1 ORDER BY triggered_at DESC LIMIT 50"
+        )?;
+        let logs = stmt
+            .query_map(params![notification_id], |row| {
+                Ok(NotificationLog {
+                    id: row.get(0)?,
+                    notification_id: row.get(1)?,
+                    title: row.get(2)?,
+                    body: row.get(3)?,
+                    triggered_at: row.get(4)?,
+                    trigger_value: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(logs)
+    }
+
+    // === MySQL Connection CRUD ===
+
+    pub fn create_mysql_connection(
+        &self,
+        name: &str,
+        host: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+        database: &str,
+    ) -> Result<i64> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO mysql_connections (name, host, port, username, password, database)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![name, host, port, username, password, database],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_mysql_connections(&self) -> Result<Vec<MysqlConnection>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, host, port, username, password, database, created_at, updated_at
+             FROM mysql_connections ORDER BY created_at DESC"
+        )?;
+        let connections = stmt
+            .query_map([], |row| {
+                Ok(MysqlConnection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    password: row.get(5)?,
+                    database: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(connections)
+    }
+
+    pub fn get_mysql_connection(&self, id: i64) -> Result<MysqlConnection> {
+        let conn = self.conn()?;
+        let connection = conn.query_row(
+            "SELECT id, name, host, port, username, password, database, created_at, updated_at
+             FROM mysql_connections WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(MysqlConnection {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    host: row.get(2)?,
+                    port: row.get(3)?,
+                    username: row.get(4)?,
+                    password: row.get(5)?,
+                    database: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )?;
+        Ok(connection)
+    }
+
+    pub fn update_mysql_connection(
+        &self,
+        id: i64,
+        name: &str,
+        host: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+        database: &str,
+    ) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE mysql_connections
+             SET name = ?1, host = ?2, port = ?3, username = ?4, password = ?5,
+                 database = ?6, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?7",
+            params![name, host, port, username, password, database, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_mysql_connection(&self, id: i64) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM mysql_backup_tasks WHERE connection_id = ?1", params![id])?;
+        conn.execute("DELETE FROM mysql_connections WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // === MySQL Backup Task CRUD ===
+
+    pub fn create_mysql_backup_task(
+        &self,
+        connection_id: i64,
+        database_name: &str,
+        cron_expression: &str,
+        backup_path: &str,
+    ) -> Result<i64> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO mysql_backup_tasks (connection_id, database_name, cron_expression, backup_path)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![connection_id, database_name, cron_expression, backup_path],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn list_mysql_backup_tasks(&self) -> Result<Vec<MysqlBackupTask>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, connection_id, database_name, cron_expression, backup_path,
+                    is_enabled, last_run_at, last_status, created_at, updated_at
+             FROM mysql_backup_tasks ORDER BY created_at DESC"
+        )?;
+        let tasks = stmt
+            .query_map([], |row| {
+                Ok(MysqlBackupTask {
+                    id: row.get(0)?,
+                    connection_id: row.get(1)?,
+                    database_name: row.get(2)?,
+                    cron_expression: row.get(3)?,
+                    backup_path: row.get(4)?,
+                    is_enabled: row.get(5)?,
+                    last_run_at: row.get(6)?,
+                    last_status: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(tasks)
+    }
+
+    pub fn update_mysql_backup_task_enabled(&self, id: i64, is_enabled: bool) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE mysql_backup_tasks SET is_enabled = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![is_enabled, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_mysql_backup_task_status(
+        &self,
+        id: i64,
+        last_status: &str,
+    ) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE mysql_backup_tasks SET last_run_at = CURRENT_TIMESTAMP, last_status = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![last_status, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_mysql_backup_task(&self, id: i64) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM mysql_backup_tasks WHERE id = ?1", params![id])?;
         Ok(())
     }
 }
