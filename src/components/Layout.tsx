@@ -20,8 +20,7 @@ import {
   Database as DatabaseIcon,
 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { toast } from "sonner";
-import { getSystemInfo, getCpuDetailedUsage } from "@/lib/api";
+import { getSystemInfo, getCpuDetailedUsage, showSuccess, showError } from "@/lib/api";
 import type { SystemInfo, CpuDetailedUsage } from "@/types";
 import MacNestLogo from "@/components/icons/MacNestLogo";
 import { useThemeStore } from "@/stores/theme";
@@ -53,6 +52,7 @@ export default function Layout() {
   if (outlet && !cacheRef.current.has(currentPath)) {
     cacheRef.current.set(currentPath, outlet);
   }
+  const hasCurrentInCache = cacheRef.current.has(currentPath);
 
   useThemeStore();
 
@@ -182,10 +182,10 @@ export default function Layout() {
                 try {
                   await writeText(systemInfo.local_ip);
                   setIpCopied(true);
-                  toast.success("IP 已复制到剪贴板");
+                  showSuccess("IP 已复制到剪贴板");
                   setTimeout(() => setIpCopied(false), 1500);
                 } catch (err) {
-                  toast.error("复制失败");
+                  showError("复制失败");
                   console.error("Copy failed:", err);
                 }
               }}
@@ -344,6 +344,15 @@ export default function Layout() {
             </div>
           );
         })}
+        {/* Fallback: render outlet directly if not yet cached */}
+        {!hasCurrentInCache && outlet && (
+          <div
+            className="h-full w-full overflow-auto"
+            style={{ position: "absolute", inset: 0 }}
+          >
+            {outlet}
+          </div>
+        )}
       </main>
     </div>
   );
