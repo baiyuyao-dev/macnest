@@ -329,3 +329,127 @@ export interface RdpConnection {
   created_at: string;
   updated_at: string;
 }
+
+// ===== 通知管理 =====
+
+export interface Notification {
+  id: number;
+  name: string;
+  notify_type: "scheduled" | "monitor";
+  content: string;
+  trigger_condition: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationLog {
+  id: number;
+  notification_id: number;
+  title: string;
+  body: string;
+  triggered_at: string;
+  trigger_value?: number;
+}
+
+// ===== MySQL 管理 =====
+
+export interface MysqlConnection {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  database: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MysqlConnectionConfig {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database: string;
+}
+
+export interface DatabaseInfo {
+  name: string;
+}
+
+export interface TableInfo {
+  name: string;
+  engine: string | null;
+  rows: number | null;
+  size_mb: number | null;
+}
+
+export interface ViewInfo {
+  name: string;
+}
+
+export interface TriggerInfo {
+  name: string;
+  event: string;
+  table: string;
+  timing: string;
+}
+
+export interface FunctionInfo {
+  name: string;
+}
+
+export interface EventInfo {
+  name: string;
+  status: string;
+}
+
+export interface ColumnInfo {
+  name: string;
+  data_type: string;
+  is_nullable: string;
+  key: string;
+  default_value: string | null;
+  extra: string;
+  comment: string;
+}
+
+export interface IndexInfo {
+  name: string;
+  columns: string;
+  non_unique: boolean;
+}
+
+export interface TableStructure {
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+}
+
+export interface MysqlQueryResult {
+  columns: string[];
+  rows: any[][];
+  affected_rows: number | null;
+  execution_time_ms: number;
+}
+
+export interface MysqlBackupTask {
+  id: number;
+  connection_id: number;
+  database_name: string;
+  cron_expression: string;
+  backup_path: string;
+  is_enabled: boolean;
+  last_run_at: string | null;
+  last_status: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MysqlObjectType = "table" | "view" | "trigger" | "function" | "event";
+
+export interface MysqlObject {
+  name: string;
+  type: MysqlObjectType;
+  database: string;
+}

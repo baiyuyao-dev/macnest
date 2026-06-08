@@ -1,6 +1,29 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
-import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, CpuDetailedUsage, SshConnection, SftpFile, TransferProgress, LocalFileNode, RemoteSystemInfo, RdpConnection } from "@/types";
+import { toast } from "sonner";
+import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, CpuDetailedUsage, SshConnection, SftpFile, TransferProgress, LocalFileNode, RemoteSystemInfo, RdpConnection, Notification, NotificationLog } from "@/types";
+
+// ===== 全局统一提示 =====
+
+/** 成功提示 */
+export function showSuccess(message: string, description?: string) {
+  toast.success(message, description ? { description } : undefined);
+}
+
+/** 错误提示 */
+export function showError(message: string, description?: string) {
+  toast.error(message, description ? { description } : undefined);
+}
+
+/** 信息提示 */
+export function showInfo(message: string, description?: string) {
+  toast.info(message, description ? { description } : undefined);
+}
+
+/** 警告提示 */
+export function showWarning(message: string, description?: string) {
+  toast.warning(message, description ? { description } : undefined);
+}
 
 // ===== 统一错误处理 =====
 
@@ -653,4 +676,39 @@ export async function rdpSendInput(sessionId: string, event: RdpInputEvent): Pro
 
 export async function localRevealInFinder(path: string): Promise<void> {
   return invokeSafe("local_reveal_in_finder", { path });
+}
+
+// ===== 通知管理 =====
+
+export interface CreateNotificationRequest {
+  name: string;
+  notify_type: "scheduled" | "monitor";
+  content: string;
+  trigger_condition: string;
+}
+
+export async function listNotifications(): Promise<Notification[]> {
+  return invokeSafe("list_notifications");
+}
+
+export async function createNotification(
+  data: CreateNotificationRequest
+): Promise<number> {
+  return invokeSafe("create_notification", { req: data });
+}
+
+export async function updateNotification(data: Notification): Promise<void> {
+  return invokeSafe("update_notification", { req: data });
+}
+
+export async function deleteNotification(id: number): Promise<void> {
+  return invokeSafe("delete_notification", { id });
+}
+
+export async function toggleNotification(id: number, enabled: boolean): Promise<void> {
+  return invokeSafe("toggle_notification", { id, enabled });
+}
+
+export async function listNotificationLogs(notificationId: number): Promise<NotificationLog[]> {
+  return invokeSafe("list_notification_logs", { notificationId });
 }

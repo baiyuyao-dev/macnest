@@ -541,6 +541,7 @@ pub struct CreateGroupRequest {
     pub parent_id: Option<i64>,
     pub sort_order: i64,
     pub group_type: String,
+    pub start_directory: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -550,6 +551,7 @@ pub struct UpdateGroupRequest {
     pub parent_id: Option<i64>,
     pub sort_order: i64,
     pub group_type: String,
+    pub start_directory: String,
 }
 
 #[tauri::command]
@@ -576,7 +578,7 @@ pub fn create_group(
 ) -> Result<i64, String> {
     state
         .db
-        .create_group(&req.name, req.parent_id, req.sort_order, &req.group_type, "")
+        .create_group(&req.name, req.parent_id, req.sort_order, &req.group_type, &req.start_directory)
         .map_err(|e| e.to_string())
 }
 
@@ -587,7 +589,7 @@ pub fn update_group(
 ) -> Result<(), String> {
     state
         .db
-        .update_group(req.id, &req.name, req.parent_id, req.sort_order, &req.group_type, "")
+        .update_group(req.id, &req.name, req.parent_id, req.sort_order, &req.group_type, &req.start_directory)
         .map_err(|e| e.to_string())
 }
 

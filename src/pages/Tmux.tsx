@@ -41,7 +41,6 @@ import {
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { toast } from "sonner";
 import TmuxTerminal from "@/components/terminal/TmuxTerminal";
 import ContextMenu, { type ContextMenuItemOrDivider } from "@/components/terminal/ContextMenu";
 import {
@@ -64,6 +63,8 @@ import {
   localGetInstalledApps,
   localGetRecommendedApps,
   getErrorMessage,
+  showSuccess,
+  showError,
 } from "@/lib/api";
 import { buildGroupTree, flattenGroups, type GroupNode } from "@/lib/tree";
 import type { TmuxSession, Group, LocalFileNode } from "@/types";
@@ -775,7 +776,7 @@ export default function Tmux() {
     } catch (e: unknown) {
       const msg = getErrorMessage(e);
       console.error("[Tmux Create] Failed:", e);
-      alert(`创建失败: ${msg}`);
+      showError("创建失败", msg);
     }
   };
 
@@ -793,7 +794,7 @@ export default function Tmux() {
     } catch (e: unknown) {
       const msg = getErrorMessage(e);
       console.error("[Tmux Kill] Failed:", e);
-      alert(`删除失败: ${msg}`);
+      showError("删除失败", msg);
     }
   };
 
@@ -811,7 +812,7 @@ export default function Tmux() {
 
     const original = sessions.find((s) => s.display_name === editTarget);
     if (!original) {
-      alert("会话信息已失效，请刷新后重试");
+      showError("会话信息已失效", "请刷新后重试");
       return;
     }
 
@@ -900,21 +901,21 @@ export default function Tmux() {
               group_id: targetGroupId,
             });
             await loadSessions();
-            alert("会话已重建，新工作目录已生效。");
+            showSuccess("会话已重建", "新工作目录已生效");
           } catch (e: unknown) {
             const msg = getErrorMessage(e);
             console.error("[Tmux Edit] Rebuild failed:", e);
-            alert(`重建失败: ${msg}`);
+            showError("重建失败", msg);
           }
         }
       } else {
         // 非目录变更时给出成功提示
-        alert("编辑成功");
+        showSuccess("编辑成功");
       }
     } catch (e: unknown) {
       const msg = getErrorMessage(e);
       console.error("[Tmux Edit] Edit failed:", e);
-      alert(`编辑失败: ${msg}`);
+      showError("编辑失败", msg);
     }
   };
 
@@ -1049,7 +1050,7 @@ export default function Tmux() {
       setEditorContent(content);
     } catch (err) {
       console.error("[FileEditor] Failed to read file:", err);
-      alert("读取文件失败: " + getErrorMessage(err));
+      showError("读取文件失败", getErrorMessage(err));
       setEditorOpen(false);
     } finally {
       setEditorLoading(false);
@@ -1062,10 +1063,10 @@ export default function Tmux() {
     try {
       await localWriteFile(editorFile.path, editorContent);
       setEditorOpen(false);
-      toast.success("保存成功");
+      showSuccess("保存成功");
     } catch (err) {
       console.error("[FileEditor] Failed to save file:", err);
-      alert("保存失败: " + getErrorMessage(err));
+      showError("保存失败", getErrorMessage(err));
     } finally {
       setEditorSaving(false);
     }
@@ -1144,7 +1145,7 @@ export default function Tmux() {
     try {
       await localOpenFile(node.path, app);
     } catch (err) {
-      alert("打开失败: " + getErrorMessage(err));
+      showError("打开失败", getErrorMessage(err));
     }
   };
 
@@ -1152,7 +1153,7 @@ export default function Tmux() {
     try {
       await localRevealInFinder(node.path);
     } catch (err) {
-      alert("打开 Finder 失败: " + getErrorMessage(err));
+      showError("打开 Finder 失败", getErrorMessage(err));
     }
   };
 
@@ -1167,7 +1168,7 @@ export default function Tmux() {
         const newAssociations = { ...fileAssociations, [ext]: appName };
         setFileAssociations(newAssociations);
         localStorage.setItem("macnest-file-associations", JSON.stringify(newAssociations));
-        toast.success(`已设置 .${ext} 文件的默认打开方式为 ${appName}`);
+        showSuccess(`已设置 .${ext} 文件的默认打开方式为 ${appName}`);
       }
     }
 
@@ -1190,7 +1191,7 @@ export default function Tmux() {
     } catch (e: unknown) {
       const msg = getErrorMessage(e);
       console.error("[Tmux Ghostty] Failed:", e);
-      alert(`Ghostty 打开失败: ${msg}`);
+      showError("Ghostty 打开失败", msg);
     }
   };
 
@@ -1221,7 +1222,7 @@ export default function Tmux() {
       loadGroups();
     } catch (error) {
       console.error("Failed to create workspace:", error);
-      alert("创建工作空间失败");
+      showError("创建工作空间失败");
     }
   };
 
@@ -1250,7 +1251,7 @@ export default function Tmux() {
       loadGroups();
     } catch (error) {
       console.error("Failed to update workspace:", error);
-      alert("更新工作空间失败");
+      showError("更新工作空间失败");
     }
   };
 
@@ -1267,7 +1268,7 @@ export default function Tmux() {
       loadSessions();
     } catch (error) {
       console.error("Failed to delete workspace:", error);
-      alert("删除工作空间失败");
+      showError("删除工作空间失败");
     }
     setDeleteWorkspaceOpen(false);
     setDeleteWorkspaceId(null);
