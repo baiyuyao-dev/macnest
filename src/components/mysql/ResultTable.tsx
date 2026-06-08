@@ -86,8 +86,12 @@ export default function ResultTable() {
     if (pkColIndex === -1 && colIdx === 0) return; // 无明确主键时，禁止编辑第一列
     if (pkColIndex >= 0 && colIdx === pkColIndex) return; // 禁止编辑主键列
 
+    // 如果有 pending edit，用新值作为初始值
+    const key = getEditKey(rowIdx, colName);
+    const edit = pendingEdits.get(key);
+
     setEditingCell({ row: rowIdx, col: colIdx });
-    setEditValue(formatValue(value));
+    setEditValue(edit ? edit.newValue : formatValue(value));
   };
 
   const handleCellBlur = () => {
@@ -266,7 +270,7 @@ export default function ResultTable() {
                   return (
                     <td
                       key={cellIdx}
-                      className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis ${
+                      className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative ${
                         isModified ? "bg-amber-500/10" : ""
                       } ${isPk ? "font-medium text-primary/80" : ""}`}
                       title={displayValue}
@@ -281,7 +285,7 @@ export default function ResultTable() {
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={handleCellBlur}
                           onKeyDown={handleKeyDown}
-                          className="w-full bg-background border border-primary rounded px-1 py-0.5 text-xs font-mono outline-none"
+                          className="absolute inset-0 w-full h-full bg-background/95 border border-primary rounded-sm px-2 py-1 text-xs font-mono outline-none box-border"
                         />
                       ) : cell === null ? (
                         <span className="text-muted-foreground italic">
