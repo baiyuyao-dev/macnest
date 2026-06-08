@@ -556,7 +556,9 @@ export default function ResultTable() {
                     <td
                       key={cellIdx}
                       className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative ${
-                        isModified ? "bg-amber-500/10" : ""
+                        isModified
+                          ? "bg-amber-500/[0.18] text-amber-700 dark:text-amber-300 border-l-[3px] border-l-amber-500"
+                          : ""
                       } ${isPk ? "font-medium text-primary/80" : ""} ${
                         !isPk && !isEditing ? "cursor-pointer" : ""
                       }`}
