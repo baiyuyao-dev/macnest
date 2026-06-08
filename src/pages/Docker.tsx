@@ -54,6 +54,7 @@ import {
   pruneVolumes,
   listNetworks,
   removeNetwork,
+  showError,
 } from "@/lib/api";
 import type { CreateContainerRequest } from "@/lib/api";
 import DockerTerminalDialog, { type DockerTerminalTab } from "@/components/terminal/DockerTerminalDialog";
@@ -421,7 +422,7 @@ export default function Docker() {
       await loadContainers();
     } catch (error: any) {
       console.error("Failed to start container:", error);
-      alert(`启动容器失败: ${error.message || error}`);
+      showError("启动容器失败", error.message || String(error));
     } finally {
       setPending(id, null);
     }
@@ -435,7 +436,7 @@ export default function Docker() {
       await loadContainers();
     } catch (error: any) {
       console.error("Failed to stop container:", error);
-      alert(`停止容器失败: ${error.message || error}`);
+      showError("停止容器失败", error.message || String(error));
     } finally {
       setPending(id, null);
     }
@@ -449,7 +450,7 @@ export default function Docker() {
       await loadContainers();
     } catch (error: any) {
       console.error("Failed to restart container:", error);
-      alert(`重启容器失败: ${error.message || error}`);
+      showError("重启容器失败", error.message || String(error));
     } finally {
       setPending(id, null);
     }
@@ -471,7 +472,7 @@ export default function Docker() {
       await loadContainers();
     } catch (error: any) {
       console.error("Failed to recreate container:", error);
-      alert(`重建容器失败: ${error.message || error}`);
+      showError("重建容器失败", error.message || String(error));
     } finally {
       setPending(id, null);
     }
@@ -831,7 +832,7 @@ export default function Docker() {
     if (!createForm.image.trim()) return;
     const name = createForm.name.trim();
     if (name && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(name)) {
-      alert("容器名称只能包含字母、数字、下划线、点和连字符，且不能以特殊字符开头");
+      showError("容器名称不合法", "只能包含字母、数字、下划线、点和连字符，且不能以特殊字符开头");
       return;
     }
     setCreateLoading(true);
@@ -875,7 +876,7 @@ export default function Docker() {
       loadContainers(true);
     } catch (error: any) {
       console.error("Failed to create container:", error);
-      alert(`创建容器失败: ${error.message || error}`);
+      showError("创建容器失败", error.message || String(error));
     } finally {
       setCreateLoading(false);
     }
@@ -997,7 +998,7 @@ export default function Docker() {
       await loadContainers(true);
     } catch (error: any) {
       console.error("Failed to update ports:", error);
-      alert(`更新端口映射失败: ${error.message || error}`);
+      showError("更新端口映射失败", error.message || String(error));
     } finally {
       setPortEditLoading(false);
       if (portEditContainer) {

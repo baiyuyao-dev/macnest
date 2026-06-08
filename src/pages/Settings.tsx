@@ -22,9 +22,8 @@ import {
   Moon,
   Bookmark,
 } from "lucide-react";
-import { toast } from "sonner";
 import { useThemeStore } from "@/stores/theme";
-import { getSettings, updateSettings } from "@/lib/api";
+import { getSettings, updateSettings, showSuccess, showError } from "@/lib/api";
 import { notify, notifyThrottled, initNotificationPermission } from "@/lib/notification";
 import { Bell, BellRing, BellDot, Megaphone, FolderOpen, RotateCcw } from "lucide-react";
 
@@ -82,10 +81,10 @@ export default function SettingsPage() {
     try {
       await updateSettings(settings);
       setTheme(settings.theme === "dark");
-      toast.success("设置已保存");
+      showSuccess("设置已保存");
     } catch (err) {
       console.error("Failed to save settings:", err);
-      toast.error("保存失败，请重试");
+      showError("保存失败，请重试");
     } finally {
       setSaving(false);
     }
@@ -442,10 +441,10 @@ export default function SettingsPage() {
                     try {
                       const { invoke } = await import("@tauri-apps/api/core");
                       const result = await invoke<string>("reinstall_to_applications");
-                      toast.success(result);
+                      showSuccess(result);
                     } catch (err: any) {
                       console.error("重新安装失败:", err);
-                      toast.error(err?.toString?.() || "安装失败");
+                      showError(err?.toString?.() || "安装失败");
                     } finally {
                       setReinstalling(false);
                     }
@@ -483,7 +482,7 @@ export default function SettingsPage() {
                 const granted = await initNotificationPermission();
                 setNotifPermission(granted);
                 await notify("MacNest", "这是一条测试通知 🎉");
-                toast.success("通知已发送");
+                showSuccess("通知已发送");
               }}
             >
               <Bell className="mr-1.5 h-3.5 w-3.5" />
@@ -504,7 +503,7 @@ export default function SettingsPage() {
                 const granted = await initNotificationPermission();
                 setNotifPermission(granted);
                 await notify("Docker 提醒", "容器 nginx 已启动", "icons/128x128.png");
-                toast.success("图标通知已发送");
+                showSuccess("图标通知已发送");
               }}
             >
               <BellRing className="mr-1.5 h-3.5 w-3.5" />
@@ -525,7 +524,7 @@ export default function SettingsPage() {
                 const granted = await initNotificationPermission();
                 setNotifPermission(granted);
                 await notifyThrottled("test-throttle", "服务告警", "CPU 使用率超过 80%");
-                toast.success("防刷屏通知已发送（30s 内重复点击不会重复发送）");
+                showSuccess("防刷屏通知已发送（30s 内重复点击不会重复发送）");
               }}
             >
               <BellDot className="mr-1.5 h-3.5 w-3.5" />
@@ -552,7 +551,7 @@ export default function SettingsPage() {
                 setTimeout(async () => {
                   await notify("系统", "书签同步完成 📚");
                 }, 3000);
-                toast.success("3 条通知将在 3 秒内陆续弹出");
+                showSuccess("3 条通知将在 3 秒内陆续弹出");
               }}
             >
               <Megaphone className="mr-1.5 h-3.5 w-3.5" />

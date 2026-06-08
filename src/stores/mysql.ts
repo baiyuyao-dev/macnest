@@ -52,6 +52,7 @@ interface MysqlState {
   isExecuting: boolean;
   isConnecting: boolean;
   backupTasks: MysqlBackupTask[];
+  viewMode: "data" | "structure";
 
   loadConnections: () => Promise<void>;
   createConnection: (config: MysqlConnectionConfig) => Promise<number>;
@@ -68,8 +69,10 @@ interface MysqlState {
   loadFunctions: () => Promise<void>;
   loadEvents: () => Promise<void>;
   loadTableStructure: (table: string) => Promise<void>;
+  loadTableData: (table: string, limit?: number) => Promise<MysqlQueryResult | null>;
   executeQuery: (sql: string) => Promise<MysqlQueryResult | null>;
   addQueryHistory: (sql: string) => void;
+  setViewMode: (mode: "data" | "structure") => void;
   loadBackupTasks: () => Promise<void>;
   createBackupTask: (
     connectionId: number,
@@ -99,6 +102,7 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
   isExecuting: false,
   isConnecting: false,
   backupTasks: [],
+  viewMode: "data",
 
   loadConnections: async () => {
     const connections = await listMysqlConnections();
@@ -227,7 +231,21 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
     const { currentConnectionId, currentDatabase } = get();
     if (!currentConnectionId || !currentDatabase) return;
     const structure = await getMysqlTableStructure(currentConnectionId, currentDatabase, table);
-    set({ selectedTable: table, tableStructure: structure });
+    set({ selectedTable: table, tableStructure: structure, viewMode: "structure" });
+  },
+
+  loadTableData: async (table, limit = 100) => {
+    const { currentConnectionId, currentDatabase } = get();
+    if (!currentConnectionId || !currentDatabase) return null;
+    set({ isExecuting: true });
+    try {
+      const sql = `SELECT * FROM \`${table}\` LIMIT ${limit}`;
+      const result = await executeMysqlQuery(currentConnectionId, currentDatabase, sql);
+      set({ queryResult: result, selectedTable: table, viewMode: "data" });
+      return result;
+    } finally {
+      set({ isExecuting: false });
+    }
   },
 
   executeQuery: async (sql) => {
@@ -253,6 +271,10 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
       const history = [sql, ...state.queryHistory.filter((s) => s !== sql)].slice(0, 50);
       return { queryHistory: history };
     });
+  },
+
+  setViewMode: (mode) => {
+    set({ viewMode: mode });
   },
 
   loadBackupTasks: async () => {

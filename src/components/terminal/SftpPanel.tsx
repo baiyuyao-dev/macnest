@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { toast } from "sonner";
 import SftpTree from "./SftpTree";
 import SftpFileList from "./SftpFileList";
 import SftpFileDetail, { type SftpFileDetailHandle } from "./SftpFileDetail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload, sftpGetProgress, sftpCancelTransfer, sftpReadFile, sftpWriteFile, getErrorMessage } from "@/lib/api";
+import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload, sftpGetProgress, sftpCancelTransfer, sftpReadFile, sftpWriteFile, getErrorMessage, showSuccess, showError } from "@/lib/api";
 import type { SftpFile, SftpTransfer } from "@/types";
 
 interface SftpPanelProps {
@@ -206,7 +205,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       loadFiles(currentPath);
     } catch (err) {
       console.error("Failed to delete:", err);
-      alert("删除失败: " + getErrorMessage(err));
+      showError("删除失败", getErrorMessage(err));
     } finally {
       setPendingDeleteFile(null);
     }
@@ -219,7 +218,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       loadFiles(currentPath);
     } catch (err) {
       console.error("Failed to create directory:", err);
-      alert("创建失败: " + String(err));
+      showError("创建失败", String(err));
     }
   };
 
@@ -229,7 +228,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       loadFiles(currentPath);
     } catch (err) {
       console.error("Failed to rename:", err);
-      alert("重命名失败: " + String(err));
+      showError("重命名失败", String(err));
     }
   };
 
@@ -269,13 +268,13 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       await performUpload(localPath, remotePath, fileName);
     } catch (err) {
       console.error("Failed to upload:", err);
-      alert("上传失败: " + getErrorMessage(err));
+      showError("上传失败", getErrorMessage(err));
     }
   };
 
   const handleDownload = async () => {
     if (!selectedFile || selectedFile.is_dir) {
-      alert("请先选择一个文件");
+      showError("请先选择一个文件");
       return;
     }
     try {
@@ -297,7 +296,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       await sftpDownload(sessionId, transferId, selectedFile.path, savePath);
     } catch (err) {
       console.error("Failed to download:", err);
-      alert("下载失败: " + String(err));
+      showError("下载失败", String(err));
     }
   };
 
@@ -316,7 +315,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       await performUpload(localPath, remotePath, fileName);
     } catch (err) {
       console.error("Failed to upload:", err);
-      alert("上传失败: " + getErrorMessage(err));
+      showError("上传失败", getErrorMessage(err));
     }
   };
 
@@ -327,7 +326,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       await performUpload(pendingUpload.localPath, pendingUpload.remotePath, pendingUpload.fileName);
     } catch (err) {
       console.error("Failed to upload:", err);
-      alert("上传失败: " + getErrorMessage(err));
+      showError("上传失败", getErrorMessage(err));
     } finally {
       setPendingUpload(null);
     }
@@ -344,7 +343,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       setEditorContent(content);
     } catch (err) {
       console.error("Failed to read file:", err);
-      alert("读取文件失败: " + getErrorMessage(err));
+      showError("读取文件失败", getErrorMessage(err));
       setEditorOpen(false);
     } finally {
       setEditorLoading(false);
@@ -358,10 +357,10 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
       await sftpWriteFile(sessionId, editorFile.path, editorContent);
       setEditorOpen(false);
       loadFiles(currentPath);
-      toast.success("保存成功");
+      showSuccess("保存成功");
     } catch (err) {
       console.error("Failed to save file:", err);
-      alert("保存失败: " + getErrorMessage(err));
+      showError("保存失败", getErrorMessage(err));
     } finally {
       setEditorSaving(false);
     }

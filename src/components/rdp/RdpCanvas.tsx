@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Monitor, AlertCircle, ExternalLink } from "lucide-react";
-import { toast } from "sonner";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { rdpStopSession, rdpSendInput } from "@/lib/api";
+import { rdpStopSession, rdpSendInput, showInfo } from "@/lib/api";
 
 interface RdpFramePayload {
   regions: Array<{ left: number; top: number; right: number; bottom: number }>;
@@ -80,7 +79,7 @@ export default function RdpCanvas({
         const unlistenDisconnect = await listen(disconnectEvent, () => {
           if (!cancelled && !disconnectedRef.current) {
             disconnectedRef.current = true;
-            toast.info("RDP 会话已断开");
+            showInfo("RDP 会话已断开");
             onDisconnect();
           }
         });

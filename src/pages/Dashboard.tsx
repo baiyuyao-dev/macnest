@@ -26,7 +26,6 @@ import {
   Check,
 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { toast } from "sonner";
 import BookmarkIcon from "@/components/BookmarkIcon";
 import {
   listServices,
@@ -43,6 +42,8 @@ import {
   getActiveSshSessionsCount,
   openExternalUrl,
   type LogEntry,
+  showSuccess,
+  showError,
 } from "@/lib/api";
 import { formatBytes, statusVariant } from "@/lib/utils";
 import type { Service, DockerContainer, Bookmark as BookmarkType, Group, SystemInfo } from "@/types";
@@ -152,10 +153,10 @@ function IpStatCard({
     try {
       await writeText(String(value));
       setCopied(true);
-      toast.success("IP 已复制到剪贴板");
+      showSuccess("IP 已复制到剪贴板");
       setTimeout(() => setCopied(false), 1500);
     } catch (err) {
-      toast.error("复制失败");
+      showError("复制失败");
       console.error("Copy failed:", err);
     }
   };

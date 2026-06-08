@@ -1,77 +1,83 @@
-import { useEffect, useState } from "react";
-import { Table2, FileCode, Clock } from "lucide-react";
+import { useEffect } from "react";
+import { Table2, FileCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import ConnectionPanel from "@/components/mysql/ConnectionPanel";
 import ObjectTree from "@/components/mysql/ObjectTree";
 import QueryEditor from "@/components/mysql/QueryEditor";
 import ResultTable from "@/components/mysql/ResultTable";
 import TableStructureView from "@/components/mysql/TableStructureView";
-import BackupPanel from "@/components/mysql/BackupPanel";
 import { useMysqlStore } from "@/stores/mysql";
 
-type MainTab = "query" | "structure" | "backup";
-
 export default function Mysql() {
-  const { loadConnections, currentConnectionId, selectedTable } = useMysqlStore();
-  const [activeTab, setActiveTab] = useState<MainTab>("query");
+  const {
+    loadConnections,
+    selectedTable,
+    viewMode,
+    setViewMode,
+    queryResult,
+  } = useMysqlStore();
 
   useEffect(() => {
     loadConnections();
   }, []);
 
-  useEffect(() => {
-    if (selectedTable) {
-      setActiveTab("structure");
-    }
-  }, [selectedTable]);
+  const hasData = queryResult && queryResult.columns.length > 0;
+  const hasStructure = selectedTable;
 
   return (
     <div className="flex h-full">
-      <ConnectionPanel />
+      {/* Left Sidebar */}
       <ObjectTree />
+
+      {/* Right Content */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        <div className="flex items-center gap-1 p-2 border-b border-[var(--glass-border)]">
-          <Button
-            variant={activeTab === "query" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1"
-            onClick={() => setActiveTab("query")}
-          >
-            <FileCode className="h-3.5 w-3.5" />
-            查询
-          </Button>
-          <Button
-            variant={activeTab === "structure" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1"
-            onClick={() => setActiveTab("structure")}
-          >
-            <Table2 className="h-3.5 w-3.5" />
-            结构
-          </Button>
-          <Button
-            variant={activeTab === "backup" ? "default" : "ghost"}
-            size="sm"
-            className="gap-1"
-            onClick={() => setActiveTab("backup")}
-          >
-            <Clock className="h-3.5 w-3.5" />
-            备份
-          </Button>
+        {/* SQL Editor */}
+        <div className="h-[45%] border-b border-[var(--glass-border)]">
+          <QueryEditor />
         </div>
-        <div className="flex-1 overflow-hidden">
-          {activeTab === "query" && (
-            <div className="flex flex-col h-full">
-              <div className="h-[50%] border-b border-[var(--glass-border)]">
-                <QueryEditor />
-              </div>
-              <div className="h-[50%]">
-                <ResultTable />
-              </div>
-            </div>
-          )}
-          {activeTab === "structure" && <TableStructureView />}
-          {activeTab === "backup" && <BackupPanel />}
+
+        {/* Result / Structure Area */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Toolbar */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--glass-border)] min-h-[36px]">
+            {selectedTable ? (
+              <>
+                <span className="text-sm font-medium truncate">
+                  {selectedTable}
+                </span>
+                <Button
+                  size="sm"
+                  variant={viewMode === "data" ? "default" : "ghost"}
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setViewMode("data")}
+                >
+                  <FileCode className="h-3 w-3" />
+                  数据
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === "structure" ? "default" : "ghost"}
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setViewMode("structure")}
+                >
+                  <Table2 className="h-3 w-3" />
+                  结构
+                </Button>
+              </>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {hasData ? "查询结果" : "执行查询或选择表以查看数据"}
+              </span>
+            )}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-hidden">
+            {viewMode === "structure" && hasStructure ? (
+              <TableStructureView />
+            ) : (
+              <ResultTable />
+            )}
+          </div>
         </div>
       </div>
     </div>

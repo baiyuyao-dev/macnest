@@ -49,6 +49,7 @@ import {
   updateGroup,
   deleteGroup,
   getErrorMessage,
+  showError,
 } from "@/lib/api";
 import { useTerminalStore } from "@/stores/terminal";
 import { buildGroupTree, flattenGroups, type GroupNode } from "@/lib/tree";
@@ -690,7 +691,7 @@ export default function Terminal() {
       });
     } catch (err) {
       console.error("Failed to connect:", err);
-      alert("连接失败: " + getErrorMessage(err));
+      showError("连接失败", getErrorMessage(err));
     } finally {
       setConnectingId(null);
     }
@@ -728,7 +729,7 @@ export default function Terminal() {
       loadConnections();
     } catch (err) {
       console.error("Failed to delete connection:", err);
-      alert("删除失败: " + getErrorMessage(err));
+      showError("删除失败", getErrorMessage(err));
     }
     setConnDeleteConfirmOpen(false);
     setConnDeleteTargetId(null);
@@ -814,7 +815,7 @@ export default function Terminal() {
       loadConnections();
     } catch (err) {
       console.error("Failed to save connection:", err);
-      alert("保存失败: " + String(err));
+      showError("保存失败", String(err));
     }
   };
 

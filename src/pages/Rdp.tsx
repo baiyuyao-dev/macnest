@@ -36,10 +36,11 @@ import {
   updateGroup,
   deleteGroup,
   getErrorMessage,
+  showSuccess,
+  showError,
 } from "@/lib/api";
 import { buildGroupTree, flattenGroups, type GroupNode } from "@/lib/tree";
 import type { RdpConnection, Group } from "@/types";
-import { toast } from "sonner";
 import RdpCanvas from "@/components/rdp/RdpCanvas";
 
 /* ── Types ── */
@@ -356,10 +357,10 @@ export default function Rdp() {
     setConnectingId(conn.id);
     try {
       await rdpConnect(conn.id);
-      toast.success(`已启动外部 RDP 客户端: ${conn.name}`);
+      showSuccess(`已启动外部 RDP 客户端: ${conn.name}`);
     } catch (err) {
       console.error("Failed to connect RDP:", err);
-      toast.error("RDP 连接失败: " + getErrorMessage(err));
+      showError("RDP 连接失败", getErrorMessage(err));
     } finally {
       setConnectingId(null);
     }
@@ -373,10 +374,10 @@ export default function Rdp() {
         sessionId: result.session_id,
         connection: conn,
       });
-      toast.success(`RDP 内嵌会话已启动: ${conn.name}`);
+      showSuccess(`RDP 内嵌会话已启动: ${conn.name}`);
     } catch (err) {
       console.error("Failed to start embedded RDP:", err);
-      toast.error("内嵌 RDP 启动失败: " + getErrorMessage(err));
+      showError("内嵌 RDP 启动失败", getErrorMessage(err));
     } finally {
       setConnectingId(null);
     }
@@ -410,10 +411,10 @@ export default function Rdp() {
         setSelectedConnectionId(null);
       }
       loadConnections();
-      toast.success("连接已删除");
+      showSuccess("连接已删除");
     } catch (err) {
       console.error("Failed to delete connection:", err);
-      toast.error("删除失败: " + getErrorMessage(err));
+      showError("删除失败", getErrorMessage(err));
     }
     setConnDeleteConfirmOpen(false);
     setConnDeleteTargetId(null);
@@ -472,7 +473,7 @@ export default function Rdp() {
         });
         setEditConnDialogOpen(false);
         setEditingConnection(null);
-        toast.success("连接已更新");
+        showSuccess("连接已更新");
       } else {
         await createRdpConnection({
           name: formName,
@@ -487,13 +488,13 @@ export default function Rdp() {
           group_id: formGroupId,
         });
         setShowNewDialog(false);
-        toast.success("连接已创建");
+        showSuccess("连接已创建");
       }
       resetForm();
       loadConnections();
     } catch (err) {
       console.error("Failed to save connection:", err);
-      toast.error("保存失败: " + getErrorMessage(err));
+      showError("保存失败", getErrorMessage(err));
     }
   };
 
@@ -510,10 +511,10 @@ export default function Rdp() {
       setGroupForm({ name: "", parent_id: null, group_type: "rdp" });
       setGroupDialogOpen(false);
       loadGroups();
-      toast.success("分组已创建");
+      showSuccess("分组已创建");
     } catch (error) {
       console.error("Failed to create group:", error);
-      toast.error("创建分组失败");
+      showError("创建分组失败");
     }
   };
 
@@ -530,10 +531,10 @@ export default function Rdp() {
       await updateGroup({ ...group, name: editGroupForm.name.trim(), parent_id: editGroupForm.parent_id, group_type: "rdp" });
       setEditGroupDialogOpen(false);
       loadGroups();
-      toast.success("分组已更新");
+      showSuccess("分组已更新");
     } catch (error) {
       console.error("Failed to update group:", error);
-      toast.error("更新分组失败");
+      showError("更新分组失败");
     }
   };
 
@@ -548,10 +549,10 @@ export default function Rdp() {
       await deleteGroup(deleteTargetId);
       loadGroups();
       loadConnections();
-      toast.success("分组已删除");
+      showSuccess("分组已删除");
     } catch (error) {
       console.error("Failed to delete group:", error);
-      toast.error("删除分组失败");
+      showError("删除分组失败");
     }
     setDeleteConfirmOpen(false);
     setDeleteTargetId(null);

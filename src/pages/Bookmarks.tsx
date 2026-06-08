@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +22,7 @@ import {
   listBookmarks, createBookmark, updateBookmark, deleteBookmark,
   listGroups, createGroup, updateGroup, deleteGroup,
   openExternalUrl, importSafariBookmarks,
+  showSuccess, showError,
 } from "@/lib/api";
 import { listen } from "@tauri-apps/api/event";
 import { buildGroupTree, collectDescendantIds, filterGroupTree, type GroupNode } from "@/lib/tree";
@@ -232,7 +232,7 @@ export default function BookmarksPage() {
     listen("safari-bookmarks-synced", () => {
       loadBookmarks();
       loadGroups();
-      toast.success("Safari 书签已同步");
+      showSuccess("Safari 书签已同步");
     }).then((fn) => {
       unlisten = fn;
     }).catch(console.error);
@@ -247,12 +247,12 @@ export default function BookmarksPage() {
       const result = await importSafariBookmarks();
       await loadBookmarks();
       await loadGroups();
-      toast.success(
+      showSuccess(
         `同步完成：导入 ${result.bookmarks_imported} 个书签，${result.groups_imported} 个分组`
       );
     } catch (error: any) {
       console.error("Failed to sync Safari bookmarks:", error);
-      toast.error(error?.message || "同步失败，请检查 Safari 书签文件访问权限");
+      showError(error?.message || "同步失败，请检查 Safari 书签文件访问权限");
     } finally {
       setSyncing(false);
     }

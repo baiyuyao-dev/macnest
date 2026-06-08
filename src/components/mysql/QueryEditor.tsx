@@ -1,8 +1,8 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Play, RotateCcw, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMysqlStore } from "@/stores/mysql";
-import { toast } from "sonner";
+import { showError } from "@/lib/api";
 
 const KEYWORDS = [
   "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE",
@@ -56,24 +56,31 @@ function highlightSql(sql: string): string {
 }
 
 export default function QueryEditor() {
-  const { executeQuery, queryResult, isExecuting, queryHistory, currentConnectionId } =
+  const { executeQuery, queryResult, isExecuting, queryHistory, currentConnectionId, selectedTable } =
     useMysqlStore();
   const [sql, setSql] = useState("SELECT * FROM ");
   const [showHistory, setShowHistory] = useState(false);
 
+  // Auto-fill table name when selected
+  useEffect(() => {
+    if (selectedTable) {
+      setSql(`SELECT * FROM \`${selectedTable}\``);
+    }
+  }, [selectedTable]);
+
   const handleExecute = async () => {
     if (!sql.trim()) {
-      toast.error("请输入 SQL");
+      showError("请输入 SQL");
       return;
     }
     if (!currentConnectionId) {
-      toast.error("请先连接 MySQL");
+      showError("请先连接 MySQL");
       return;
     }
     try {
       await executeQuery(sql);
     } catch (err: any) {
-      toast.error("执行失败: " + err.message);
+      showError("执行失败", err.message);
     }
   };
 
