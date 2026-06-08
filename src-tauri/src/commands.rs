@@ -2652,3 +2652,77 @@ pub async fn mysql_connect(
 pub async fn mysql_disconnect(connection_id: i64) -> Result<(), String> {
     mysql::connection::mysql_disconnect(connection_id).await
 }
+
+#[tauri::command]
+pub async fn mysql_list_databases(connection_id: i64) -> Result<Vec<mysql::schema::DatabaseInfo>, String> {
+    mysql::schema::mysql_list_databases(connection_id).await
+}
+
+#[tauri::command]
+pub async fn mysql_list_tables(connection_id: i64, database: String) -> Result<Vec<mysql::schema::TableInfo>, String> {
+    mysql::schema::mysql_list_tables(connection_id, database).await
+}
+
+#[tauri::command]
+pub async fn mysql_list_views(connection_id: i64, database: String) -> Result<Vec<mysql::schema::ViewInfo>, String> {
+    mysql::schema::mysql_list_views(connection_id, database).await
+}
+
+#[tauri::command]
+pub async fn mysql_list_triggers(connection_id: i64, database: String) -> Result<Vec<mysql::schema::TriggerInfo>, String> {
+    mysql::schema::mysql_list_triggers(connection_id, database).await
+}
+
+#[tauri::command]
+pub async fn mysql_list_functions(connection_id: i64, database: String) -> Result<Vec<mysql::schema::FunctionInfo>, String> {
+    mysql::schema::mysql_list_functions(connection_id, database).await
+}
+
+#[tauri::command]
+pub async fn mysql_list_events(connection_id: i64, database: String) -> Result<Vec<mysql::schema::EventInfo>, String> {
+    mysql::schema::mysql_list_events(connection_id, database).await
+}
+
+#[tauri::command]
+pub async fn mysql_get_table_structure(
+    connection_id: i64,
+    database: String,
+    table: String,
+) -> Result<mysql::schema::TableStructure, String> {
+    mysql::schema::mysql_get_table_structure(connection_id, database, table).await
+}
+
+#[tauri::command]
+pub async fn mysql_execute_query(
+    req: mysql::query::ExecuteQueryRequest,
+) -> Result<mysql::query::QueryResult, String> {
+    mysql::query::mysql_execute_query(req).await
+}
+
+#[tauri::command]
+pub fn mysql_create_backup_task(
+    state: State<'_, AppState>,
+    req: mysql::backup::CreateBackupTaskRequest,
+) -> Result<i64, String> {
+    mysql::backup::mysql_create_backup_task(&state.db, req)
+}
+
+#[tauri::command]
+pub fn mysql_list_backup_tasks(state: State<'_, AppState>) -> Result<Vec<mysql::backup::BackupTaskResponse>, String> {
+    mysql::backup::mysql_list_backup_tasks(&state.db)
+}
+
+#[tauri::command]
+pub fn mysql_delete_backup_task(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    mysql::backup::mysql_delete_backup_task(&state.db, id)
+}
+
+#[tauri::command]
+pub fn mysql_toggle_backup_task(state: State<'_, AppState>, id: i64, is_enabled: bool) -> Result<(), String> {
+    mysql::backup::mysql_toggle_backup_task(&state.db, id, is_enabled)
+}
+
+#[tauri::command]
+pub async fn mysql_run_backup_now(state: State<'_, AppState>, task_id: i64) -> Result<String, String> {
+    mysql::backup::mysql_run_backup_now(&state.db, task_id).await
+}

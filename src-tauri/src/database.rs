@@ -321,6 +321,55 @@ impl Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                notify_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                trigger_condition TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS notification_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notification_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                trigger_value REAL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_notification_logs_notification_id ON notification_logs(notification_id);
+            CREATE INDEX IF NOT EXISTS idx_notification_logs_triggered_at ON notification_logs(triggered_at);
+
+            CREATE TABLE IF NOT EXISTS mysql_connections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL DEFAULT 'localhost',
+                port INTEGER NOT NULL DEFAULT 3306,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                database TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS mysql_backup_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id INTEGER NOT NULL,
+                database_name TEXT NOT NULL,
+                cron_expression TEXT NOT NULL,
+                backup_path TEXT NOT NULL,
+                is_enabled BOOLEAN DEFAULT 1,
+                last_run_at DATETIME,
+                last_status TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (connection_id) REFERENCES mysql_connections(id) ON DELETE CASCADE
+            );
             "
         )?;
 
@@ -495,63 +544,6 @@ impl Database {
                 params![group_id, &category],
             );
         }
-
-        // Create notifications tables
-        let _ = conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                notify_type TEXT NOT NULL,
-                content TEXT NOT NULL,
-                trigger_condition TEXT NOT NULL,
-                enabled BOOLEAN DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS notification_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                notification_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                trigger_value REAL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_notification_logs_notification_id ON notification_logs(notification_id);
-            CREATE INDEX IF NOT EXISTS idx_notification_logs_triggered_at ON notification_logs(triggered_at);
-            "
-        );
-
-        // MySQL connection management
-        let _ = conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS mysql_connections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                host TEXT NOT NULL DEFAULT 'localhost',
-                port INTEGER NOT NULL DEFAULT 3306,
-                username TEXT NOT NULL,
-                password TEXT NOT NULL,
-                database TEXT DEFAULT '',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS mysql_backup_tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_id INTEGER NOT NULL,
-                database_name TEXT NOT NULL,
-                cron_expression TEXT NOT NULL,
-                backup_path TEXT NOT NULL,
-                is_enabled BOOLEAN DEFAULT 1,
-                last_run_at DATETIME,
-                last_status TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (connection_id) REFERENCES mysql_connections(id) ON DELETE CASCADE
-            );
-            "
-        );
 
         Ok(())
     }

@@ -311,6 +311,19 @@ fn main() {
             commands::mysql_test_connection,
             commands::mysql_connect,
             commands::mysql_disconnect,
+            commands::mysql_list_databases,
+            commands::mysql_list_tables,
+            commands::mysql_list_views,
+            commands::mysql_list_triggers,
+            commands::mysql_list_functions,
+            commands::mysql_list_events,
+            commands::mysql_get_table_structure,
+            commands::mysql_execute_query,
+            commands::mysql_create_backup_task,
+            commands::mysql_list_backup_tasks,
+            commands::mysql_delete_backup_task,
+            commands::mysql_toggle_backup_task,
+            commands::mysql_run_backup_now,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
