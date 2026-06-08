@@ -111,30 +111,24 @@ fn check_monitor_threshold(
             let mem = resource_usage.memory_percent;
             (mem, mem >= threshold)
         }
+        "disk_usage" => {
+            let disk = resource_usage.disk_usage_percent;
+            (disk, disk >= threshold)
+        }
         _ => (0.0, false),
     };
 
     (should_trigger, current, threshold)
 }
 
-/// Send a notification via the app handle
-fn send_notification(app_handle: &AppHandle, title: &str, body: &str) {
-    // Emit an event that the frontend can listen to, and also send OS notification
+/// Send a notification event to the frontend (replaces osascript direct display)
+/// The frontend will show both a system notification and an interactive Toast.
+fn send_notification_event(app_handle: &AppHandle, id: i64, title: &str, body: &str) {
     let _ = app_handle.emit("notification:triggered", serde_json::json!({
+        "id": id,
         "title": title,
         "body": body,
     }));
-
-    // Send via osascript as fallback/reliable method
-    let script = format!(
-        r#"display notification "{}" with title "{}""#,
-        body.replace('"', "\\\""),
-        title.replace('"', "\\\"")
-    );
-    let _ = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output();
 }
 
 /// Main scheduler loop
@@ -149,6 +143,7 @@ pub fn start_scheduler(db_path: String, app_handle: AppHandle) {
         };
 
         let tracker_arc = Arc::new(Mutex::new(TriggerTracker::new()));
+        let mut cycle_count: u64 = 0;
 
         // Sleep until the start of the next minute for cleaner timing
         let now = Local::now();
@@ -160,6 +155,13 @@ pub fn start_scheduler(db_path: String, app_handle: AppHandle) {
 
         loop {
             let now = Local::now();
+            let today_str = now.format("%Y-%m-%d").to_string();
+            cycle_count += 1;
+
+            // Clean old dismiss records every 24 hours (1440 cycles ~ 24h)
+            if cycle_count % 1440 == 0 {
+                let _ = db.clean_old_notification_dismiss(7);
+            }
 
             // Load all enabled notifications
             let notifications = match db.list_notifications() {
@@ -183,6 +185,15 @@ pub fn start_scheduler(db_path: String, app_handle: AppHandle) {
             };
 
             for notification in notifications {
+                // Check "dismiss today" first
+                match db.is_notification_dismissed_today(notification.id, &today_str) {
+                    Ok(true) => continue, // Skip if dismissed today
+                    Ok(false) => {}
+                    Err(e) => {
+                        eprintln!("[scheduler] Failed to check dismiss status for {}: {}", notification.id, e);
+                    }
+                }
+
                 let mut guard = tracker_arc.lock().unwrap();
 
                 match notification.notify_type.as_str() {
@@ -192,8 +203,9 @@ pub fn start_scheduler(db_path: String, app_handle: AppHandle) {
                         {
                             drop(guard); // release lock before I/O
 
-                            send_notification(
+                            send_notification_event(
                                 &app_handle,
+                                notification.id,
                                 &notification.name,
                                 &notification.content,
                             );
@@ -228,7 +240,12 @@ pub fn start_scheduler(db_path: String, app_handle: AppHandle) {
                                     notification.content.clone()
                                 };
 
-                                send_notification(&app_handle, &notification.name, &body);
+                                send_notification_event(
+                                    &app_handle,
+                                    notification.id,
+                                    &notification.name,
+                                    &body,
+                                );
 
                                 let _ = db.add_notification_log(
                                     notification.id,

@@ -712,3 +712,7 @@ export async function toggleNotification(id: number, enabled: boolean): Promise<
 export async function listNotificationLogs(notificationId: number): Promise<NotificationLog[]> {
   return invokeSafe("list_notification_logs", { notificationId });
 }
+
+export async function dismissNotificationToday(notificationId: number): Promise<void> {
+  return invokeSafe("dismiss_notification_today", { notificationId });
+}

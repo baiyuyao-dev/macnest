@@ -345,6 +345,15 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_notification_logs_notification_id ON notification_logs(notification_id);
             CREATE INDEX IF NOT EXISTS idx_notification_logs_triggered_at ON notification_logs(triggered_at);
 
+            CREATE TABLE IF NOT EXISTS notification_dismiss (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notification_id INTEGER NOT NULL,
+                dismiss_date TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(notification_id, dismiss_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_notification_dismiss_date ON notification_dismiss(notification_id, dismiss_date);
+
             CREATE TABLE IF NOT EXISTS mysql_connections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -1429,6 +1438,36 @@ impl Database {
             })?
             .collect::<Result<Vec<_>>>()?;
         Ok(logs)
+    }
+
+    // === Notification Dismiss (今日不再提示) ===
+
+    pub fn dismiss_notification_for_today(&self, notification_id: i64, date: &str) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT OR IGNORE INTO notification_dismiss (notification_id, dismiss_date) VALUES (?1, ?2)",
+            params![notification_id, date],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_notification_dismissed_today(&self, notification_id: i64, date: &str) -> Result<bool> {
+        let conn = self.conn()?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notification_dismiss WHERE notification_id = ?1 AND dismiss_date = ?2",
+            params![notification_id, date],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn clean_old_notification_dismiss(&self, keep_days: i64) -> Result<usize> {
+        let conn = self.conn()?;
+        let rows = conn.execute(
+            "DELETE FROM notification_dismiss WHERE dismiss_date < date('now', ?1)",
+            params![format!("-{} days", keep_days)],
+        )?;
+        Ok(rows)
     }
 
     // === MySQL Connection CRUD ===

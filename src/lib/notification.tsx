@@ -3,6 +3,9 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import { listen } from "@tauri-apps/api/event";
+import { toast } from "sonner";
+import { dismissNotificationToday } from "./api";
 
 let permissionGranted = false;
 
@@ -30,7 +33,6 @@ async function notifyViaOsascript(title: string, body: string): Promise<void> {
     console.log("[notification] sent via osascript:", title);
   } catch (err) {
     console.error("[notification] osascript also failed:", err);
-    const { toast } = await import("sonner");
     toast(title, { description: body });
   }
 }
@@ -97,4 +99,59 @@ export async function notifyThrottled(
   recentKeys.add(key);
   setTimeout(() => recentKeys.delete(key), cooldownMs);
   await notify(title, body);
+}
+
+/**
+ * 监听后端 notification:triggered 事件，同时显示系统通知和交互式 Toast。
+ * 在 App.tsx 的 useEffect 中调用一次即可。
+ */
+export async function initNotificationListener(): Promise<() => void> {
+  const unlisten = await listen<{
+    id: number;
+    title: string;
+    body: string;
+  }>("notification:triggered", async (event) => {
+    const { id, title, body } = event.payload;
+
+    // ① 发 macOS 系统通知（来源正确 = 本应用，点击会聚焦本应用）
+    try {
+      await notify(title, body);
+    } catch (err) {
+      console.error("[notification] failed to send system notification:", err);
+    }
+
+    // ② 同时显示前端 Toast 卡片，带"今日不再提示"按钮
+    toast.custom(
+      (t) => (
+        <div className="flex items-start gap-3 p-3 rounded-xl border border-[var(--glass-border-strong)] bg-[var(--popover)] shadow-lg min-w-[280px] max-w-[360px]">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">{title}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-3">{body}</p>
+          </div>
+          <button
+            className="shrink-0 text-[11px] text-blue-500 hover:text-blue-600 hover:underline whitespace-nowrap mt-0.5"
+            onClick={async () => {
+              try {
+                await dismissNotificationToday(id);
+                toast.dismiss(t);
+                toast.success("已设置今日不再提示");
+              } catch (err) {
+                console.error("[notification] dismiss failed:", err);
+                toast.error("设置失败");
+              }
+            }}
+          >
+            今日不再提示
+          </button>
+        </div>
+      ),
+      {
+        duration: 8_000, // 8 秒自动关闭
+      }
+    );
+  });
+
+  return () => {
+    unlisten();
+  };
 }

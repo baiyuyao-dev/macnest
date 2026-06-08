@@ -2607,6 +2607,18 @@ pub fn list_notification_logs(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn dismiss_notification_today(
+    state: State<AppState>,
+    notification_id: i64,
+) -> Result<(), String> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    state
+        .db
+        .dismiss_notification_for_today(notification_id, &today)
+        .map_err(|e| e.to_string())
+}
+
 // === MySQL Commands ===
 
 #[tauri::command]

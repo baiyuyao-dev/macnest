@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Table2, FileCode } from "lucide-react";
+import { Table2, FileCode, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ObjectTree from "@/components/mysql/ObjectTree";
 import QueryEditor from "@/components/mysql/QueryEditor";
@@ -13,6 +13,8 @@ export default function Mysql() {
     selectedTable,
     viewMode,
     setViewMode,
+    showQueryEditor,
+    setShowQueryEditor,
     queryResult,
   } = useMysqlStore();
 
@@ -30,15 +32,41 @@ export default function Mysql() {
 
       {/* Right Content */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        {/* SQL Editor */}
-        <div className="h-[45%] border-b border-[var(--glass-border)]">
-          <QueryEditor />
-        </div>
+        {/* Query Editor — collapsible */}
+        {showQueryEditor && (
+          <div className="h-[45%] border-b border-[var(--glass-border)] flex flex-col">
+            <div className="flex items-center justify-between px-3 py-1 border-b border-[var(--glass-border)]">
+              <span className="text-xs font-medium text-muted-foreground">SQL 编辑器</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 w-5 p-0"
+                onClick={() => setShowQueryEditor(false)}
+              >
+                <span className="text-xs">✕</span>
+              </Button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <QueryEditor />
+            </div>
+          </div>
+        )}
 
         {/* Result / Structure Area */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {/* Toolbar */}
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--glass-border)] min-h-[36px]">
+            {!showQueryEditor && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-xs gap-1"
+                onClick={() => setShowQueryEditor(true)}
+              >
+                <Terminal className="h-3 w-3" />
+                SQL
+              </Button>
+            )}
             {selectedTable ? (
               <>
                 <span className="text-sm font-medium truncate">

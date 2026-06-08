@@ -303,6 +303,7 @@ fn main() {
             commands::delete_notification,
             commands::toggle_notification,
             commands::list_notification_logs,
+            commands::dismiss_notification_today,
             // MySQL commands
             commands::mysql_create_connection,
             commands::mysql_list_connections,

@@ -15,6 +15,7 @@ import { useThemeStore } from "./stores/theme";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getSettings } from "./lib/api";
+import { initNotificationListener } from "./lib/notification";
 import { Toaster } from "sonner";
 
 function NavigationListener() {
@@ -48,6 +49,17 @@ function App() {
         // 首次启动无设置记录，保持默认深色
       });
   }, [setTheme]);
+
+  // 初始化通知事件监听（后端推送 → 系统通知 + Toast）
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    initNotificationListener().then((fn) => {
+      cleanup = fn;
+    });
+    return () => {
+      cleanup?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (isDark) {
