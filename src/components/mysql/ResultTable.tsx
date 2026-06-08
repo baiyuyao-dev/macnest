@@ -1,20 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from "react";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Save,
-  RotateCcw,
-  CalendarDays,
-  X,
-  Trash2,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  Filter,
-  Eraser,
-  Database,
-  FileJson,
-} from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { ChevronLeft, ChevronRight, Save, RotateCcw, CalendarDays, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMysqlStore } from "@/stores/mysql";
 
@@ -64,16 +49,6 @@ function toHtmlTime(v: string): string {
   return v.trim().slice(0, 8);
 }
 
-/** Format cell value for display and comparison */
-function formatValue(v: unknown): string {
-  if (v === null || v === undefined) return "NULL";
-  if (typeof v === "boolean") return v ? "1" : "0";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
-}
-
-type DisplayRow = { origIndex: number; data: unknown[] };
-
 export default function ResultTable() {
   const {
     queryResult,
@@ -87,12 +62,13 @@ export default function ResultTable() {
     removeCellEdit,
     commitEdits,
     cancelEdits,
-    executeQuery,
-    loadTableData,
   } = useMysqlStore();
 
   const [page, setPage] = useState(0);
-  const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
+  const [editingCell, setEditingCell] = useState<{
+    row: number;
+    col: number;
+  } | null>(null);
   const [popupCell, setPopupCell] = useState<{
     row: number;
     col: number;
@@ -108,39 +84,9 @@ export default function ResultTable() {
   const tableRef = useRef<HTMLDivElement>(null);
   const popupInputRef = useRef<HTMLInputElement>(null);
 
-  // Row / column selection (mutually exclusive)
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
-  const [selectedCol, setSelectedCol] = useState<number | null>(null);
-
-  // Sorting
-  const [sortConfig, setSortConfig] = useState<{ col: number; dir: "asc" | "desc" } | null>(null);
-
-  // Column filters
-  const [filters, setFilters] = useState<string[]>([]);
-
-  // Context menu
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    type: "cell" | "table";
-    rowIdx?: number;
-    colIdx?: number;
-    cellValue?: unknown;
-  } | null>(null);
-
   const hasEdits = pendingEdits.size > 0;
 
-  // ── Effects ──────────────────────────────────────────
-
-  // Reset filters / selection when queryResult changes
-  useEffect(() => {
-    setSelectedRow(null);
-    setSelectedCol(null);
-    setSortConfig(null);
-    setPage(0);
-  }, [queryResult ? queryResult.columns.length : 0]);
-
-  // Click outside: popup auto-save, edit blur
+  // 点击外部：popup 自动保存，edit 执行 blur
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (popupCell) {
@@ -151,18 +97,19 @@ export default function ResultTable() {
       }
       if (!tableRef.current) return;
       if (!tableRef.current.contains(e.target as Node)) {
-        if (editingCell) handleCellBlur();
+        if (editingCell) {
+          handleCellBlur();
+        }
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [editingCell, popupCell]);
 
-  // Escape / Enter key handling
+  // Escape 取消（不保存）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setContextMenu(null);
         if (popupCell) setPopupCell(null);
         else setEditingCell(null);
       }
@@ -191,13 +138,11 @@ export default function ResultTable() {
         try {
           (popupInputRef.current as any)?.showPicker?.();
         } catch {
-          // ignore
+          // 浏览器不支持 showPicker
         }
       }, 50);
     }
   }, [popupCell]);
-
-  // ── Derived data ─────────────────────────────────────
 
   if (!queryResult || queryResult.columns.length === 0) {
     const affected = queryResult?.affected_rows;
@@ -215,62 +160,27 @@ export default function ResultTable() {
     );
   }
 
+  const totalPages = Math.ceil(queryResult.rows.length / pageSize);
+  const start = page * pageSize;
+  const visibleRows = queryResult.rows.slice(start, start + pageSize);
+
   const pkColIndex = tableStructure
     ? tableStructure.columns.findIndex(
-        (c) => c.key === "PRI" || c.extra?.toLowerCase().includes("auto_increment")
+        (c) =>
+          c.key === "PRI" ||
+          c.extra?.toLowerCase().includes("auto_increment")
       )
     : -1;
 
-  // Filter → Sort → Paginate
-  const activeFilters =
-    queryResult && filters.length === queryResult.columns.length
-      ? filters
-      : queryResult
-        ? new Array(queryResult.columns.length).fill("")
-        : filters;
+  const formatValue = (v: unknown): string => {
+    if (v === null || v === undefined) return "NULL";
+    if (typeof v === "boolean") return v ? "1" : "0";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+  };
 
-  const processedRows = useMemo(() => {
-    const rawRows = Array.isArray(queryResult?.rows) ? queryResult.rows : [];
-    let rows: DisplayRow[] = rawRows.map((data, i) => ({ origIndex: i, data }));
-
-    // Filter
-    if (activeFilters.some((f) => f)) {
-      rows = rows.filter((row) =>
-        row.data.every((cell, ci) => {
-          const filter = activeFilters[ci]?.trim().toLowerCase();
-          if (!filter) return true;
-          if (filter === "null") return cell === null;
-          if (filter === "!null" || filter === "not null") return cell !== null;
-          const val = formatValue(cell).toLowerCase();
-          return val.includes(filter);
-        })
-      );
-    }
-
-    // Sort
-    if (sortConfig) {
-      rows.sort((a, b) => {
-        const va = formatValue(a.data[sortConfig.col]);
-        const vb = formatValue(b.data[sortConfig.col]);
-        const na = parseFloat(va);
-        const nb = parseFloat(vb);
-        if (!isNaN(na) && !isNaN(nb) && va !== "NULL" && vb !== "NULL") {
-          return sortConfig.dir === "asc" ? na - nb : nb - na;
-        }
-        if (va < vb) return sortConfig.dir === "asc" ? -1 : 1;
-        if (va > vb) return sortConfig.dir === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return rows;
-  }, [queryResult.rows, filters, sortConfig]);
-
-  const totalPages = Math.ceil(processedRows.length / pageSize);
-  const start = page * pageSize;
-  const visibleRows = processedRows.slice(start, start + pageSize);
-
-  const getEditKey = (rowIdx: number, colName: string) => `${rowIdx + start}:${colName}`;
+  const getEditKey = (rowIdx: number, colName: string) =>
+    `${rowIdx + start}:${colName}`;
 
   const getCellDisplayValue = (rowIdx: number, colName: string, raw: unknown) => {
     const key = getEditKey(rowIdx, colName);
@@ -297,23 +207,6 @@ export default function ResultTable() {
     return rawStr;
   };
 
-  // ── Handlers ─────────────────────────────────────────
-
-  const handleRowClick = (rowIdx: number) => {
-    setSelectedCol(null);
-    setSelectedRow((prev) => (prev === rowIdx ? null : rowIdx));
-  };
-
-  const handleColClick = (colIdx: number) => {
-    setSelectedRow(null);
-    setSelectedCol((prev) => (prev === colIdx ? null : colIdx));
-    setSortConfig((prev) => {
-      if (!prev || prev.col !== colIdx) return { col: colIdx, dir: "asc" };
-      if (prev.dir === "asc") return { col: colIdx, dir: "desc" };
-      return null;
-    });
-  };
-
   const handleCellDoubleClick = (
     rowIdx: number,
     colIdx: number,
@@ -331,6 +224,7 @@ export default function ResultTable() {
     setEditValue(initialValue);
 
     if (isDateTimeType(editorType)) {
+      // 日期时间类型：弹出浮动面板
       const rect = cellEl?.getBoundingClientRect();
       if (rect) {
         const tableRect = tableRef.current?.getBoundingClientRect();
@@ -344,6 +238,7 @@ export default function ResultTable() {
       }
       setEditingCell(null);
     } else {
+      // 其他类型：直接进入编辑
       setPopupCell(null);
       setEditingCell({ row: rowIdx, col: colIdx });
     }
@@ -361,7 +256,12 @@ export default function ResultTable() {
     }
 
     if (newValue !== oldValue) {
-      setCellEdit({ rowIndex: start + row, colName, oldValue: rawValue, newValue });
+      setCellEdit({
+        rowIndex: start + row,
+        colName,
+        oldValue: rawValue,
+        newValue,
+      });
     } else {
       removeCellEdit(start + row, colName);
     }
@@ -372,7 +272,12 @@ export default function ResultTable() {
     if (!popupCell || !selectedTable || !queryResult) return;
     const { row, col, colName } = popupCell;
     const rawValue = queryResult.rows[start + row][col];
-    setCellEdit({ rowIndex: start + row, colName, oldValue: rawValue, newValue: "NULL" });
+    setCellEdit({
+      rowIndex: start + row,
+      colName,
+      oldValue: rawValue,
+      newValue: "NULL",
+    });
     setPopupCell(null);
   };
 
@@ -418,84 +323,6 @@ export default function ResultTable() {
       setEditingCell(null);
     }
   };
-
-  const handleFilterChange = (colIdx: number, value: string) => {
-    setFilters((prev) => {
-      const len = queryResult ? queryResult.columns.length : prev.length;
-      const next = new Array(len).fill("");
-      for (let i = 0; i < Math.min(prev.length, len); i++) {
-        next[i] = prev[i];
-      }
-      next[colIdx] = value;
-      return next;
-    });
-    setPage(0);
-  };
-
-  const clearAllFilters = () => {
-    if (queryResult) {
-      setFilters(new Array(queryResult.columns.length).fill(""));
-    }
-    setPage(0);
-  };
-
-  // ── Context menu actions ─────────────────────────────
-
-  const handleContextMenu = (
-    e: React.MouseEvent,
-    type: "cell" | "table",
-    extra?: { rowIdx?: number; colIdx?: number; cellValue?: unknown }
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, type, ...extra });
-  };
-
-  const handleDeleteRow = async (origIndex: number) => {
-    if (!selectedTable || !queryResult) return;
-    const pkCol = queryResult.columns[0];
-    const pkValue = queryResult.rows[origIndex][0];
-    if (pkValue === undefined) return;
-
-    const sql = `DELETE FROM \`${selectedTable}\` WHERE \`${pkCol}\` = ${
-      typeof pkValue === "string" ? `'${pkValue.replace(/'/g, "''")}'` : pkValue
-    }`;
-    await executeQuery(sql);
-    if (selectedTable) await loadTableData(selectedTable);
-    setContextMenu(null);
-  };
-
-  const handleFilterByCell = (colIdx: number, value: unknown) => {
-    const strVal = formatValue(value);
-    setFilters((prev) => {
-      const next = [...prev];
-      next[colIdx] = strVal === "NULL" ? "null" : strVal;
-      return next;
-    });
-    setPage(0);
-    setContextMenu(null);
-  };
-
-  const handleDump = async (dumpType: "structure_and_data" | "structure_only") => {
-    if (!selectedTable) return;
-    const { currentConnectionId, currentDatabase } = useMysqlStore.getState();
-    if (!currentConnectionId || !currentDatabase) return;
-
-    try {
-      const path: string = await (window as any).__TAURI__.core.invoke("mysql_dump_table", {
-        connectionId: currentConnectionId,
-        databaseName: currentDatabase,
-        tableName: selectedTable,
-        dumpType,
-      });
-      alert(`转储完成: ${path}`);
-    } catch (e: any) {
-      alert(`转储失败: ${e}`);
-    }
-    setContextMenu(null);
-  };
-
-  // ── Render helpers ───────────────────────────────────
 
   const renderEditor = (editorType: EditorType) => {
     const baseClass =
@@ -582,12 +409,6 @@ export default function ResultTable() {
     }
   };
 
-  const sortIcon = (ci: number) => {
-    if (!sortConfig || sortConfig.col !== ci) return <ArrowUpDown className="h-3 w-3 opacity-30" />;
-    if (sortConfig.dir === "asc") return <ArrowUp className="h-3 w-3 text-primary" />;
-    return <ArrowDown className="h-3 w-3 text-primary" />;
-  };
-
   return (
     <div className="flex flex-col h-full relative" ref={tableRef}>
       {/* Toolbar */}
@@ -596,23 +417,28 @@ export default function ResultTable() {
           {selectedTable && (
             <>
               <span className="text-xs text-muted-foreground">
-                {processedRows.length} 行
-                {processedRows.length !== queryResult.rows.length && ` / 共 ${queryResult.rows.length} 行`}
+                {queryResult.rows.length} 行
               </span>
-              {activeFilters.some((f) => f) && (
-                <Button size="sm" variant="ghost" className="h-6 text-xs gap-1" onClick={clearAllFilters}>
-                  <Eraser className="h-3 w-3" />
-                  清除筛选
-                </Button>
-              )}
               {hasEdits && (
                 <>
-                  <span className="text-xs text-amber-500 font-medium">{pendingEdits.size} 处修改</span>
-                  <Button size="sm" className="h-6 text-xs gap-1" onClick={commitEdits} disabled={isExecuting}>
+                  <span className="text-xs text-amber-500 font-medium">
+                    {pendingEdits.size} 处修改
+                  </span>
+                  <Button
+                    size="sm"
+                    className="h-6 text-xs gap-1"
+                    onClick={commitEdits}
+                    disabled={isExecuting}
+                  >
                     <Save className="h-3 w-3" />
                     提交
                   </Button>
-                  <Button size="sm" variant="outline" className="h-6 text-xs gap-1" onClick={cancelEdits}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs gap-1"
+                    onClick={cancelEdits}
+                  >
                     <RotateCcw className="h-3 w-3" />
                     取消
                   </Button>
@@ -646,13 +472,25 @@ export default function ResultTable() {
 
           {totalPages > 1 && (
             <>
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" disabled={page === 0} onClick={() => setPage(page - 1)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0"
+                disabled={page === 0}
+                onClick={() => setPage(page - 1)}
+              >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
               <span className="text-xs text-muted-foreground">
                 {page + 1} / {totalPages}
               </span>
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage(page + 1)}
+              >
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </>
@@ -661,112 +499,88 @@ export default function ResultTable() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto" onContextMenu={(e) => handleContextMenu(e, "table")}>
+      <div className="flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse">
-          <thead className="sticky top-0 z-10">
-            {/* Header row */}
+          <thead className="sticky top-0 bg-muted/50 z-10">
             <tr>
               {queryResult.columns.map((col, ci) => (
                 <th
                   key={col}
-                  onClick={() => handleColClick(ci)}
-                  className={`border border-[var(--glass-border)] px-2 py-1.5 text-left font-semibold whitespace-nowrap cursor-pointer select-none transition-colors ${
-                    selectedCol === ci
-                      ? "bg-primary/15 text-primary"
-                      : "bg-muted/50 hover:bg-muted"
-                  } ${tableStructure?.columns[ci]?.key === "PRI" ? "text-primary" : ""}`}
+                  className={`border border-[var(--glass-border)] px-2 py-1.5 text-left font-semibold whitespace-nowrap ${
+                    tableStructure?.columns[ci]?.key === "PRI"
+                      ? "text-primary"
+                      : ""
+                  }`}
                   title={
                     tableStructure?.columns[ci]
                       ? `${tableStructure.columns[ci].data_type}${
-                          tableStructure.columns[ci].is_nullable === "NO" ? " NOT NULL" : ""
+                          tableStructure.columns[ci].is_nullable === "NO"
+                            ? " NOT NULL"
+                            : ""
                         }`
                       : undefined
                   }
                 >
-                  <div className="flex items-center gap-1">
-                    {sortIcon(ci)}
-                    {col}
-                  </div>
-                </th>
-              ))}
-            </tr>
-
-            {/* Filter row */}
-            <tr>
-              {queryResult.columns.map((col, ci) => (
-                <th key={`filter-${col}`} className="border border-[var(--glass-border)] p-0 bg-muted/30">
-                  <div className="relative">
-                    <Filter className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2.5 w-2.5 text-muted-foreground" />
-                    <input
-                      type="text"
-                      value={activeFilters[ci] || ""}
-                      onChange={(e) => handleFilterChange(ci, e.target.value)}
-                      placeholder="筛选..."
-                      className="w-full h-6 text-[10px] pl-5 pr-1 bg-transparent outline-none placeholder:text-muted-foreground/50"
-                    />
-                  </div>
+                  {col}
                 </th>
               ))}
             </tr>
           </thead>
-
           <tbody>
-            {visibleRows.map((row, rowIdx) => {
-              const isSelectedRow = selectedRow === rowIdx;
-              return (
-                <tr
-                  key={row.origIndex}
-                  onClick={() => handleRowClick(rowIdx)}
-                  className={`transition-colors ${
-                    isSelectedRow ? "bg-primary/[0.08]" : "hover:bg-accent/20 even:bg-muted/20"
-                  }`}
-                >
-                  {row.data.map((cell, cellIdx) => {
-                    const colName = queryResult.columns[cellIdx];
-                    const isEditing = editingCell?.row === rowIdx && editingCell?.col === cellIdx;
-                    const isModified = pendingEdits.has(getEditKey(rowIdx, colName));
-                    const displayValue = getCellDisplayValue(rowIdx, colName, cell);
-                    const isPk = pkColIndex >= 0 ? cellIdx === pkColIndex : cellIdx === 0;
-                    const isSelectedCol = selectedCol === cellIdx;
+            {visibleRows.map((row, rowIdx) => (
+              <tr
+                key={start + rowIdx}
+                className="hover:bg-accent/20 even:bg-muted/20"
+              >
+                {row.map((cell, cellIdx) => {
+                  const colName = queryResult.columns[cellIdx];
+                  const isEditing =
+                    editingCell?.row === rowIdx &&
+                    editingCell?.col === cellIdx;
+                  const isModified = pendingEdits.has(
+                    getEditKey(rowIdx, colName)
+                  );
+                  const displayValue = getCellDisplayValue(
+                    rowIdx,
+                    colName,
+                    cell
+                  );
+                  const isPk =
+                    pkColIndex >= 0 ? cellIdx === pkColIndex : cellIdx === 0;
 
-                    const dataType = tableStructure?.columns[cellIdx]?.data_type || "";
-                    const editorType = getEditorType(dataType);
+                  const dataType =
+                    tableStructure?.columns[cellIdx]?.data_type || "";
+                  const editorType = getEditorType(dataType);
 
-                    return (
-                      <td
-                        key={cellIdx}
-                        onContextMenu={(e) =>
-                          handleContextMenu(e, "cell", {
-                            rowIdx: row.origIndex,
-                            colIdx: cellIdx,
-                            cellValue: cell,
-                          })
-                        }
-                        onDoubleClick={(e) =>
-                          handleCellDoubleClick(rowIdx, cellIdx, colName, cell, e.currentTarget as HTMLElement)
-                        }
-                        className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative transition-colors ${
-                          isModified
-                            ? "bg-amber-500/[0.18] text-amber-700 dark:text-amber-300 border-l-[3px] border-l-amber-500"
-                            : ""
-                        } ${isSelectedCol && !isModified ? "bg-primary/[0.06]" : ""} ${
-                          isPk ? "font-medium text-primary/80" : ""
-                        } ${!isPk && !isEditing ? "cursor-pointer" : ""}`}
-                        title={displayValue}
-                      >
-                        {isEditing ? (
-                          renderEditor(editorType)
-                        ) : cell === null ? (
-                          <span className="text-muted-foreground italic">NULL</span>
-                        ) : (
-                          displayValue
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
+                  return (
+                    <td
+                      key={cellIdx}
+                      className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative ${
+                        isModified
+                          ? "bg-amber-500/[0.18] text-amber-700 dark:text-amber-300 border-l-[3px] border-l-amber-500"
+                          : ""
+                      } ${isPk ? "font-medium text-primary/80" : ""} ${
+                        !isPk && !isEditing ? "cursor-pointer" : ""
+                      }`}
+                      title={displayValue}
+                      onDoubleClick={(e) =>
+                        handleCellDoubleClick(rowIdx, cellIdx, colName, cell, e.currentTarget as HTMLElement)
+                      }
+                    >
+                      {isEditing ? (
+                        renderEditor(editorType)
+                      ) : cell === null ? (
+                        <span className="text-muted-foreground italic">
+                          NULL
+                        </span>
+                      ) : (
+                        displayValue
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -783,10 +597,13 @@ export default function ResultTable() {
             maxWidth: 340,
           }}
         >
+          {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <CalendarDays className="h-3.5 w-3.5 text-primary" />
-              <span className="text-xs font-semibold text-foreground">{popupCell.colName}</span>
+              <span className="text-xs font-semibold text-foreground">
+                {popupCell.colName}
+              </span>
             </div>
             <button
               className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted"
@@ -796,6 +613,7 @@ export default function ResultTable() {
             </button>
           </div>
 
+          {/* Input */}
           <div className="relative">
             <input
               ref={popupInputRef}
@@ -815,11 +633,16 @@ export default function ResultTable() {
                 }
               }}
               className="w-full h-10 text-sm font-mono border border-input rounded-lg px-3 pr-9 bg-background outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-              step={popupCell.editorType === "datetime" || popupCell.editorType === "time" ? 1 : undefined}
+              step={
+                popupCell.editorType === "datetime" || popupCell.editorType === "time"
+                  ? 1
+                  : undefined
+              }
             />
             <CalendarDays className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           </div>
 
+          {/* 快捷操作 */}
           <div className="flex items-center gap-2">
             <Button
               size="sm"
@@ -853,58 +676,10 @@ export default function ResultTable() {
             </Button>
           </div>
 
-          <div className="text-[10px] text-muted-foreground text-center">按 Enter 确认 · 点击外部保存 · Esc 取消</div>
-        </div>
-      )}
-
-      {/* 右键菜单 */}
-      {contextMenu && (
-        <div
-          className="fixed z-[200] bg-background border border-border rounded-lg shadow-lg py-1 min-w-[180px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          {contextMenu.type === "cell" ? (
-            <>
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center gap-2 transition-colors"
-                onClick={() => {
-                  if (contextMenu.colIdx !== undefined && contextMenu.cellValue !== undefined) {
-                    handleFilterByCell(contextMenu.colIdx, contextMenu.cellValue);
-                  }
-                }}
-              >
-                <Filter className="h-3 w-3" />
-                以此值筛选
-              </button>
-              <div className="h-px bg-border mx-2 my-0.5" />
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent text-destructive flex items-center gap-2 transition-colors"
-                onClick={() => {
-                  if (contextMenu.rowIdx !== undefined) handleDeleteRow(contextMenu.rowIdx);
-                }}
-              >
-                <Trash2 className="h-3 w-3" />
-                删除此行
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center gap-2 transition-colors"
-                onClick={() => handleDump("structure_and_data")}
-              >
-                <Database className="h-3 w-3" />
-                转储结构和数据
-              </button>
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center gap-2 transition-colors"
-                onClick={() => handleDump("structure_only")}
-              >
-                <FileJson className="h-3 w-3" />
-                仅转储结构
-              </button>
-            </>
-          )}
+          {/* 提示 */}
+          <div className="text-[10px] text-muted-foreground text-center">
+            按 Enter 确认 · 点击外部保存 · Esc 取消
+          </div>
         </div>
       )}
     </div>
