@@ -112,7 +112,7 @@ fn check_monitor_threshold(
             (mem, mem >= threshold)
         }
         "disk_usage" => {
-            let disk = resource_usage.disk_usage_percent;
+            let disk = resource_usage.disk_percent;
             (disk, disk >= threshold)
         }
         _ => (0.0, false),

@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Save, RotateCcw } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { ChevronLeft, ChevronRight, Save, RotateCcw, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMysqlStore } from "@/stores/mysql";
 
@@ -19,10 +19,13 @@ function getEditorType(dataType: string): EditorType {
   return "text";
 }
 
+function isDateTimeType(editorType: EditorType): boolean {
+  return editorType === "datetime" || editorType === "date" || editorType === "time";
+}
+
 /** MySQL datetime → HTML datetime-local (YYYY-MM-DDTHH:MM) */
 function toDatetimeLocal(v: string): string {
   if (!v || v === "NULL") return "";
-  // MySQL: "2024-01-15 10:30:00" or "2024-01-15 10:30:00.000000"
   const clean = v.replace(/\.\d+$/, "").trim();
   if (clean.length < 10) return "";
   return clean.replace(" ", "T").slice(0, 16);
@@ -66,16 +69,60 @@ export default function ResultTable() {
     row: number;
     col: number;
   } | null>(null);
+  const [previewCell, setPreviewCell] = useState<{
+    row: number;
+    col: number;
+    editorType: EditorType;
+  } | null>(null);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   const hasEdits = pendingEdits.size > 0;
+
+  // 点击表格外部取消 preview/edit
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!tableRef.current) return;
+      if (!tableRef.current.contains(e.target as Node)) {
+        setPreviewCell(null);
+        if (editingCell) {
+          handleCellBlur();
+        }
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [editingCell, previewCell, editValue]);
+
+  // Escape 取消
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPreviewCell(null);
+        setEditingCell(null);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
       inputRef.current.focus();
       if (inputRef.current.type === "text" || inputRef.current.type === "number") {
         inputRef.current.select();
+      }
+      // 对日期时间类型，尝试主动弹出选择器
+      const et = previewCell?.editorType;
+      if (et && isDateTimeType(et)) {
+        setTimeout(() => {
+          try {
+            (inputRef.current as any)?.showPicker?.();
+          } catch {
+            // 浏览器不支持 showPicker，用户需手动点击日历图标
+          }
+        }, 50);
       }
     }
   }, [editingCell]);
@@ -98,8 +145,7 @@ export default function ResultTable() {
 
   const totalPages = Math.ceil(queryResult.rows.length / pageSize);
   const start = page * pageSize;
-  const end = Math.min(start + pageSize, queryResult.rows.length);
-  const visibleRows = queryResult.rows.slice(start, end);
+  const visibleRows = queryResult.rows.slice(start, start + pageSize);
 
   const pkColIndex = tableStructure
     ? tableStructure.columns.findIndex(
@@ -126,6 +172,24 @@ export default function ResultTable() {
     return formatValue(raw);
   };
 
+  const computeInitialEditValue = (
+    rowIdx: number,
+    colIdx: number,
+    colName: string,
+    value: unknown,
+    editorType: EditorType
+  ): string => {
+    const key = getEditKey(rowIdx, colName);
+    const edit = pendingEdits.get(key);
+    if (edit) return edit.newValue;
+
+    const rawStr = formatValue(value);
+    if (editorType === "datetime") return toDatetimeLocal(rawStr);
+    if (editorType === "date") return toHtmlDate(rawStr);
+    if (editorType === "time") return toHtmlTime(rawStr);
+    return rawStr;
+  };
+
   const handleCellDoubleClick = (
     rowIdx: number,
     colIdx: number,
@@ -136,27 +200,27 @@ export default function ResultTable() {
     if (pkColIndex === -1 && colIdx === 0) return;
     if (pkColIndex >= 0 && colIdx === pkColIndex) return;
 
-    const key = getEditKey(rowIdx, colName);
-    const edit = pendingEdits.get(key);
-    const rawStr = formatValue(value);
-
     const dataType = tableStructure?.columns[colIdx]?.data_type || "";
     const editorType = getEditorType(dataType);
-
-    let initialValue = edit ? edit.newValue : rawStr;
-
-    // 日期类型：转换格式
-    if (editorType === "datetime") {
-      initialValue = edit ? edit.newValue : toDatetimeLocal(rawStr);
-    } else if (editorType === "date") {
-      initialValue = edit ? edit.newValue : toHtmlDate(rawStr);
-    } else if (editorType === "time") {
-      initialValue = edit ? edit.newValue : toHtmlTime(rawStr);
-    }
-
-    setEditingCell({ row: rowIdx, col: colIdx });
+    const initialValue = computeInitialEditValue(rowIdx, colIdx, colName, value, editorType);
     setEditValue(initialValue);
+
+    if (isDateTimeType(editorType)) {
+      // 日期时间类型：先进入 preview 状态，用户需主动点击才打开选择器
+      setPreviewCell({ row: rowIdx, col: colIdx, editorType });
+      setEditingCell(null);
+    } else {
+      // 其他类型：直接进入编辑
+      setPreviewCell(null);
+      setEditingCell({ row: rowIdx, col: colIdx });
+    }
   };
+
+  const handleOpenDatePicker = useCallback(() => {
+    if (!previewCell) return;
+    setEditingCell({ row: previewCell.row, col: previewCell.col });
+    setPreviewCell(null);
+  }, [previewCell]);
 
   const handleCellBlur = () => {
     if (!editingCell || !selectedTable) {
@@ -171,7 +235,6 @@ export default function ResultTable() {
     const dataType = tableStructure?.columns[editingCell.col]?.data_type || "";
     const editorType = getEditorType(dataType);
 
-    // 转换回 MySQL 格式
     let newValue = editValue;
     if (editorType === "datetime") {
       newValue = fromDatetimeLocal(editValue);
@@ -199,6 +262,7 @@ export default function ResultTable() {
     }
     if (e.key === "Escape") {
       setEditingCell(null);
+      setPreviewCell(null);
     }
   };
 
@@ -265,7 +329,6 @@ export default function ResultTable() {
             checked={editValue === "1" || editValue === "true"}
             onChange={(e) => {
               setEditValue(e.target.checked ? "1" : "0");
-              // 对于 checkbox，立即 blur 以提交
               setTimeout(() => {
                 if (inputRef.current) inputRef.current.blur();
               }, 0);
@@ -289,7 +352,7 @@ export default function ResultTable() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" ref={tableRef}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--glass-border)] min-h-[36px]">
         <div className="flex items-center gap-2">
@@ -416,6 +479,9 @@ export default function ResultTable() {
                   const isEditing =
                     editingCell?.row === rowIdx &&
                     editingCell?.col === cellIdx;
+                  const isPreview =
+                    previewCell?.row === rowIdx &&
+                    previewCell?.col === cellIdx;
                   const isModified = pendingEdits.has(
                     getEditKey(rowIdx, colName)
                   );
@@ -437,22 +503,30 @@ export default function ResultTable() {
                       className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative ${
                         isModified ? "bg-amber-500/10" : ""
                       } ${isPk ? "font-medium text-primary/80" : ""} ${
-                        !isPk ? "cursor-pointer" : ""
+                        !isPk && !isEditing ? "cursor-pointer" : ""
                       }`}
                       title={displayValue}
                       onDoubleClick={() =>
                         handleCellDoubleClick(rowIdx, cellIdx, colName, cell)
                       }
                     >
-                      {isEditing
-                        ? renderEditor(editorType)
-                        : cell === null
-                        ? (
-                          <span className="text-muted-foreground italic">
-                            NULL
-                          </span>
-                        )
-                        : displayValue}
+                      {isEditing ? (
+                        renderEditor(editorType)
+                      ) : isPreview ? (
+                        <div
+                          className="flex items-center justify-between gap-1 w-full h-full cursor-pointer rounded px-1 py-0.5 bg-primary/10 hover:bg-primary/20 transition-colors"
+                          onClick={handleOpenDatePicker}
+                        >
+                          <span className="truncate">{displayValue}</span>
+                          <Calendar className="h-3 w-3 shrink-0 text-primary" />
+                        </div>
+                      ) : cell === null ? (
+                        <span className="text-muted-foreground italic">
+                          NULL
+                        </span>
+                      ) : (
+                        displayValue
+                      )}
                     </td>
                   );
                 })}
