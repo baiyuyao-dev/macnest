@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import { showSuccess, showError } from "@/lib/api";
 import type { MysqlConnectionConfig } from "@/types";
 
 interface ConnectionDialogProps {
@@ -38,18 +39,19 @@ export default function ConnectionDialog({
   });
   const [testing, setTesting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleTest = async () => {
     setTesting(true);
     try {
       const ok = await onTest(config);
       if (ok) {
-        toast.success("连接测试成功");
+        showSuccess("连接测试成功");
       } else {
-        toast.error("连接测试失败");
+        showError("连接测试失败");
       }
     } catch (err: any) {
-      toast.error("连接测试失败: " + err.message);
+      showError("连接测试失败", err.message);
     } finally {
       setTesting(false);
     }
@@ -61,7 +63,7 @@ export default function ConnectionDialog({
       await onSubmit(config);
       onOpenChange(false);
     } catch (err: any) {
-      toast.error("保存失败: " + err.message);
+      showError("保存失败", err.message);
     } finally {
       setSubmitting(false);
     }
@@ -129,15 +131,29 @@ export default function ConnectionDialog({
             <Label htmlFor="password" className="text-right">
               密码
             </Label>
-            <Input
-              id="password"
-              type="password"
-              value={config.password}
-              onChange={(e) =>
-                setConfig({ ...config, password: e.target.value })
-              }
-              className="col-span-3"
-            />
+            <div className="col-span-3 relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={config.password}
+                onChange={(e) =>
+                  setConfig({ ...config, password: e.target.value })
+                }
+                className="pr-9"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="database" className="text-right">
