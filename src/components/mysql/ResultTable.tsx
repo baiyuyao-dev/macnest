@@ -410,7 +410,7 @@ export default function ResultTable() {
   };
 
   return (
-    <div className="flex flex-col h-full" ref={tableRef}>
+    <div className="flex flex-col h-full relative" ref={tableRef}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--glass-border)] min-h-[36px]">
         <div className="flex items-center gap-2">
@@ -589,9 +589,9 @@ export default function ResultTable() {
           data-popup="datetime-picker"
           className="absolute z-[100] bg-background border border-border rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.15)] p-4 flex flex-col gap-3"
           style={{
-            left: Math.max(8, popupCell.rect.left - 16),
-            top: popupCell.rect.top + popupCell.rect.height + 6,
-            minWidth: 280,
+            left: popupCell.rect.left,
+            top: popupCell.rect.top + popupCell.rect.height + 4,
+            minWidth: Math.max(200, popupCell.rect.width),
             maxWidth: 340,
           }}
         >
