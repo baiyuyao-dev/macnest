@@ -20,6 +20,7 @@ import {
   testMysqlConnection,
   mysqlConnect,
   mysqlDisconnect,
+  switchMysqlDatabase,
   listMysqlDatabases,
   listMysqlTables,
   listMysqlViews,
@@ -175,6 +176,10 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
   },
 
   selectDatabase: async (database) => {
+    const { currentConnectionId } = get();
+    if (!currentConnectionId) return;
+    // 后端切换数据库（重建连接池）
+    await switchMysqlDatabase(currentConnectionId, database);
     set({ currentDatabase: database });
     await Promise.all([
       get().loadTables(),

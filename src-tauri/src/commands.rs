@@ -2656,6 +2656,30 @@ pub async fn mysql_disconnect(connection_id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn mysql_switch_database(
+    state: State<'_, AppState>,
+    connection_id: i64,
+    database: String,
+) -> Result<(), String> {
+    let conn = state
+        .db
+        .get_mysql_connection(connection_id)
+        .map_err(|e| e.to_string())?;
+    let decrypted_password = crate::security::decrypt(&conn.password)
+        .map_err(|e| format!("解密失败: {}", e))?;
+
+    mysql::switch_database(
+        connection_id,
+        &conn.host,
+        conn.port,
+        &conn.username,
+        &decrypted_password,
+        &database,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn mysql_list_databases(connection_id: i64) -> Result<Vec<mysql::schema::DatabaseInfo>, String> {
     mysql::schema::mysql_list_databases(connection_id).await
 }

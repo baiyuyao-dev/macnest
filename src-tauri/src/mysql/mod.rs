@@ -61,3 +61,29 @@ pub async fn unregister_pool(connection_id: i64) {
         let _ = pool.close().await;
     }
 }
+
+/// 切换数据库：关闭旧池，用新数据库重建连接池
+pub async fn switch_database(
+    connection_id: i64,
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    database: &str,
+) -> Result<(), String> {
+    // 关闭旧池
+    unregister_pool(connection_id).await;
+
+    // 用新数据库创建新池
+    let pool = get_or_create_pool(host, port, username, password, database)
+        .await?;
+
+    // 测试新连接
+    let _: (i64,) = sqlx::query_as("SELECT 1")
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| format!("切换数据库失败: {}", e))?;
+
+    register_pool(connection_id, pool).await;
+    Ok(())
+}

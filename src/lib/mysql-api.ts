@@ -64,6 +64,13 @@ export async function mysqlDisconnect(connectionId: number): Promise<void> {
   return invokeSafe("mysql_disconnect", { connectionId });
 }
 
+export async function switchMysqlDatabase(
+  connectionId: number,
+  database: string
+): Promise<void> {
+  return invokeSafe("mysql_switch_database", { connectionId, database });
+}
+
 // === 元数据 ===
 
 export async function listMysqlDatabases(connectionId: number): Promise<DatabaseInfo[]> {

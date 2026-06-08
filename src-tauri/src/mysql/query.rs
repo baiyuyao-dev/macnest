@@ -25,15 +25,6 @@ pub async fn mysql_execute_query(req: ExecuteQueryRequest) -> Result<QueryResult
     let pool = get_pool(req.connection_id).await?;
     let start = Instant::now();
 
-    // 如果指定了数据库，先 USE
-    if !req.database.is_empty() {
-        let use_sql = format!("USE `{}`", req.database);
-        sqlx::query(&use_sql)
-            .execute(&pool)
-            .await
-            .map_err(|e| format!("切换数据库失败: {}", e))?;
-    }
-
     let trimmed = req.sql.trim().to_lowercase();
     let is_select = trimmed.starts_with("select")
         || trimmed.starts_with("show")

@@ -311,6 +311,7 @@ fn main() {
             commands::mysql_test_connection,
             commands::mysql_connect,
             commands::mysql_disconnect,
+            commands::mysql_switch_database,
             commands::mysql_list_databases,
             commands::mysql_list_tables,
             commands::mysql_list_views,
