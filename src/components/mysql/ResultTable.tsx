@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Save, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, RotateCcw, CalendarDays, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMysqlStore } from "@/stores/mysql";
 
@@ -78,20 +78,21 @@ export default function ResultTable() {
     rect: DOMRect;
   } | null>(null);
   const [editValue, setEditValue] = useState("");
+  const editValueRef = useRef(editValue);
+  editValueRef.current = editValue;
   const inputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const popupInputRef = useRef<HTMLInputElement>(null);
 
   const hasEdits = pendingEdits.size > 0;
 
-  // 点击表格外部取消 edit / popup
+  // 点击外部：popup 自动保存，edit 执行 blur
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (popupCell) {
-        // 如果点击在弹出面板内，不处理
         const popupEl = document.querySelector("[data-popup='datetime-picker']");
         if (popupEl && popupEl.contains(e.target as Node)) return;
-        setPopupCell(null);
+        savePopupValue();
         return;
       }
       if (!tableRef.current) return;
@@ -103,19 +104,23 @@ export default function ResultTable() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [editingCell, popupCell, editValue]);
+  }, [editingCell, popupCell]);
 
-  // Escape 取消
+  // Escape 取消（不保存）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setPopupCell(null);
-        setEditingCell(null);
+        if (popupCell) setPopupCell(null);
+        else setEditingCell(null);
+      }
+      if (e.key === "Enter" && popupCell) {
+        e.preventDefault();
+        savePopupValue();
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [popupCell]);
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
@@ -239,15 +244,15 @@ export default function ResultTable() {
     }
   };
 
-  const handlePopupConfirm = () => {
+  const savePopupValue = () => {
     if (!popupCell || !selectedTable || !queryResult) return;
-    const { row, col, colName, editorType, value } = popupCell;
+    const { row, col, colName, editorType } = popupCell;
     const rawValue = queryResult.rows[start + row][col];
     const oldValue = formatValue(rawValue);
 
-    let newValue = editValue;
+    let newValue = editValueRef.current;
     if (editorType === "datetime") {
-      newValue = fromDatetimeLocal(editValue);
+      newValue = fromDatetimeLocal(newValue);
     }
 
     if (newValue !== oldValue) {
@@ -263,7 +268,16 @@ export default function ResultTable() {
     setPopupCell(null);
   };
 
-  const handlePopupCancel = () => {
+  const clearPopupValue = () => {
+    if (!popupCell || !selectedTable || !queryResult) return;
+    const { row, col, colName } = popupCell;
+    const rawValue = queryResult.rows[start + row][col];
+    setCellEdit({
+      rowIndex: start + row,
+      colName,
+      oldValue: rawValue,
+      newValue: "NULL",
+    });
     setPopupCell(null);
   };
 
@@ -573,54 +587,96 @@ export default function ResultTable() {
       {popupCell && (
         <div
           data-popup="datetime-picker"
-          className="absolute z-50 bg-popover border border-[var(--glass-border)] rounded-lg shadow-lg p-3 flex flex-col gap-2 min-w-[240px]"
+          className="absolute z-[100] bg-background border border-border rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.15)] p-4 flex flex-col gap-3"
           style={{
-            left: popupCell.rect.left,
-            top: popupCell.rect.top + popupCell.rect.height + 4,
+            left: Math.max(8, popupCell.rect.left - 16),
+            top: popupCell.rect.top + popupCell.rect.height + 6,
+            minWidth: 280,
+            maxWidth: 340,
           }}
         >
-          <div className="text-xs text-muted-foreground font-medium">
-            {popupCell.colName}
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5 text-primary" />
+              <span className="text-xs font-semibold text-foreground">
+                {popupCell.colName}
+              </span>
+            </div>
+            <button
+              className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-muted"
+              onClick={() => setPopupCell(null)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <input
-            ref={popupInputRef}
-            type={
-              popupCell.editorType === "datetime"
-                ? "datetime-local"
-                : popupCell.editorType === "date"
-                  ? "date"
-                  : "time"
-            }
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            className="w-full h-8 text-xs font-mono border border-input rounded px-2 bg-background outline-none focus:border-primary"
-            step={popupCell.editorType === "datetime" || popupCell.editorType === "time" ? 1 : undefined}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handlePopupConfirm();
+
+          {/* Input */}
+          <div className="relative">
+            <input
+              ref={popupInputRef}
+              type={
+                popupCell.editorType === "datetime"
+                  ? "datetime-local"
+                  : popupCell.editorType === "date"
+                    ? "date"
+                    : "time"
               }
-              if (e.key === "Escape") {
-                handlePopupCancel();
+              value={editValue === "NULL" ? "" : editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  savePopupValue();
+                }
+              }}
+              className="w-full h-10 text-sm font-mono border border-input rounded-lg px-3 pr-9 bg-background outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              step={
+                popupCell.editorType === "datetime" || popupCell.editorType === "time"
+                  ? 1
+                  : undefined
               }
-            }}
-          />
-          <div className="flex items-center justify-end gap-2">
+            />
+            <CalendarDays className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          </div>
+
+          {/* 快捷操作 */}
+          <div className="flex items-center gap-2">
             <Button
               size="sm"
-              variant="ghost"
-              className="h-6 text-xs"
-              onClick={handlePopupCancel}
+              variant="outline"
+              className="h-7 text-[11px] gap-1 flex-1"
+              onClick={() => {
+                const now = new Date();
+                if (popupCell.editorType === "datetime") {
+                  const pad = (n: number) => String(n).padStart(2, "0");
+                  setEditValue(
+                    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
+                  );
+                } else if (popupCell.editorType === "date") {
+                  setEditValue(now.toISOString().slice(0, 10));
+                } else if (popupCell.editorType === "time") {
+                  const pad = (n: number) => String(n).padStart(2, "0");
+                  setEditValue(`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`);
+                }
+              }}
             >
-              取消
+              今天
             </Button>
             <Button
               size="sm"
-              className="h-6 text-xs"
-              onClick={handlePopupConfirm}
+              variant="outline"
+              className="h-7 text-[11px] gap-1 flex-1 text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/5"
+              onClick={clearPopupValue}
             >
-              确定
+              <Trash2 className="h-3 w-3" />
+              设为 NULL
             </Button>
+          </div>
+
+          {/* 提示 */}
+          <div className="text-[10px] text-muted-foreground text-center">
+            按 Enter 确认 · 点击外部保存 · Esc 取消
           </div>
         </div>
       )}
