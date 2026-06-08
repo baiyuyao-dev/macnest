@@ -326,6 +326,7 @@ fn main() {
             commands::mysql_delete_backup_task,
             commands::mysql_toggle_backup_task,
             commands::mysql_run_backup_now,
+            commands::mysql_dump_table,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

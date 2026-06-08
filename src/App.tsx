@@ -61,6 +61,15 @@ function App() {
     };
   }, []);
 
+  // 全局禁用浏览器默认右键菜单，只保留单独绑定的自定义右键菜单
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", handler);
+    return () => document.removeEventListener("contextmenu", handler);
+  }, []);
+
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add("dark");

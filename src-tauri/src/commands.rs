@@ -2764,3 +2764,60 @@ pub fn mysql_toggle_backup_task(state: State<'_, AppState>, id: i64, is_enabled:
 pub async fn mysql_run_backup_now(state: State<'_, AppState>, task_id: i64) -> Result<String, String> {
     mysql::backup::mysql_run_backup_now(&state.db, task_id).await
 }
+
+#[tauri::command]
+pub async fn mysql_dump_table(
+    state: State<'_, AppState>,
+    connection_id: i64,
+    database_name: String,
+    table_name: String,
+    dump_type: String, // "structure_and_data" | "structure_only"
+) -> Result<String, String> {
+    let conn = state
+        .db
+        .get_mysql_connection(connection_id)
+        .map_err(|e| e.to_string())?;
+    let decrypted_password = crate::security::decrypt(&conn.password)
+        .map_err(|e| format!("解密失败: {}", e))?;
+
+    // Build output path
+    let app_dir = std::env::temp_dir();
+    let dump_dir = app_dir.join("macnest_mysql_dumps");
+    std::fs::create_dir_all(&dump_dir).map_err(|e| e.to_string())?;
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("{}_{}_{}.sql", database_name, table_name, timestamp);
+    let output_path = dump_dir.join(&filename);
+    let output_path_str = output_path.to_str().ok_or("Invalid output path")?;
+
+    // Build mysqldump args
+    let mut args = vec![
+        "-h".to_string(),
+        conn.host.clone(),
+        "-P".to_string(),
+        conn.port.to_string(),
+        "-u".to_string(),
+        conn.username.clone(),
+        format!("-p{}", decrypted_password),
+        database_name,
+        table_name,
+    ];
+
+    if dump_type == "structure_only" {
+        args.push("--no-data".to_string());
+    }
+
+    let output = std::process::Command::new("mysqldump")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("运行 mysqldump 失败: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("mysqldump 失败: {}", stderr));
+    }
+
+    std::fs::write(&output_path, &output.stdout).map_err(|e| e.to_string())?;
+
+    Ok(output_path_str.to_string())
+}
