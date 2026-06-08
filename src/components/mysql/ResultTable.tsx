@@ -1,9 +1,50 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Save, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMysqlStore } from "@/stores/mysql";
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500, 1000];
+
+type EditorType = "text" | "number" | "date" | "datetime" | "time" | "checkbox";
+
+function getEditorType(dataType: string): EditorType {
+  const t = dataType.toLowerCase();
+  if (t.includes("datetime")) return "datetime";
+  if (t.includes("timestamp")) return "datetime";
+  if (t.includes("date")) return "date";
+  if (t.includes("time")) return "time";
+  if (t.includes("year")) return "number";
+  if (t.includes("int") || t.includes("float") || t.includes("double") || t.includes("decimal")) return "number";
+  if (t.includes("bool") || t.includes("tinyint(1)")) return "checkbox";
+  return "text";
+}
+
+/** MySQL datetime → HTML datetime-local (YYYY-MM-DDTHH:MM) */
+function toDatetimeLocal(v: string): string {
+  if (!v || v === "NULL") return "";
+  // MySQL: "2024-01-15 10:30:00" or "2024-01-15 10:30:00.000000"
+  const clean = v.replace(/\.\d+$/, "").trim();
+  if (clean.length < 10) return "";
+  return clean.replace(" ", "T").slice(0, 16);
+}
+
+/** HTML datetime-local → MySQL datetime */
+function fromDatetimeLocal(v: string): string {
+  if (!v) return "NULL";
+  return v.replace("T", " ") + ":00";
+}
+
+/** MySQL date → HTML date */
+function toHtmlDate(v: string): string {
+  if (!v || v === "NULL") return "";
+  return v.trim().slice(0, 10);
+}
+
+/** MySQL time → HTML time */
+function toHtmlTime(v: string): string {
+  if (!v || v === "NULL") return "";
+  return v.trim().slice(0, 8);
+}
 
 export default function ResultTable() {
   const {
@@ -26,8 +67,18 @@ export default function ResultTable() {
     col: number;
   } | null>(null);
   const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const hasEdits = pendingEdits.size > 0;
+
+  useEffect(() => {
+    if (editingCell && inputRef.current) {
+      inputRef.current.focus();
+      if (inputRef.current.type === "text" || inputRef.current.type === "number") {
+        inputRef.current.select();
+      }
+    }
+  }, [editingCell]);
 
   if (!queryResult || queryResult.columns.length === 0) {
     const affected = queryResult?.affected_rows;
@@ -50,7 +101,6 @@ export default function ResultTable() {
   const end = Math.min(start + pageSize, queryResult.rows.length);
   const visibleRows = queryResult.rows.slice(start, end);
 
-  // 找到主键列索引（如果有）
   const pkColIndex = tableStructure
     ? tableStructure.columns.findIndex(
         (c) =>
@@ -76,22 +126,36 @@ export default function ResultTable() {
     return formatValue(raw);
   };
 
-  const handleCellClick = (
+  const handleCellDoubleClick = (
     rowIdx: number,
     colIdx: number,
     colName: string,
     value: unknown
   ) => {
     if (!selectedTable) return;
-    if (pkColIndex === -1 && colIdx === 0) return; // 无明确主键时，禁止编辑第一列
-    if (pkColIndex >= 0 && colIdx === pkColIndex) return; // 禁止编辑主键列
+    if (pkColIndex === -1 && colIdx === 0) return;
+    if (pkColIndex >= 0 && colIdx === pkColIndex) return;
 
-    // 如果有 pending edit，用新值作为初始值
     const key = getEditKey(rowIdx, colName);
     const edit = pendingEdits.get(key);
+    const rawStr = formatValue(value);
+
+    const dataType = tableStructure?.columns[colIdx]?.data_type || "";
+    const editorType = getEditorType(dataType);
+
+    let initialValue = edit ? edit.newValue : rawStr;
+
+    // 日期类型：转换格式
+    if (editorType === "datetime") {
+      initialValue = edit ? edit.newValue : toDatetimeLocal(rawStr);
+    } else if (editorType === "date") {
+      initialValue = edit ? edit.newValue : toHtmlDate(rawStr);
+    } else if (editorType === "time") {
+      initialValue = edit ? edit.newValue : toHtmlTime(rawStr);
+    }
 
     setEditingCell({ row: rowIdx, col: colIdx });
-    setEditValue(edit ? edit.newValue : formatValue(value));
+    setEditValue(initialValue);
   };
 
   const handleCellBlur = () => {
@@ -104,12 +168,23 @@ export default function ResultTable() {
     const rawValue = queryResult.rows[start + editingCell.row][editingCell.col];
     const oldValue = formatValue(rawValue);
 
-    if (editValue !== oldValue) {
+    const dataType = tableStructure?.columns[editingCell.col]?.data_type || "";
+    const editorType = getEditorType(dataType);
+
+    // 转换回 MySQL 格式
+    let newValue = editValue;
+    if (editorType === "datetime") {
+      newValue = fromDatetimeLocal(editValue);
+    } else if (editorType === "checkbox") {
+      newValue = editValue === "true" || editValue === "1" ? "1" : "0";
+    }
+
+    if (newValue !== oldValue) {
       setCellEdit({
         rowIndex: start + editingCell.row,
         colName,
         oldValue: rawValue,
-        newValue: editValue,
+        newValue,
       });
     } else {
       removeCellEdit(start + editingCell.row, colName);
@@ -124,6 +199,92 @@ export default function ResultTable() {
     }
     if (e.key === "Escape") {
       setEditingCell(null);
+    }
+  };
+
+  const renderEditor = (editorType: EditorType) => {
+    const baseClass =
+      "absolute inset-0 w-full h-full bg-background/95 border border-primary rounded-sm px-2 py-1 text-xs font-mono outline-none box-border";
+
+    switch (editorType) {
+      case "datetime":
+        return (
+          <input
+            ref={inputRef}
+            type="datetime-local"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleCellBlur}
+            onKeyDown={handleKeyDown}
+            className={baseClass}
+            step={1}
+          />
+        );
+      case "date":
+        return (
+          <input
+            ref={inputRef}
+            type="date"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleCellBlur}
+            onKeyDown={handleKeyDown}
+            className={baseClass}
+          />
+        );
+      case "time":
+        return (
+          <input
+            ref={inputRef}
+            type="time"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleCellBlur}
+            onKeyDown={handleKeyDown}
+            className={baseClass}
+            step={1}
+          />
+        );
+      case "number":
+        return (
+          <input
+            ref={inputRef}
+            type="number"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleCellBlur}
+            onKeyDown={handleKeyDown}
+            className={baseClass}
+          />
+        );
+      case "checkbox":
+        return (
+          <input
+            ref={inputRef}
+            type="checkbox"
+            checked={editValue === "1" || editValue === "true"}
+            onChange={(e) => {
+              setEditValue(e.target.checked ? "1" : "0");
+              // 对于 checkbox，立即 blur 以提交
+              setTimeout(() => {
+                if (inputRef.current) inputRef.current.blur();
+              }, 0);
+            }}
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4"
+          />
+        );
+      default:
+        return (
+          <input
+            ref={inputRef}
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleCellBlur}
+            onKeyDown={handleKeyDown}
+            className={baseClass}
+          />
+        );
     }
   };
 
@@ -168,7 +329,6 @@ export default function ResultTable() {
 
         {/* Pagination */}
         <div className="flex items-center gap-2">
-          {/* Page size selector */}
           <select
             value={pageSize}
             onChange={(e) => {
@@ -267,33 +427,32 @@ export default function ResultTable() {
                   const isPk =
                     pkColIndex >= 0 ? cellIdx === pkColIndex : cellIdx === 0;
 
+                  const dataType =
+                    tableStructure?.columns[cellIdx]?.data_type || "";
+                  const editorType = getEditorType(dataType);
+
                   return (
                     <td
                       key={cellIdx}
                       className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative ${
                         isModified ? "bg-amber-500/10" : ""
-                      } ${isPk ? "font-medium text-primary/80" : ""}`}
+                      } ${isPk ? "font-medium text-primary/80" : ""} ${
+                        !isPk ? "cursor-pointer" : ""
+                      }`}
                       title={displayValue}
-                      onClick={() =>
-                        handleCellClick(rowIdx, cellIdx, colName, cell)
+                      onDoubleClick={() =>
+                        handleCellDoubleClick(rowIdx, cellIdx, colName, cell)
                       }
                     >
-                      {isEditing ? (
-                        <input
-                          autoFocus
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={handleCellBlur}
-                          onKeyDown={handleKeyDown}
-                          className="absolute inset-0 w-full h-full bg-background/95 border border-primary rounded-sm px-2 py-1 text-xs font-mono outline-none box-border"
-                        />
-                      ) : cell === null ? (
-                        <span className="text-muted-foreground italic">
-                          NULL
-                        </span>
-                      ) : (
-                        displayValue
-                      )}
+                      {isEditing
+                        ? renderEditor(editorType)
+                        : cell === null
+                        ? (
+                          <span className="text-muted-foreground italic">
+                            NULL
+                          </span>
+                        )
+                        : displayValue}
                     </td>
                   );
                 })}
