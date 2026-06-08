@@ -303,6 +303,14 @@ fn main() {
             commands::delete_notification,
             commands::toggle_notification,
             commands::list_notification_logs,
+            // MySQL commands
+            commands::mysql_create_connection,
+            commands::mysql_list_connections,
+            commands::mysql_update_connection,
+            commands::mysql_delete_connection,
+            commands::mysql_test_connection,
+            commands::mysql_connect,
+            commands::mysql_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

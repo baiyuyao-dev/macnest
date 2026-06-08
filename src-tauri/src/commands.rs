@@ -5,6 +5,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::database;
 use crate::docker;
+use crate::mysql;
 use crate::ssh::types::SshAuthType;
 use crate::system;
 use crate::AppState;
@@ -2533,4 +2534,121 @@ pub async fn reinstall_to_applications() -> Result<String, String> {
     }
 
     Ok(format!("{} 已重新安装到 /Applications", app_name))
+}
+
+// === Notification Commands ===
+
+#[derive(Debug, Deserialize)]
+pub struct CreateNotificationRequest {
+    pub name: String,
+    pub notify_type: String,
+    pub content: String,
+    pub trigger_condition: String,
+}
+
+#[tauri::command]
+pub fn create_notification(
+    state: State<AppState>,
+    req: CreateNotificationRequest,
+) -> Result<i64, String> {
+    state
+        .db
+        .create_notification(&req.name, &req.notify_type, &req.content, &req.trigger_condition)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_notifications(state: State<AppState>) -> Result<Vec<database::Notification>, String> {
+    state.db.list_notifications().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_notification(
+    state: State<AppState>,
+    req: database::Notification,
+) -> Result<(), String> {
+    state
+        .db
+        .update_notification(
+            req.id,
+            &req.name,
+            &req.notify_type,
+            &req.content,
+            &req.trigger_condition,
+            req.enabled,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_notification(state: State<AppState>, id: i64) -> Result<(), String> {
+    state.db.delete_notification(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn toggle_notification(
+    state: State<AppState>,
+    id: i64,
+    enabled: bool,
+) -> Result<(), String> {
+    state.db.toggle_notification(id, enabled).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_notification_logs(
+    state: State<AppState>,
+    notification_id: i64,
+) -> Result<Vec<database::NotificationLog>, String> {
+    state
+        .db
+        .list_notification_logs(notification_id)
+        .map_err(|e| e.to_string())
+}
+
+// === MySQL Commands ===
+
+#[tauri::command]
+pub async fn mysql_create_connection(
+    state: State<'_, AppState>,
+    req: mysql::connection::CreateMysqlConnectionRequest,
+) -> Result<i64, String> {
+    mysql::connection::mysql_create_connection(&state.db, req).await
+}
+
+#[tauri::command]
+pub fn mysql_list_connections(state: State<'_, AppState>) -> Result<Vec<mysql::connection::MysqlConnectionResponse>, String> {
+    mysql::connection::mysql_list_connections(&state.db)
+}
+
+#[tauri::command]
+pub async fn mysql_update_connection(
+    state: State<'_, AppState>,
+    req: mysql::connection::UpdateMysqlConnectionRequest,
+) -> Result<(), String> {
+    mysql::connection::mysql_update_connection(&state.db, req).await
+}
+
+#[tauri::command]
+pub async fn mysql_delete_connection(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    mysql::connection::mysql_delete_connection(&state.db, id).await
+}
+
+#[tauri::command]
+pub async fn mysql_test_connection(
+    req: mysql::connection::TestMysqlConnectionRequest,
+) -> Result<bool, String> {
+    mysql::connection::mysql_test_connection(req).await
+}
+
+#[tauri::command]
+pub async fn mysql_connect(
+    state: State<'_, AppState>,
+    connection_id: i64,
+) -> Result<bool, String> {
+    mysql::connection::mysql_connect(&state.db, connection_id).await
+}
+
+#[tauri::command]
+pub async fn mysql_disconnect(connection_id: i64) -> Result<(), String> {
+    mysql::connection::mysql_disconnect(connection_id).await
 }
