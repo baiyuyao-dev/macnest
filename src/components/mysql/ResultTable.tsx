@@ -134,14 +134,11 @@ export default function ResultTable() {
 
   // Reset filters / selection when queryResult changes
   useEffect(() => {
-    if (queryResult) {
-      setFilters(new Array(queryResult.columns.length).fill(""));
-    }
     setSelectedRow(null);
     setSelectedCol(null);
     setSortConfig(null);
     setPage(0);
-  }, [queryResult ? queryResult.columns.join(",") : ""]);
+  }, [queryResult ? queryResult.columns.length : 0]);
 
   // Click outside: popup auto-save, edit blur
   useEffect(() => {
@@ -225,14 +222,22 @@ export default function ResultTable() {
     : -1;
 
   // Filter → Sort → Paginate
+  const activeFilters =
+    queryResult && filters.length === queryResult.columns.length
+      ? filters
+      : queryResult
+        ? new Array(queryResult.columns.length).fill("")
+        : filters;
+
   const processedRows = useMemo(() => {
-    let rows: DisplayRow[] = queryResult.rows.map((data, i) => ({ origIndex: i, data }));
+    const rawRows = Array.isArray(queryResult?.rows) ? queryResult.rows : [];
+    let rows: DisplayRow[] = rawRows.map((data, i) => ({ origIndex: i, data }));
 
     // Filter
-    if (filters.some((f) => f)) {
+    if (activeFilters.some((f) => f)) {
       rows = rows.filter((row) =>
         row.data.every((cell, ci) => {
-          const filter = filters[ci]?.trim().toLowerCase();
+          const filter = activeFilters[ci]?.trim().toLowerCase();
           if (!filter) return true;
           if (filter === "null") return cell === null;
           if (filter === "!null" || filter === "not null") return cell !== null;
@@ -416,7 +421,11 @@ export default function ResultTable() {
 
   const handleFilterChange = (colIdx: number, value: string) => {
     setFilters((prev) => {
-      const next = [...prev];
+      const len = queryResult ? queryResult.columns.length : prev.length;
+      const next = new Array(len).fill("");
+      for (let i = 0; i < Math.min(prev.length, len); i++) {
+        next[i] = prev[i];
+      }
       next[colIdx] = value;
       return next;
     });
@@ -424,7 +433,9 @@ export default function ResultTable() {
   };
 
   const clearAllFilters = () => {
-    setFilters(new Array(queryResult.columns.length).fill(""));
+    if (queryResult) {
+      setFilters(new Array(queryResult.columns.length).fill(""));
+    }
     setPage(0);
   };
 
@@ -588,7 +599,7 @@ export default function ResultTable() {
                 {processedRows.length} 行
                 {processedRows.length !== queryResult.rows.length && ` / 共 ${queryResult.rows.length} 行`}
               </span>
-              {filters.some((f) => f) && (
+              {activeFilters.some((f) => f) && (
                 <Button size="sm" variant="ghost" className="h-6 text-xs gap-1" onClick={clearAllFilters}>
                   <Eraser className="h-3 w-3" />
                   清除筛选
@@ -688,7 +699,7 @@ export default function ResultTable() {
                     <Filter className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2.5 w-2.5 text-muted-foreground" />
                     <input
                       type="text"
-                      value={filters[ci] || ""}
+                      value={activeFilters[ci] || ""}
                       onChange={(e) => handleFilterChange(ci, e.target.value)}
                       placeholder="筛选..."
                       className="w-full h-6 text-[10px] pl-5 pr-1 bg-transparent outline-none placeholder:text-muted-foreground/50"
