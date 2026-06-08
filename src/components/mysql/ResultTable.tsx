@@ -141,7 +141,7 @@ export default function ResultTable() {
     setSelectedCol(null);
     setSortConfig(null);
     setPage(0);
-  }, [queryResult?.columns.join(",")]);
+  }, [queryResult ? queryResult.columns.join(",") : ""]);
 
   // Click outside: popup auto-save, edit blur
   useEffect(() => {
