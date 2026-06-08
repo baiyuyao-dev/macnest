@@ -5,11 +5,13 @@ mod database;
 mod docker;
 mod docker_terminal;
 mod error;
+mod notification_scheduler;
 mod process;
 mod rdp;
 mod safari_bookmarks;
 mod security;
 mod system;
+mod mysql;
 mod ssh;
 mod tmux;
 
@@ -131,6 +133,11 @@ fn main() {
                     }
                 }
             });
+
+            // Start notification scheduler
+            let db_path_for_scheduler = db_path_str.to_string();
+            let app_handle_for_scheduler = app_handle.clone();
+            notification_scheduler::start_scheduler(db_path_for_scheduler, app_handle_for_scheduler);
 
             // Create tray popup window (hidden by default)
             let _popup = tauri::WebviewWindowBuilder::new(
@@ -289,6 +296,13 @@ fn main() {
             commands::get_app_path,
             commands::is_in_applications,
             commands::reinstall_to_applications,
+            // Notification management commands
+            commands::create_notification,
+            commands::list_notifications,
+            commands::update_notification,
+            commands::delete_notification,
+            commands::toggle_notification,
+            commands::list_notification_logs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

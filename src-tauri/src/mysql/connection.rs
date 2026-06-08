@@ -1,0 +1,1 @@
+// MySQL connection management - will be implemented in Task 4
