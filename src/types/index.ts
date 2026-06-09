@@ -453,3 +453,44 @@ export interface MysqlObject {
   type: MysqlObjectType;
   database: string;
 }
+
+// ===== 数据库管理器标签页状态 =====
+
+export type PendingEdit =
+  | { type: "cell"; rowIndex: number; colName: string; oldValue: unknown; newValue: string }
+  | { type: "delete"; rowIndex: number };
+
+export interface TabState {
+  table: string;
+  subTab: "data" | "structure" | "sql";
+  filters: Record<string, string>;
+  sortCol: string | null;
+  sortDir: "asc" | "desc" | null;
+  page: number;
+  pageSize: number;
+  selectedRows: Set<number>;
+  selectedCols: Set<string>;
+  pendingEdits: Map<string, PendingEdit>;
+  queryResult: MysqlQueryResult | null;
+  tableStructure: TableStructure | null;
+  totalRows: number;
+  sqlEditorContent: string;
+}
+
+export interface LoadTableDataRequest {
+  connection_id: number;
+  database: string;
+  table: string;
+  page: number;
+  page_size: number;
+  filters: Record<string, string>;
+  sort_col: string | null;
+  sort_dir: "asc" | "desc" | null;
+}
+
+export interface LoadTableDataResponse {
+  columns: string[];
+  rows: any[][];
+  total_rows: number;
+  execution_time_ms: number;
+}
