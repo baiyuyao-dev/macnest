@@ -85,7 +85,7 @@ interface MysqlState {
   toggleBackupTask: (id: number, isEnabled: boolean) => Promise<void>;
   runBackupNow: (taskId: number) => Promise<string>;
 
-  openTab: (table: string) => number;
+  openTab: (table: string) => Promise<number>;
   closeTab: (index: number) => void;
   switchTab: (index: number) => void;
   setTabSubTab: (tabIndex: number, subTab: "data" | "structure" | "sql") => void;
@@ -275,7 +275,7 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
     const { currentConnectionId, currentDatabase } = get();
     if (!currentConnectionId || !currentDatabase) return;
 
-    const tabIndex = get().openTab(table);
+    const tabIndex = await get().openTab(table);
     const structure = await getMysqlTableStructure(currentConnectionId, currentDatabase, table);
 
     set((state) => {
@@ -293,7 +293,7 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
     const { currentConnectionId, currentDatabase } = get();
     if (!currentConnectionId || !currentDatabase) return null;
 
-    const tabIndex = get().openTab(table);
+    const tabIndex = await get().openTab(table);
     const pageSize = limit ?? get().openTabs[tabIndex]?.pageSize ?? 100;
 
     set((state) => {
@@ -412,7 +412,7 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
     return path;
   },
 
-  openTab: (table) => {
+  openTab: async (table) => {
     const state = get();
     const existingIndex = state.openTabs.findIndex((t) => t.table === table);
     if (existingIndex !== -1) {
@@ -420,11 +420,14 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
       return existingIndex;
     }
     const newTab = createTabState(table);
-    set((state) => ({
+    const newIndex = state.openTabs.length;
+    set({
       openTabs: [...state.openTabs, newTab],
-      activeTabIndex: state.openTabs.length,
-    }));
-    return state.openTabs.length;
+      activeTabIndex: newIndex,
+    });
+    // 自动加载数据
+    await get().reloadTabData(newIndex);
+    return newIndex;
   },
 
   closeTab: (index) => {

@@ -21,7 +21,8 @@ const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500, 1000];
 
 type EditorType = "text" | "number" | "date" | "datetime" | "time" | "checkbox";
 
-function getEditorType(dataType: string): EditorType {
+function getEditorType(dataType: string | undefined): EditorType {
+  if (!dataType) return "text";
   const t = dataType.toLowerCase();
   if (t.includes("datetime")) return "datetime";
   if (t.includes("timestamp")) return "datetime";
