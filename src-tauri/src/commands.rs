@@ -2738,6 +2738,13 @@ pub async fn mysql_execute_query(
 }
 
 #[tauri::command]
+pub async fn mysql_load_table_data_paged(
+    req: mysql::query::LoadTableDataRequest,
+) -> Result<mysql::query::LoadTableDataResponse, String> {
+    mysql::query::mysql_load_table_data_paged(req).await
+}
+
+#[tauri::command]
 pub fn mysql_create_backup_task(
     state: State<'_, AppState>,
     req: mysql::backup::CreateBackupTaskRequest,

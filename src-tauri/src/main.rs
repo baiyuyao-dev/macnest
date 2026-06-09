@@ -321,6 +321,7 @@ fn main() {
             commands::mysql_list_events,
             commands::mysql_get_table_structure,
             commands::mysql_execute_query,
+            commands::mysql_load_table_data_paged,
             commands::mysql_create_backup_task,
             commands::mysql_list_backup_tasks,
             commands::mysql_delete_backup_task,
