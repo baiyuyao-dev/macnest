@@ -34,7 +34,7 @@ const navItems = [
   { to: "/tmux", icon: Monitor, label: "Tmux" },
   // RDP 功能暂时隐藏菜单入口（功能保留）
   // { to: "/rdp", icon: ScreenShare, label: "RDP" },
-  { to: "/mysql", icon: DatabaseIcon, label: "MySQL" },
+  { to: "/database", icon: DatabaseIcon, label: "数据库管理" },
   { to: "/system", icon: Activity, label: "系统" },
   { to: "/notifications", icon: Bell, label: "通知" },
 ];

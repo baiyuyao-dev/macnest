@@ -97,7 +97,11 @@ function TreeItem({
   );
 }
 
-export default function ObjectTree() {
+interface ObjectTreeProps {
+  onOpenTable?: (tableName: string) => void;
+}
+
+export default function ObjectTree({ onOpenTable }: ObjectTreeProps = {}) {
   const {
     connections,
     currentConnectionId,
@@ -207,7 +211,11 @@ export default function ObjectTree() {
   };
 
   const handleTableClick = (tableName: string) => {
-    loadTableData(tableName);
+    if (onOpenTable) {
+      onOpenTable(tableName);
+    } else {
+      loadTableData(tableName);
+    }
   };
 
   const handleTableDoubleClick = (tableName: string) => {
@@ -218,7 +226,7 @@ export default function ObjectTree() {
     <div className="flex flex-col h-full w-[280px] shrink-0 border-r border-[var(--glass-border)]">
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-[var(--glass-border)]">
-        <span className="text-sm font-semibold">MySQL</span>
+        <span className="text-sm font-semibold">数据库管理</span>
         <Button
           variant="ghost"
           size="icon"
