@@ -312,6 +312,7 @@ export default function ResultTable() {
         colName,
         oldValue: rawValue,
         newValue,
+        pkValue: queryResult.rows[start + row][0],
       });
     } else {
       removeTabCellEdit(activeTabIndex, start + row, colName);
@@ -329,6 +330,7 @@ export default function ResultTable() {
       colName,
       oldValue: rawValue,
       newValue: "NULL",
+      pkValue: queryResult.rows[start + row][0],
     });
     setPopupCell(null);
   };
@@ -456,6 +458,7 @@ export default function ResultTable() {
             colName,
             oldValue,
             newValue: val,
+            pkValue: queryResult.rows[i][0],
           });
         }
       });
@@ -498,6 +501,7 @@ export default function ResultTable() {
         colName,
         oldValue: rawValue,
         newValue,
+        pkValue: queryResult.rows[start + editingCell.row][0],
       });
     } else {
       removeTabCellEdit(activeTabIndex, start + editingCell.row, colName);
@@ -1031,10 +1035,12 @@ export default function ResultTable() {
           <button
             className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40 flex items-center gap-2 text-destructive"
             onClick={() => {
-              if (activeTabIndex >= 0) {
+              if (activeTabIndex >= 0 && queryResult) {
+                const localIdx = rowMenu.rowIndex - start;
                 setTabCellEdit(activeTabIndex, {
                   type: "delete",
                   rowIndex: rowMenu.rowIndex,
+                  pkValue: queryResult.rows[localIdx]?.[0],
                 });
               }
               setRowMenu(null);
@@ -1073,13 +1079,17 @@ export default function ResultTable() {
           <button
             className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40"
             onClick={() => {
-              setTabCellEdit(activeTabIndex, {
-                type: "cell",
-                rowIndex: cellMenu.rowIndex,
-                colName: cellMenu.colName,
-                oldValue: cellMenu.value,
-                newValue: "NULL",
-              });
+              if (queryResult) {
+                const localIdx = cellMenu.rowIndex - start;
+                setTabCellEdit(activeTabIndex, {
+                  type: "cell",
+                  rowIndex: cellMenu.rowIndex,
+                  colName: cellMenu.colName,
+                  oldValue: cellMenu.value,
+                  newValue: "NULL",
+                  pkValue: queryResult.rows[localIdx]?.[0],
+                });
+              }
               setCellMenu(null);
             }}
           >

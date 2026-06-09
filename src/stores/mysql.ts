@@ -586,7 +586,7 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
     try {
       // Execute DELETEs first, grouped by row using primary key
       for (const edit of deleteEdits) {
-        const pkValue = queryResult?.rows[edit.rowIndex]?.[0];
+        const pkValue = edit.pkValue;
         if (pkValue === undefined) continue;
 
         let pkClause: string;
@@ -616,7 +616,8 @@ export const useMysqlStore = create<MysqlState>((set, get) => ({
 
       // Execute UPDATEs grouped by row
       for (const [rowIndex, edits] of updateEditsByRow) {
-        const pkValue = queryResult?.rows[rowIndex]?.[0];
+        const firstEdit = edits[0];
+        const pkValue = firstEdit.pkValue;
         if (pkValue === undefined) continue;
 
         const sets = edits.map((e) => `\`${(e as Extract<PendingEdit, { type: "cell" }>).colName}\` = ?`).join(", ");

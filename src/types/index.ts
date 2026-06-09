@@ -457,8 +457,8 @@ export interface MysqlObject {
 // ===== 数据库管理器标签页状态 =====
 
 export type PendingEdit =
-  | { type: "cell"; rowIndex: number; colName: string; oldValue: unknown; newValue: string }
-  | { type: "delete"; rowIndex: number };
+  | { type: "cell"; rowIndex: number; colName: string; oldValue: unknown; newValue: string; pkValue: unknown }
+  | { type: "delete"; rowIndex: number; pkValue: unknown };
 
 export interface TabState {
   table: string;
