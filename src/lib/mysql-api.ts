@@ -11,6 +11,7 @@ import type {
   TableStructure,
   MysqlQueryResult,
   MysqlBackupTask,
+  LoadTableDataResponse,
 } from "@/types";
 
 function getErrorMessage(error: unknown): string {
@@ -118,6 +119,30 @@ export async function getMysqlTableStructure(
   table: string
 ): Promise<TableStructure> {
   return invokeSafe("mysql_get_table_structure", { connectionId, database, table });
+}
+
+export async function loadTableDataPaged(
+  connectionId: number,
+  database: string,
+  table: string,
+  page: number,
+  pageSize: number,
+  filters: Record<string, string>,
+  sortCol: string | null,
+  sortDir: "asc" | "desc" | null
+): Promise<LoadTableDataResponse> {
+  return invokeSafe("mysql_load_table_data_paged", {
+    req: {
+      connection_id: connectionId,
+      database,
+      table,
+      page,
+      page_size: pageSize,
+      filters,
+      sort_col: sortCol,
+      sort_dir: sortDir,
+    },
+  });
 }
 
 // === 查询执行 ===
