@@ -9,7 +9,10 @@ import {
 } from "@/components/ui/table";
 
 export default function TableStructureView() {
-  const { tableStructure, selectedTable } = useMysqlStore();
+  const { openTabs, activeTabIndex } = useMysqlStore();
+  const tab = activeTabIndex >= 0 ? openTabs[activeTabIndex] : null;
+  const tableStructure = tab?.tableStructure ?? null;
+  const selectedTable = tab?.table ?? null;
 
   if (!selectedTable || !tableStructure) {
     return (
@@ -38,7 +41,7 @@ export default function TableStructureView() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {tableStructure.columns.map((col) => (
+            {tableStructure.columns.map((col: { name: string; data_type: string; is_nullable: string; key: string; default_value: string | null; extra: string; comment: string }) => (
               <TableRow key={col.name} className="text-xs">
                 <TableCell className="font-mono">{col.name}</TableCell>
                 <TableCell>{col.data_type}</TableCell>
@@ -67,7 +70,7 @@ export default function TableStructureView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tableStructure.indexes.map((idx) => (
+              {tableStructure.indexes.map((idx: { name: string; columns: string; non_unique: boolean }) => (
                 <TableRow key={idx.name} className="text-xs">
                   <TableCell className="font-mono">{idx.name}</TableCell>
                   <TableCell>{idx.columns}</TableCell>

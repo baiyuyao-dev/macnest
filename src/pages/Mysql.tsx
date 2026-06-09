@@ -10,17 +10,20 @@ import { useMysqlStore } from "@/stores/mysql";
 export default function Mysql() {
   const {
     loadConnections,
-    selectedTable,
-    viewMode,
-    setViewMode,
-    showQueryEditor,
-    setShowQueryEditor,
-    queryResult,
+    openTabs,
+    activeTabIndex,
+    setTabSubTab,
   } = useMysqlStore();
 
   useEffect(() => {
     loadConnections();
   }, []);
+
+  const tab = activeTabIndex >= 0 ? openTabs[activeTabIndex] : null;
+  const selectedTable = tab?.table ?? null;
+  const subTab = tab?.subTab ?? "data";
+  const showQueryEditor = subTab === "sql";
+  const queryResult = tab?.queryResult ?? null;
 
   const hasData = queryResult && queryResult.columns.length > 0;
   const hasStructure = selectedTable;
@@ -41,7 +44,9 @@ export default function Mysql() {
                 size="sm"
                 variant="ghost"
                 className="h-5 w-5 p-0"
-                onClick={() => setShowQueryEditor(false)}
+                onClick={() => {
+                  if (activeTabIndex >= 0) setTabSubTab(activeTabIndex, "data");
+                }}
               >
                 <span className="text-xs">✕</span>
               </Button>
@@ -61,7 +66,9 @@ export default function Mysql() {
                 size="sm"
                 variant="ghost"
                 className="h-6 text-xs gap-1"
-                onClick={() => setShowQueryEditor(true)}
+                onClick={() => {
+                  if (activeTabIndex >= 0) setTabSubTab(activeTabIndex, "sql");
+                }}
               >
                 <Terminal className="h-3 w-3" />
                 SQL
@@ -74,18 +81,22 @@ export default function Mysql() {
                 </span>
                 <Button
                   size="sm"
-                  variant={viewMode === "data" ? "default" : "ghost"}
+                  variant={subTab === "data" ? "default" : "ghost"}
                   className="h-6 text-xs gap-1"
-                  onClick={() => setViewMode("data")}
+                  onClick={() => {
+                    if (activeTabIndex >= 0) setTabSubTab(activeTabIndex, "data");
+                  }}
                 >
                   <FileCode className="h-3 w-3" />
                   数据
                 </Button>
                 <Button
                   size="sm"
-                  variant={viewMode === "structure" ? "default" : "ghost"}
+                  variant={subTab === "structure" ? "default" : "ghost"}
                   className="h-6 text-xs gap-1"
-                  onClick={() => setViewMode("structure")}
+                  onClick={() => {
+                    if (activeTabIndex >= 0) setTabSubTab(activeTabIndex, "structure");
+                  }}
                 >
                   <Table2 className="h-3 w-3" />
                   结构
@@ -100,7 +111,7 @@ export default function Mysql() {
 
           {/* Content */}
           <div className="flex-1 overflow-hidden">
-            {viewMode === "structure" && hasStructure ? (
+            {subTab === "structure" && hasStructure ? (
               <TableStructureView />
             ) : (
               <ResultTable />

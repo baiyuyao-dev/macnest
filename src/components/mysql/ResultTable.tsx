@@ -51,20 +51,25 @@ function toHtmlTime(v: string): string {
 
 export default function ResultTable() {
   const {
-    queryResult,
-    selectedTable,
-    tableStructure,
-    pendingEdits,
+    openTabs,
+    activeTabIndex,
     isExecuting,
-    pageSize,
-    setPageSize,
-    setCellEdit,
-    removeCellEdit,
-    commitEdits,
-    cancelEdits,
+    setTabPageSize,
+    setTabCellEdit,
+    removeTabCellEdit,
+    commitTabEdits,
+    cancelTabEdits,
+    reloadTabData,
   } = useMysqlStore();
 
-  const [page, setPage] = useState(0);
+  const tab = activeTabIndex >= 0 ? openTabs[activeTabIndex] : null;
+  const queryResult = tab?.queryResult ?? null;
+  const selectedTable = tab?.table ?? null;
+  const tableStructure = tab?.tableStructure ?? null;
+  const pendingEdits = tab?.pendingEdits ?? new Map();
+  const pageSize = tab?.pageSize ?? 100;
+  const totalRows = tab?.totalRows ?? 0;
+  const page = tab?.page ?? 0;
   const [editingCell, setEditingCell] = useState<{
     row: number;
     col: number;
@@ -160,15 +165,15 @@ export default function ResultTable() {
     );
   }
 
-  const totalPages = Math.ceil(queryResult.rows.length / pageSize);
-  const start = page * pageSize;
-  const visibleRows = queryResult.rows.slice(start, start + pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const start = 0;
+  const visibleRows = queryResult.rows;
 
   const pkColIndex = tableStructure
     ? tableStructure.columns.findIndex(
-        (c) =>
+        (c: { key: string; extra?: string }) =>
           c.key === "PRI" ||
-          c.extra?.toLowerCase().includes("auto_increment")
+          (c.extra ? c.extra.toLowerCase().includes("auto_increment") : false)
       )
     : -1;
 
@@ -256,14 +261,15 @@ export default function ResultTable() {
     }
 
     if (newValue !== oldValue) {
-      setCellEdit({
+      setTabCellEdit(activeTabIndex, {
+        type: "cell",
         rowIndex: start + row,
         colName,
         oldValue: rawValue,
         newValue,
       });
     } else {
-      removeCellEdit(start + row, colName);
+      removeTabCellEdit(activeTabIndex, start + row, colName);
     }
     setPopupCell(null);
   };
@@ -272,7 +278,8 @@ export default function ResultTable() {
     if (!popupCell || !selectedTable || !queryResult) return;
     const { row, col, colName } = popupCell;
     const rawValue = queryResult.rows[start + row][col];
-    setCellEdit({
+    setTabCellEdit(activeTabIndex, {
+      type: "cell",
       rowIndex: start + row,
       colName,
       oldValue: rawValue,
@@ -302,14 +309,15 @@ export default function ResultTable() {
     }
 
     if (newValue !== oldValue) {
-      setCellEdit({
+      setTabCellEdit(activeTabIndex, {
+        type: "cell",
         rowIndex: start + editingCell.row,
         colName,
         oldValue: rawValue,
         newValue,
       });
     } else {
-      removeCellEdit(start + editingCell.row, colName);
+      removeTabCellEdit(activeTabIndex, start + editingCell.row, colName);
     }
     setEditingCell(null);
   };
@@ -427,7 +435,7 @@ export default function ResultTable() {
                   <Button
                     size="sm"
                     className="h-6 text-xs gap-1"
-                    onClick={commitEdits}
+                    onClick={() => commitTabEdits(activeTabIndex)}
                     disabled={isExecuting}
                   >
                     <Save className="h-3 w-3" />
@@ -437,7 +445,7 @@ export default function ResultTable() {
                     size="sm"
                     variant="outline"
                     className="h-6 text-xs gap-1"
-                    onClick={cancelEdits}
+                    onClick={() => cancelTabEdits(activeTabIndex)}
                   >
                     <RotateCcw className="h-3 w-3" />
                     取消
@@ -454,11 +462,8 @@ export default function ResultTable() {
             value={pageSize}
             onChange={(e) => {
               const size = Number(e.target.value);
-              setPageSize(size);
-              setPage(0);
-              if (selectedTable) {
-                const { loadTableData } = useMysqlStore.getState();
-                loadTableData(selectedTable, size);
+              if (activeTabIndex >= 0) {
+                setTabPageSize(activeTabIndex, size);
               }
             }}
             className="h-6 text-xs rounded border border-input bg-transparent px-2"
@@ -477,7 +482,11 @@ export default function ResultTable() {
                 variant="ghost"
                 className="h-6 w-6 p-0"
                 disabled={page === 0}
-                onClick={() => setPage(page - 1)}
+                onClick={() => {
+                  if (activeTabIndex >= 0) {
+                    useMysqlStore.getState().setTabPage(activeTabIndex, page - 1);
+                  }
+                }}
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
@@ -489,7 +498,11 @@ export default function ResultTable() {
                 variant="ghost"
                 className="h-6 w-6 p-0"
                 disabled={page >= totalPages - 1}
-                onClick={() => setPage(page + 1)}
+                onClick={() => {
+                  if (activeTabIndex >= 0) {
+                    useMysqlStore.getState().setTabPage(activeTabIndex, page + 1);
+                  }
+                }}
               >
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
@@ -503,7 +516,7 @@ export default function ResultTable() {
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 bg-muted/50 z-10">
             <tr>
-              {queryResult.columns.map((col, ci) => (
+              {queryResult.columns.map((col: string, ci: number) => (
                 <th
                   key={col}
                   className={`border border-[var(--glass-border)] px-2 py-1.5 text-left font-semibold whitespace-nowrap ${
@@ -527,12 +540,12 @@ export default function ResultTable() {
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row, rowIdx) => (
+            {visibleRows.map((row: unknown[], rowIdx: number) => (
               <tr
                 key={start + rowIdx}
                 className="hover:bg-accent/20 even:bg-muted/20"
               >
-                {row.map((cell, cellIdx) => {
+                {row.map((cell: unknown, cellIdx: number) => {
                   const colName = queryResult.columns[cellIdx];
                   const isEditing =
                     editingCell?.row === rowIdx &&

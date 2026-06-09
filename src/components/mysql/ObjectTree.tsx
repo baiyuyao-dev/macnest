@@ -108,7 +108,8 @@ export default function ObjectTree() {
     triggers,
     functions,
     events,
-    selectedTable,
+    openTabs,
+    activeTabIndex,
     loadConnections,
     createConnection,
     updateConnection,
@@ -318,7 +319,7 @@ export default function ObjectTree() {
                                 <div
                                   key={t.name}
                                   className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-xs cursor-pointer transition-colors ${
-                                    selectedTable === t.name
+                                    activeTabIndex >= 0 && openTabs[activeTabIndex]?.table === t.name
                                       ? "bg-primary/20 text-primary"
                                       : "hover:bg-accent/30"
                                   }`}

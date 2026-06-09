@@ -56,17 +56,19 @@ function highlightSql(sql: string): string {
 }
 
 export default function QueryEditor() {
-  const { executeQuery, queryResult, isExecuting, queryHistory, currentConnectionId, selectedTable } =
+  const { executeQuery, isExecuting, queryHistory, currentConnectionId, openTabs, activeTabIndex } =
     useMysqlStore();
+  const tab = activeTabIndex >= 0 ? openTabs[activeTabIndex] : null;
+  const queryResult = tab?.queryResult ?? null;
   const [sql, setSql] = useState("SELECT * FROM ");
   const [showHistory, setShowHistory] = useState(false);
 
-  // Auto-fill table name when selected
+  // Auto-fill table name when active tab changes
   useEffect(() => {
-    if (selectedTable) {
-      setSql(`SELECT * FROM \`${selectedTable}\``);
+    if (tab?.table) {
+      setSql(`SELECT * FROM \`${tab.table}\``);
     }
-  }, [selectedTable]);
+  }, [tab?.table]);
 
   const handleExecute = async () => {
     if (!sql.trim()) {
