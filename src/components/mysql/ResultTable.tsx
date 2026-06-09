@@ -1,7 +1,21 @@
-import { useState, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Save, RotateCcw, CalendarDays, X, Trash2 } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Save,
+  RotateCcw,
+  CalendarDays,
+  X,
+  Trash2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Filter,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMysqlStore } from "@/stores/mysql";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { showSuccess, showError } from "@/lib/api";
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100, 200, 500, 1000];
 
@@ -55,11 +69,16 @@ export default function ResultTable() {
     activeTabIndex,
     isExecuting,
     setTabPageSize,
+    setTabPage,
     setTabCellEdit,
     removeTabCellEdit,
     commitTabEdits,
     cancelTabEdits,
     reloadTabData,
+    toggleRowSelection,
+    toggleColSelection,
+    setTabFilter,
+    setTabSort,
   } = useMysqlStore();
 
   const tab = activeTabIndex >= 0 ? openTabs[activeTabIndex] : null;
@@ -70,6 +89,12 @@ export default function ResultTable() {
   const pageSize = tab?.pageSize ?? 100;
   const totalRows = tab?.totalRows ?? 0;
   const page = tab?.page ?? 0;
+  const filters = tab?.filters ?? {};
+  const sortCol = tab?.sortCol ?? null;
+  const sortDir = tab?.sortDir ?? null;
+  const selectedRows = tab?.selectedRows ?? new Set();
+  const selectedCols = tab?.selectedCols ?? new Set();
+
   const [editingCell, setEditingCell] = useState<{
     row: number;
     col: number;
@@ -88,6 +113,26 @@ export default function ResultTable() {
   const inputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const popupInputRef = useRef<HTMLInputElement>(null);
+
+  // Context menus
+  const [colMenu, setColMenu] = useState<{
+    col: string;
+    colIndex: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{
+    rowIndex: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [cellMenu, setCellMenu] = useState<{
+    rowIndex: number;
+    colName: string;
+    value: unknown;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const hasEdits = pendingEdits.size > 0;
 
@@ -286,6 +331,144 @@ export default function ResultTable() {
       newValue: "NULL",
     });
     setPopupCell(null);
+  };
+
+  // Column header click → sort cycle
+  const handleColHeaderClick = (colName: string) => {
+    if (!selectedTable || activeTabIndex < 0) return;
+    if (sortCol === colName) {
+      // cycle: asc → desc → null
+      const nextDir = sortDir === "asc" ? "desc" : sortDir === "desc" ? null : "asc";
+      setTabSort(activeTabIndex, nextDir ? colName : null, nextDir);
+    } else {
+      setTabSort(activeTabIndex, colName, "asc");
+    }
+  };
+
+  // Column header right-click
+  const handleColHeaderContextMenu = (e: React.MouseEvent, colName: string, colIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setColMenu({ col: colName, colIndex, x: e.clientX, y: e.clientY });
+    setRowMenu(null);
+    setCellMenu(null);
+  };
+
+  // Row click → select
+  const handleRowClick = (e: React.MouseEvent, rowIndex: number) => {
+    if (activeTabIndex < 0) return;
+    const globalRowIndex = page * pageSize + rowIndex;
+    if (e.ctrlKey || e.metaKey) {
+      toggleRowSelection(activeTabIndex, globalRowIndex);
+    } else {
+      // single select: clear others, select this one
+      const tab = openTabs[activeTabIndex];
+      if (tab) {
+        const newSelected = new Set(tab.selectedRows);
+        if (newSelected.size === 1 && newSelected.has(globalRowIndex)) {
+          newSelected.clear();
+        } else {
+          newSelected.clear();
+          newSelected.add(globalRowIndex);
+        }
+        useMysqlStore.setState((state) => {
+          const tabs = [...state.openTabs];
+          tabs[activeTabIndex] = { ...tabs[activeTabIndex], selectedRows: newSelected };
+          return { openTabs: tabs };
+        });
+      }
+    }
+  };
+
+  // Row right-click
+  const handleRowContextMenu = (e: React.MouseEvent, rowIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const globalRowIndex = page * pageSize + rowIndex;
+    setRowMenu({ rowIndex: globalRowIndex, x: e.clientX, y: e.clientY });
+    setColMenu(null);
+    setCellMenu(null);
+  };
+
+  // Cell right-click
+  const handleCellContextMenu = (e: React.MouseEvent, rowIndex: number, colName: string, value: unknown) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const globalRowIndex = page * pageSize + rowIndex;
+    setCellMenu({ rowIndex: globalRowIndex, colName, value, x: e.clientX, y: e.clientY });
+    setColMenu(null);
+    setRowMenu(null);
+  };
+
+  // Close all context menus on click outside
+  useEffect(() => {
+    const handler = () => {
+      setColMenu(null);
+      setRowMenu(null);
+      setCellMenu(null);
+    };
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, []);
+
+  // Copy row to clipboard
+  const copyRowToClipboard = useCallback(async (rowIndex: number, format: "json" | "csv") => {
+    if (!queryResult) return;
+    const localRowIndex = rowIndex - page * pageSize;
+    if (localRowIndex < 0 || localRowIndex >= queryResult.rows.length) return;
+    const row = queryResult.rows[localRowIndex];
+    try {
+      if (format === "json") {
+        const obj: Record<string, unknown> = {};
+        queryResult.columns.forEach((col, i) => {
+          obj[col] = row[i];
+        });
+        await writeText(JSON.stringify(obj, null, 2));
+      } else {
+        const values = row.map((v) => (v === null ? "NULL" : String(v)));
+        await writeText(values.join(","));
+      }
+      showSuccess("已复制到剪贴板");
+    } catch {
+      showError("复制失败");
+    }
+  }, [queryResult, page, pageSize]);
+
+  // Paste column values
+  const handlePasteColumn = async (colName: string) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const values = text.split(/\r?\n/).filter((v) => v !== "");
+      if (!queryResult || activeTabIndex < 0) return;
+      const tab = openTabs[activeTabIndex];
+      if (!tab) return;
+      const colIndex = queryResult.columns.indexOf(colName);
+      if (colIndex < 0) return;
+
+      const pendingEdits = new Map(tab.pendingEdits);
+      values.forEach((val, i) => {
+        const rowIndex = page * pageSize + i;
+        if (i < queryResult.rows.length) {
+          const oldValue = queryResult.rows[i][colIndex];
+          pendingEdits.set(`${rowIndex}:${colName}`, {
+            type: "cell",
+            rowIndex,
+            colName,
+            oldValue,
+            newValue: val,
+          });
+        }
+      });
+
+      useMysqlStore.setState((state) => {
+        const tabs = [...state.openTabs];
+        tabs[activeTabIndex] = { ...tabs[activeTabIndex], pendingEdits };
+        return { openTabs: tabs };
+      });
+      showSuccess(`已粘贴 ${Math.min(values.length, queryResult.rows.length)} 个值`);
+    } catch {
+      showError("读取剪贴板失败");
+    }
   };
 
   const handleCellBlur = () => {
@@ -515,85 +698,165 @@ export default function ResultTable() {
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 bg-muted/50 z-10">
+            {/* Column headers */}
             <tr>
-              {queryResult.columns.map((col: string, ci: number) => (
-                <th
-                  key={col}
-                  className={`border border-[var(--glass-border)] px-2 py-1.5 text-left font-semibold whitespace-nowrap ${
-                    tableStructure?.columns[ci]?.key === "PRI"
-                      ? "text-primary"
-                      : ""
-                  }`}
-                  title={
-                    tableStructure?.columns[ci]
-                      ? `${tableStructure.columns[ci].data_type}${
-                          tableStructure.columns[ci].is_nullable === "NO"
-                            ? " NOT NULL"
-                            : ""
-                        }`
-                      : undefined
-                  }
-                >
-                  {col}
-                </th>
-              ))}
+              {queryResult.columns.map((col: string, ci: number) => {
+                const isSelectedCol = selectedCols.has(col);
+                const isSortCol = sortCol === col;
+                return (
+                  <th
+                    key={col}
+                    className={`border border-[var(--glass-border)] px-2 py-1 text-left font-semibold whitespace-nowrap select-none ${
+                      isSelectedCol ? "bg-primary/10" : ""
+                    } ${tableStructure?.columns[ci]?.key === "PRI" ? "text-primary" : ""} ${
+                      !isSelectedCol ? "cursor-pointer hover:bg-accent/30" : ""
+                    }`}
+                    title={
+                      tableStructure?.columns[ci]
+                        ? `${tableStructure.columns[ci].data_type}${
+                            tableStructure.columns[ci].is_nullable === "NO"
+                              ? " NOT NULL"
+                              : ""
+                          }`
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (!isSelectedCol) {
+                        handleColHeaderClick(col);
+                      }
+                    }}
+                    onContextMenu={(e) => handleColHeaderContextMenu(e, col, ci)}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      if (activeTabIndex >= 0) toggleColSelection(activeTabIndex, col);
+                    }}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>{col}</span>
+                      {isSortCol && (
+                        <span className="text-[10px] opacity-70">
+                          {sortDir === "asc" ? (
+                            <ArrowUp className="h-3 w-3" />
+                          ) : sortDir === "desc" ? (
+                            <ArrowDown className="h-3 w-3" />
+                          ) : null}
+                        </span>
+                      )}
+                      {isSelectedCol && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
+            </tr>
+            {/* Filter row */}
+            <tr>
+              {queryResult.columns.map((col: string) => {
+                const filterVal = filters[col] || "";
+                return (
+                  <th
+                    key={`filter-${col}`}
+                    className="border border-[var(--glass-border)] px-1 py-0.5 bg-muted/30"
+                  >
+                    <div className="relative flex items-center">
+                      <Filter className="absolute left-1 h-3 w-3 text-muted-foreground/50" />
+                      <input
+                        type="text"
+                        value={filterVal}
+                        onChange={(e) => {
+                          if (activeTabIndex >= 0) {
+                            setTabFilter(activeTabIndex, col, e.target.value);
+                          }
+                        }}
+                        className="w-full h-5 pl-5 pr-4 text-[11px] bg-transparent border-0 outline-none placeholder:text-muted-foreground/40"
+                        placeholder="筛选..."
+                      />
+                      {filterVal && (
+                        <button
+                          className="absolute right-0.5 text-muted-foreground/50 hover:text-foreground"
+                          onClick={() => {
+                            if (activeTabIndex >= 0) {
+                              setTabFilter(activeTabIndex, col, "");
+                            }
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row: unknown[], rowIdx: number) => (
-              <tr
-                key={start + rowIdx}
-                className="hover:bg-accent/20 even:bg-muted/20"
-              >
-                {row.map((cell: unknown, cellIdx: number) => {
-                  const colName = queryResult.columns[cellIdx];
-                  const isEditing =
-                    editingCell?.row === rowIdx &&
-                    editingCell?.col === cellIdx;
-                  const isModified = pendingEdits.has(
-                    getEditKey(rowIdx, colName)
-                  );
-                  const displayValue = getCellDisplayValue(
-                    rowIdx,
-                    colName,
-                    cell
-                  );
-                  const isPk =
-                    pkColIndex >= 0 ? cellIdx === pkColIndex : cellIdx === 0;
+            {visibleRows.map((row: unknown[], rowIdx: number) => {
+              const globalRowIndex = page * pageSize + rowIdx;
+              const isSelectedRow = selectedRows.has(globalRowIndex);
+              return (
+                <tr
+                  key={globalRowIndex}
+                  className={`${isSelectedRow ? "bg-primary/10" : "hover:bg-accent/20 even:bg-muted/20"} cursor-pointer select-none`}
+                  onClick={(e) => handleRowClick(e, rowIdx)}
+                  onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+                >
+                  {row.map((cell: unknown, cellIdx: number) => {
+                    const colName = queryResult.columns[cellIdx];
+                    const isEditing =
+                      editingCell?.row === rowIdx &&
+                      editingCell?.col === cellIdx;
+                    const isModified = pendingEdits.has(
+                      getEditKey(rowIdx, colName)
+                    );
+                    const displayValue = getCellDisplayValue(
+                      rowIdx,
+                      colName,
+                      cell
+                    );
+                    const isPk =
+                      pkColIndex >= 0 ? cellIdx === pkColIndex : cellIdx === 0;
+                    const isSelectedCol = selectedCols.has(colName);
 
-                  const dataType =
-                    tableStructure?.columns[cellIdx]?.data_type || "";
-                  const editorType = getEditorType(dataType);
+                    const dataType =
+                      tableStructure?.columns[cellIdx]?.data_type || "";
+                    const editorType = getEditorType(dataType);
 
-                  return (
-                    <td
-                      key={cellIdx}
-                      className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative ${
-                        isModified
-                          ? "bg-amber-500/[0.18] text-amber-700 dark:text-amber-300 border-l-[3px] border-l-amber-500"
-                          : ""
-                      } ${isPk ? "font-medium text-primary/80" : ""} ${
-                        !isPk && !isEditing ? "cursor-pointer" : ""
-                      }`}
-                      title={displayValue}
-                      onDoubleClick={(e) =>
-                        handleCellDoubleClick(rowIdx, cellIdx, colName, cell, e.currentTarget as HTMLElement)
-                      }
-                    >
-                      {isEditing ? (
-                        renderEditor(editorType)
-                      ) : cell === null ? (
-                        <span className="text-muted-foreground italic">
-                          NULL
-                        </span>
-                      ) : (
-                        displayValue
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                    return (
+                      <td
+                        key={cellIdx}
+                        className={`border border-[var(--glass-border)] px-2 py-1 whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis relative ${
+                          isModified
+                            ? "bg-amber-500/[0.18] text-amber-700 dark:text-amber-300 border-l-[3px] border-l-amber-500"
+                            : ""
+                        } ${isPk ? "font-medium text-primary/80" : ""} ${
+                          isSelectedCol && !isModified ? "bg-primary/[0.06]" : ""
+                        } ${!isPk && !isEditing ? "cursor-pointer" : ""}`}
+                        title={displayValue}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleCellDoubleClick(rowIdx, cellIdx, colName, cell, e.currentTarget as HTMLElement);
+                        }}
+                        onContextMenu={(e) => {
+                          e.stopPropagation();
+                          handleCellContextMenu(e, rowIdx, colName, cell);
+                        }}
+                      >
+                        {isEditing ? (
+                          renderEditor(editorType)
+                        ) : cell === null ? (
+                          <span className="text-muted-foreground italic">
+                            NULL
+                          </span>
+                        ) : (
+                          displayValue
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -693,6 +956,146 @@ export default function ResultTable() {
           <div className="text-[10px] text-muted-foreground text-center">
             按 Enter 确认 · 点击外部保存 · Esc 取消
           </div>
+        </div>
+      )}
+
+      {/* Column context menu */}
+      {colMenu && (
+        <div
+          className="fixed z-[200] bg-background border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
+          style={{ left: colMenu.x, top: colMenu.y }}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40 flex items-center gap-2"
+            onClick={() => {
+              if (activeTabIndex >= 0) setTabSort(activeTabIndex, colMenu.col, "asc");
+              setColMenu(null);
+            }}
+          >
+            <ArrowUp className="h-3 w-3" /> 正序排列
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40 flex items-center gap-2"
+            onClick={() => {
+              if (activeTabIndex >= 0) setTabSort(activeTabIndex, colMenu.col, "desc");
+              setColMenu(null);
+            }}
+          >
+            <ArrowDown className="h-3 w-3" /> 倒序排列
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40 flex items-center gap-2"
+            onClick={() => {
+              if (activeTabIndex >= 0) {
+                const tab = openTabs[activeTabIndex];
+                if (tab) {
+                  Object.keys(tab.filters).forEach((col) => {
+                    setTabFilter(activeTabIndex, col, "");
+                  });
+                }
+              }
+              setColMenu(null);
+            }}
+          >
+            <Filter className="h-3 w-3" /> 清除所有筛选
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40 flex items-center gap-2"
+            onClick={() => {
+              handlePasteColumn(colMenu.col);
+              setColMenu(null);
+            }}
+          >
+            <Trash2 className="h-3 w-3" /> 粘贴覆盖
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40 flex items-center gap-2 text-destructive"
+            onClick={() => {
+              if (activeTabIndex >= 0) toggleColSelection(activeTabIndex, colMenu.col);
+              setColMenu(null);
+            }}
+          >
+            {selectedCols.has(colMenu.col) ? "取消列选中" : "选中整列"}
+          </button>
+        </div>
+      )}
+
+      {/* Row context menu */}
+      {rowMenu && (
+        <div
+          className="fixed z-[200] bg-background border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
+          style={{ left: rowMenu.x, top: rowMenu.y }}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40 flex items-center gap-2 text-destructive"
+            onClick={() => {
+              if (activeTabIndex >= 0) {
+                setTabCellEdit(activeTabIndex, {
+                  type: "delete",
+                  rowIndex: rowMenu.rowIndex,
+                });
+              }
+              setRowMenu(null);
+            }}
+          >
+            <Trash2 className="h-3 w-3" /> 删除行
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40"
+            onClick={() => {
+              copyRowToClipboard(rowMenu.rowIndex, "json");
+              setRowMenu(null);
+            }}
+          >
+            复制行 (JSON)
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40"
+            onClick={() => {
+              copyRowToClipboard(rowMenu.rowIndex, "csv");
+              setRowMenu(null);
+            }}
+          >
+            复制行 (CSV)
+          </button>
+        </div>
+      )}
+
+      {/* Cell context menu */}
+      {cellMenu && (
+        <div
+          className="fixed z-[200] bg-background border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
+          style={{ left: cellMenu.x, top: cellMenu.y }}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40"
+            onClick={() => {
+              setTabCellEdit(activeTabIndex, {
+                type: "cell",
+                rowIndex: cellMenu.rowIndex,
+                colName: cellMenu.colName,
+                oldValue: cellMenu.value,
+                newValue: "NULL",
+              });
+              setCellMenu(null);
+            }}
+          >
+            设置为 NULL
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/40"
+            onClick={() => {
+              if (activeTabIndex >= 0) {
+                setTabFilter(activeTabIndex, cellMenu.colName, String(cellMenu.value ?? ""));
+              }
+              setCellMenu(null);
+            }}
+          >
+            设置为字段筛选项
+          </button>
         </div>
       )}
     </div>
