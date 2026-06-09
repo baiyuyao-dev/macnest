@@ -202,7 +202,7 @@ export default function ResultTable() {
     }
   }, [popupCell]);
 
-  if (!queryResult || queryResult.columns.length === 0) {
+  if (!queryResult || queryResult.columns.length === 0 || !Array.isArray(queryResult.rows)) {
     const affected = queryResult?.affected_rows;
     if (affected !== null && affected !== undefined) {
       return (

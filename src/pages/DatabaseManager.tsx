@@ -6,6 +6,7 @@ import QueryEditor from "@/components/mysql/QueryEditor";
 import ResultTable from "@/components/mysql/ResultTable";
 import TableStructureView from "@/components/mysql/TableStructureView";
 import TabBar from "@/components/mysql/TabBar";
+import ErrorBoundary from "@/components/mysql/ErrorBoundary";
 import { useMysqlStore } from "@/stores/mysql";
 
 export default function DatabaseManager() {
@@ -123,9 +124,13 @@ export default function DatabaseManager() {
               )}
               <div className="flex-1 overflow-hidden">
                 {subTab === "structure" && hasStructure ? (
-                  <TableStructureView />
+                  <ErrorBoundary>
+                    <TableStructureView />
+                  </ErrorBoundary>
                 ) : (
-                  <ResultTable />
+                  <ErrorBoundary>
+                    <ResultTable />
+                  </ErrorBoundary>
                 )}
               </div>
             </div>
