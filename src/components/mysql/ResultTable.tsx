@@ -137,6 +137,13 @@ export default function ResultTable() {
 
   const hasEdits = pendingEdits.size > 0;
 
+  // 切换标签时清除编辑状态
+  useEffect(() => {
+    setEditingCell(null);
+    setPopupCell(null);
+    setEditValue("");
+  }, [activeTabIndex]);
+
   // 点击外部：popup 自动保存，edit 执行 blur
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -476,7 +483,7 @@ export default function ResultTable() {
   };
 
   const handleCellBlur = () => {
-    if (!editingCell || !selectedTable) {
+    if (!editingCell || !selectedTable || !queryResult) {
       setEditingCell(null);
       return;
     }
