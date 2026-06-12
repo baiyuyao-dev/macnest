@@ -15,9 +15,6 @@ import {
   Thermometer,
   Gauge,
   Cpu,
-  ScreenShare,
-  Bell,
-  Database as DatabaseIcon,
 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { getSystemInfo, getCpuDetailedUsage, showSuccess, showError } from "@/lib/api";
@@ -32,11 +29,7 @@ const navItems = [
   { to: "/bookmarks", icon: Bookmark, label: "导航" },
   { to: "/terminal", icon: TerminalIcon, label: "终端" },
   { to: "/tmux", icon: Monitor, label: "Tmux" },
-  // RDP 功能暂时隐藏菜单入口（功能保留）
-  // { to: "/rdp", icon: ScreenShare, label: "RDP" },
-  { to: "/database", icon: DatabaseIcon, label: "数据库管理" },
   { to: "/system", icon: Activity, label: "系统" },
-  { to: "/notifications", icon: Bell, label: "通知" },
 ];
 
 export default function Layout() {

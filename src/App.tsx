@@ -7,15 +7,11 @@ import Bookmarks from "./pages/Bookmarks";
 import System from "./pages/System";
 import Terminal from "./pages/Terminal";
 import Tmux from "./pages/Tmux";
-import Rdp from "./pages/Rdp";
-import DatabaseManager from "./pages/DatabaseManager";
-import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
 import { useThemeStore } from "./stores/theme";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getSettings } from "./lib/api";
-import { initNotificationListener } from "./lib/notification";
 import { Toaster } from "sonner";
 
 function NavigationListener() {
@@ -49,17 +45,6 @@ function App() {
         // 首次启动无设置记录，保持默认深色
       });
   }, [setTheme]);
-
-  // 初始化通知事件监听（后端推送 → 系统通知 + Toast）
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    initNotificationListener().then((fn) => {
-      cleanup = fn;
-    });
-    return () => {
-      cleanup?.();
-    };
-  }, []);
 
   // 全局禁用浏览器默认右键菜单，只保留单独绑定的自定义右键菜单
   useEffect(() => {
@@ -103,10 +88,7 @@ function App() {
             <Route path="bookmarks" element={<Bookmarks />} />
             <Route path="terminal" element={<Terminal />} />
             <Route path="tmux" element={<Tmux />} />
-            <Route path="rdp" element={<Rdp />} />
-            <Route path="database" element={<DatabaseManager />} />
             <Route path="system" element={<System />} />
-            <Route path="notifications" element={<Notifications />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
