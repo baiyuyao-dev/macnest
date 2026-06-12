@@ -5,13 +5,10 @@ mod database;
 mod docker;
 mod docker_terminal;
 mod error;
-mod notification_scheduler;
 mod process;
-mod rdp;
 mod safari_bookmarks;
 mod security;
 mod system;
-mod mysql;
 mod ssh;
 mod tmux;
 
@@ -29,7 +26,6 @@ pub struct AppState {
     process_manager: Mutex<ProcessManager>,
     ssh_session_manager: SshSessionManager,
     docker_terminal_manager: DockerTerminalManager,
-    pub rdp_session_manager: rdp::RdpSessionManager,
     pub transfer_progress: Arc<Mutex<HashMap<String, TransferProgress>>>,
     pub tmux_pty_sessions: Mutex<HashMap<String, crate::tmux::pty::TmuxPtySession>>,
     pub sftp_managers: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<crate::ssh::sftp::SftpManager>>>>>,
@@ -83,7 +79,6 @@ fn main() {
                 process_manager,
                 ssh_session_manager: SshSessionManager::new(),
                 docker_terminal_manager: DockerTerminalManager::new(),
-                rdp_session_manager: rdp::RdpSessionManager::new(),
                 transfer_progress: Arc::new(Mutex::new(HashMap::new())),
                 tmux_pty_sessions: Mutex::new(HashMap::new()),
                 sftp_managers: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -133,11 +128,6 @@ fn main() {
                     }
                 }
             });
-
-            // Start notification scheduler
-            let db_path_for_scheduler = db_path_str.to_string();
-            let app_handle_for_scheduler = app_handle.clone();
-            notification_scheduler::start_scheduler(db_path_for_scheduler, app_handle_for_scheduler);
 
             // Create tray popup window (hidden by default)
             let _popup = tauri::WebviewWindowBuilder::new(
@@ -280,53 +270,6 @@ fn main() {
             commands::local_reveal_in_finder,
             commands::local_get_installed_apps,
             commands::local_get_recommended_apps,
-            // RDP commands
-            commands::create_rdp_connection,
-            commands::list_rdp_connections,
-            commands::update_rdp_connection,
-            commands::delete_rdp_connection,
-            commands::rdp_start_session,
-            commands::rdp_stop_session,
-            commands::rdp_send_input,
-            // Notification commands (osascript fallback)
-            commands::send_osascript_notification,
-            commands::check_macos_notification_permission,
-            commands::get_bundle_id,
-            commands::get_app_path,
-            commands::is_in_applications,
-            commands::reinstall_to_applications,
-            // Notification management commands
-            commands::create_notification,
-            commands::list_notifications,
-            commands::update_notification,
-            commands::delete_notification,
-            commands::toggle_notification,
-            commands::list_notification_logs,
-            commands::dismiss_notification_today,
-            // MySQL commands
-            commands::mysql_create_connection,
-            commands::mysql_list_connections,
-            commands::mysql_update_connection,
-            commands::mysql_delete_connection,
-            commands::mysql_test_connection,
-            commands::mysql_connect,
-            commands::mysql_disconnect,
-            commands::mysql_switch_database,
-            commands::mysql_list_databases,
-            commands::mysql_list_tables,
-            commands::mysql_list_views,
-            commands::mysql_list_triggers,
-            commands::mysql_list_functions,
-            commands::mysql_list_events,
-            commands::mysql_get_table_structure,
-            commands::mysql_execute_query,
-            commands::mysql_load_table_data_paged,
-            commands::mysql_create_backup_task,
-            commands::mysql_list_backup_tasks,
-            commands::mysql_delete_backup_task,
-            commands::mysql_toggle_backup_task,
-            commands::mysql_run_backup_now,
-            commands::mysql_dump_table,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
