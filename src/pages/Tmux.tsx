@@ -1368,9 +1368,6 @@ export default function Tmux() {
         ref={sidebarRef}
       >
         <div className="p-4 border-b border-[var(--glass-border)] flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            工作空间
-          </span>
           <div className="flex items-center gap-1.5">
             <Button
               size="sm"
@@ -1393,6 +1390,19 @@ export default function Tmux() {
               新建空间
             </Button>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 w-7 rounded-lg p-0 btn-macos-secondary"
+            onClick={() => {
+              loadSessions();
+              loadGroups();
+            }}
+            disabled={loading}
+            title="刷新"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </Button>
         </div>
 
         {/* Search */}
