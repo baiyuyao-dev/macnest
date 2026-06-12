@@ -24,8 +24,6 @@ import {
 } from "lucide-react";
 import { useThemeStore } from "@/stores/theme";
 import { getSettings, updateSettings, showSuccess, showError } from "@/lib/api";
-import { notify, notifyThrottled, initNotificationPermission } from "@/lib/notification";
-import { Bell, BellRing, BellDot, Megaphone, FolderOpen, RotateCcw } from "lucide-react";
 
 export default function SettingsPage() {
   const { isDark, setTheme } = useThemeStore();
@@ -38,10 +36,6 @@ export default function SettingsPage() {
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [notifPermission, setNotifPermission] = useState<boolean | null>(null);
-  const [appPath, setAppPath] = useState<string>("");
-  const [inApplications, setInApplications] = useState<boolean | null>(null);
-  const [reinstalling, setReinstalling] = useState(false);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -63,17 +57,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadSettings();
-    // 初始化时检查通知权限
-    initNotificationPermission().then((granted) => {
-      setNotifPermission(granted);
-    }).catch(() => {
-      setNotifPermission(false);
-    });
-    // 获取应用路径和安装状态
-    import("@tauri-apps/api/core").then(({ invoke }) => {
-      invoke<string>("get_app_path").then(setAppPath).catch(() => setAppPath("unknown"));
-      invoke<boolean>("is_in_applications").then(setInApplications).catch(() => setInApplications(null));
-    });
   }, [loadSettings]);
 
   const handleSave = async () => {
@@ -366,196 +349,6 @@ export default function SettingsPage() {
             <Button variant="destructive" size="sm" className="rounded-lg h-8 text-xs" onClick={handleReset}>
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
               重置
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* 通知测试 */}
-      <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "225ms" }}>
-        <div className="flex items-center px-5 py-4 border-b border-[var(--glass-border)]">
-          <Bell className="mr-2 h-4 w-4 text-muted-foreground" />
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight">系统通知测试</h3>
-            <p className="text-[11px] text-muted-foreground">测试 macOS 原生通知效果</p>
-          </div>
-        </div>
-        <div className="p-5 space-y-4">
-          {/* 权限状态 */}
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-xs font-medium">通知权限</Label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {notifPermission === null
-                  ? "检测中..."
-                  : notifPermission
-                    ? "已授权 ✅"
-                    : "未授权 ❌"}
-              </p>
-            </div>
-            <Badge
-              variant={notifPermission ? "default" : "secondary"}
-              className="text-[10px] rounded-full"
-            >
-              {notifPermission === null
-                ? "检测中"
-                : notifPermission
-                  ? "已授权"
-                  : "未授权"}
-            </Badge>
-          </div>
-          <div className="h-px bg-[var(--glass-border)]" />
-
-          {/* 应用路径诊断 */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs font-medium">应用安装位置</Label>
-                <p className="text-[11px] text-muted-foreground mt-0.5 font-mono break-all">
-                  {appPath || "检测中..."}
-                </p>
-              </div>
-              <Badge
-                variant={inApplications === true ? "default" : "destructive"}
-                className="text-[10px] rounded-full shrink-0 ml-2"
-              >
-                {inApplications === null
-                  ? "检测中"
-                  : inApplications
-                    ? "已安装"
-                    : "未安装"}
-              </Badge>
-            </div>
-            {inApplications === false && (
-              <div className="flex items-center gap-2">
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 flex-1">
-                  ⚠️ 应用不在 /Applications 目录，通知可能无法正常显示
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="btn-macos-secondary rounded-lg h-7 text-[11px] shrink-0"
-                  disabled={reinstalling}
-                  onClick={async () => {
-                    setReinstalling(true);
-                    try {
-                      const { invoke } = await import("@tauri-apps/api/core");
-                      const result = await invoke<string>("reinstall_to_applications");
-                      showSuccess(result);
-                    } catch (err: any) {
-                      console.error("重新安装失败:", err);
-                      showError(err?.toString?.() || "安装失败");
-                    } finally {
-                      setReinstalling(false);
-                    }
-                  }}
-                >
-                  {reinstalling ? (
-                    <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <RotateCcw className="mr-1 h-3 w-3" />
-                  )}
-                  {reinstalling ? "安装中..." : "安装到 Applications"}
-                </Button>
-              </div>
-            )}
-          </div>
-          <div className="h-px bg-[var(--glass-border)]" />
-
-          <p className="text-[11px] text-amber-500 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-400/10 rounded-lg px-3 py-2">
-            💡 开发模式下通知图标可能显示为终端图标，打包成 App 后会自动变为 MacNest 图标
-          </p>
-          <p className="text-[11px] text-blue-500 dark:text-blue-400 bg-blue-500/10 dark:bg-blue-400/10 rounded-lg px-3 py-2">
-            ℹ️ 如果点击"允许"后通知仍不弹出，请<strong>完全退出应用后重新启动</strong>（macOS 权限需要重启生效）
-          </p>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-xs font-medium">基础通知</Label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">发送一条标准系统通知</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="btn-macos-secondary rounded-lg h-8 text-xs"
-              onClick={async () => {
-                const granted = await initNotificationPermission();
-                setNotifPermission(granted);
-                await notify("MacNest", "这是一条测试通知 🎉");
-                showSuccess("通知已发送");
-              }}
-            >
-              <Bell className="mr-1.5 h-3.5 w-3.5" />
-              发送
-            </Button>
-          </div>
-          <div className="h-px bg-[var(--glass-border)]" />
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-xs font-medium">带图标通知</Label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">发送带应用图标的通知</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="btn-macos-secondary rounded-lg h-8 text-xs"
-              onClick={async () => {
-                const granted = await initNotificationPermission();
-                setNotifPermission(granted);
-                await notify("Docker 提醒", "容器 nginx 已启动", "icons/128x128.png");
-                showSuccess("图标通知已发送");
-              }}
-            >
-              <BellRing className="mr-1.5 h-3.5 w-3.5" />
-              发送
-            </Button>
-          </div>
-          <div className="h-px bg-[var(--glass-border)]" />
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-xs font-medium">防刷屏通知</Label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">30 秒内相同内容只发一次</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="btn-macos-secondary rounded-lg h-8 text-xs"
-              onClick={async () => {
-                const granted = await initNotificationPermission();
-                setNotifPermission(granted);
-                await notifyThrottled("test-throttle", "服务告警", "CPU 使用率超过 80%");
-                showSuccess("防刷屏通知已发送（30s 内重复点击不会重复发送）");
-              }}
-            >
-              <BellDot className="mr-1.5 h-3.5 w-3.5" />
-              发送
-            </Button>
-          </div>
-          <div className="h-px bg-[var(--glass-border)]" />
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-xs font-medium">批量通知</Label>
-              <p className="text-[11px] text-muted-foreground mt-0.5">连续发送 3 条不同通知</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="btn-macos-secondary rounded-lg h-8 text-xs"
-              onClick={async () => {
-                const granted = await initNotificationPermission();
-                setNotifPermission(granted);
-                await notify("服务状态", "Nginx 已启动 ✅");
-                setTimeout(async () => {
-                  await notify("Docker", "容器 mysql 运行中 🐳");
-                }, 1500);
-                setTimeout(async () => {
-                  await notify("系统", "书签同步完成 📚");
-                }, 3000);
-                showSuccess("3 条通知将在 3 秒内陆续弹出");
-              }}
-            >
-              <Megaphone className="mr-1.5 h-3.5 w-3.5" />
-              发送
             </Button>
           </div>
         </div>
