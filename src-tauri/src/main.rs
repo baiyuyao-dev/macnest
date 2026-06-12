@@ -285,7 +285,6 @@ fn main() {
             commands::list_rdp_connections,
             commands::update_rdp_connection,
             commands::delete_rdp_connection,
-            commands::rdp_connect,
             commands::rdp_start_session,
             commands::rdp_stop_session,
             commands::rdp_send_input,

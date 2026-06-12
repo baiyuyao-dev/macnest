@@ -35,6 +35,15 @@ export default function BaseTerminal({
     let initialized = false;
     let lastFitCols = 0;
 
+    // 捕获阶段拦截右键 mousedown，阻止 xterm.js 把右键转成 ANSI 序列发给 tmux
+    // 这样浏览器会弹出默认右键菜单（复制/粘贴）
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) {
+        e.stopImmediatePropagation();
+      }
+    };
+    container.addEventListener("mousedown", handleMouseDown, true);
+
     const initTerminal = () => {
       if (initialized) return;
       initialized = true;
@@ -170,6 +179,7 @@ export default function BaseTerminal({
     intersectionObserver.observe(container);
 
     return () => {
+      container.removeEventListener("mousedown", handleMouseDown, true);
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       term?.dispose();

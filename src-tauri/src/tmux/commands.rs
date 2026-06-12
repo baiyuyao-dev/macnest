@@ -403,13 +403,13 @@ pub fn resolve_tmux_name(db: &Database, display_name: &str) -> Result<String, St
 pub fn generate_config() -> Result<String, String> {
     let config = r#"# MacNest 生成的 tmux 配置
 
-# 鼠标支持（保留点击切换窗格/拖动调整大小，但禁用右键菜单）
+# 鼠标支持：保留滚轮滚动和划动选择，右键走浏览器原生菜单
+# （右键在 xterm.js 层面被拦截，不会发给 tmux）
 set -g mouse on
-unbind-key -n MouseDown3Pane
-unbind-key -n MouseDown3Status
-unbind-key -n MouseDown3StatusLeft
-unbind-key -n MouseDown3StatusRight
-unbind-key -n MouseDown3Border
+
+# 划动选择松手后自动复制到系统剪贴板
+bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy"
 
 # 状态栏样式
 set -g status-style bg=#1a1a2e,fg=#e0e0e0

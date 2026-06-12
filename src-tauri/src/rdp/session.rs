@@ -1,5 +1,5 @@
-use std::io::Write;
-use std::net::TcpStream;
+use std::io::{Read, Write};
+use std::net::{TcpStream, UdpSocket};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
 
@@ -183,7 +183,7 @@ fn connect(
     eprintln!("[rdp] looked up server address: {}", server_addr);
 
     eprintln!("[rdp] connecting TCP to {} (timeout 10s)...", server_addr);
-    let tcp_stream = TcpStream::connect_timeout(&server_addr, Duration::from_secs(10))
+    let tcp_stream = connect_bound_tcp(&server_addr)
         .map_err(|e| anyhow::anyhow!("TCP connect to {} failed: {}", server_addr, e))?;
     eprintln!("[rdp] TCP connected");
 
@@ -393,11 +393,55 @@ fn input_event_to_fastpath(
 
 fn lookup_addr(hostname: &str, port: u16) -> anyhow::Result<std::net::SocketAddr> {
     use std::net::ToSocketAddrs as _;
-    let addr = (hostname, port)
-        .to_socket_addrs()?
-        .next()
-        .context("socket address not found")?;
+    let addrs: Vec<_> = (hostname, port).to_socket_addrs()?.collect();
+    eprintln!("[rdp] resolved {}:{} to {:?}", hostname, port, addrs);
+    let addr = addrs
+        .into_iter()
+        .find(|a| a.is_ipv4())
+        .context("no IPv4 socket address found")?;
     Ok(addr)
+}
+
+/// Create a TCP socket bound to the physical interface (en0) that can reach the target,
+/// bypassing virtual interfaces like Tailscale's utun which may hijack BSD socket traffic.
+fn connect_bound_tcp(server_addr: &std::net::SocketAddr) -> std::io::Result<TcpStream> {
+    use socket2::{Domain, Socket, Type};
+    use std::os::fd::AsRawFd;
+
+    let domain = if server_addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, Type::STREAM, None)?;
+
+    // macOS: bind socket to the physical Wi-Fi/Ethernet interface (en0).
+    // Tailscale's NEPacketTunnelProvider intercepts traffic that goes through
+    // the default routing table; forcing the socket onto en0 bypasses it.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let if_index = libc::if_nametoindex(b"en0\0".as_ptr() as *const libc::c_char);
+        if if_index != 0 {
+            let fd = socket.as_raw_fd();
+            let ret = libc::setsockopt(
+                fd,
+                libc::IPPROTO_IP,
+                25, // IP_BOUND_IF
+                &if_index as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&if_index) as libc::socklen_t,
+            );
+            if ret == 0 {
+                eprintln!("[rdp] socket bound to interface: en0 (index={})", if_index);
+            } else {
+                eprintln!("[rdp] setsockopt(IP_BOUND_IF) failed: errno={}, will fallback", std::io::Error::last_os_error());
+            }
+        } else {
+            eprintln!("[rdp] if_nametoindex(en0) failed, will fallback to default route");
+        }
+    }
+
+    socket.connect(&(*server_addr).into())?;
+    Ok(socket.into())
 }
 
 fn tls_upgrade(
@@ -416,16 +460,16 @@ fn tls_upgrade(
     let server_name: ServerName = server_name.try_into()?;
     let client = rustls::ClientConnection::new(config, server_name)?;
 
-    let mut tls_stream = rustls::StreamOwned::new(client, stream);
-    tls_stream.flush()?;
+    let (mut conn, mut sock) = rustls::StreamOwned::new(client, stream).into_parts();
+    conn.complete_io(&mut sock)?;
 
-    let cert = tls_stream
-        .conn
+    let cert = conn
         .peer_certificates()
         .and_then(|certificates| certificates.first())
         .context("peer certificate is missing")?;
 
     let server_public_key = extract_tls_server_public_key(cert)?;
+    let tls_stream = rustls::StreamOwned::new(conn, sock);
 
     Ok((tls_stream, server_public_key))
 }
