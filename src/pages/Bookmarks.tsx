@@ -226,13 +226,12 @@ export default function BookmarksPage() {
     loadBookmarks();
   }, [loadBookmarks]);
 
-  // Listen for auto-sync completion from backend
+  // Listen for auto-sync completion from backend (silent refresh)
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen("safari-bookmarks-synced", () => {
       loadBookmarks();
       loadGroups();
-      showSuccess("Safari 书签已同步");
     }).then((fn) => {
       unlisten = fn;
     }).catch(console.error);
