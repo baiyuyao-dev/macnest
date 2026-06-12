@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { toast } from "sonner";
-import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, CpuDetailedUsage, SshConnection, SftpFile, TransferProgress, LocalFileNode, RemoteSystemInfo, RdpConnection, Notification, NotificationLog } from "@/types";
+import type { Service, DockerContainer, DockerImage, ContainerInspect, DockerSystemDf, DockerVolume, DockerNetwork, Bookmark, Group, SystemInfo, ResourceUsage, ProcessInfo, CpuDetailedUsage, SshConnection, SftpFile, TransferProgress, LocalFileNode, RemoteSystemInfo } from "@/types";
 
 // ===== 全局统一提示 =====
 
@@ -630,89 +630,6 @@ export async function localGetRecommendedApps(extension: string): Promise<string
   return invokeSafe("local_get_recommended_apps", { extension });
 }
 
-// ===== RDP 管理 =====
-
-export async function createRdpConnection(
-  data: Omit<RdpConnection, "id" | "created_at" | "updated_at">
-): Promise<number> {
-  return invokeSafe("create_rdp_connection", { req: data });
-}
-
-export async function listRdpConnections(): Promise<RdpConnection[]> {
-  return invokeSafe("list_rdp_connections");
-}
-
-export async function updateRdpConnection(data: RdpConnection): Promise<void> {
-  return invokeSafe("update_rdp_connection", { req: data });
-}
-
-export async function deleteRdpConnection(id: number): Promise<void> {
-  return invokeSafe("delete_rdp_connection", { id });
-}
-
-export async function rdpConnect(connectionId: number): Promise<void> {
-  return invokeSafe("rdp_connect", { connectionId });
-}
-
-export async function rdpStartSession(connectionId: number): Promise<{ session_id: string }> {
-  return invokeSafe("rdp_start_session", { connectionId });
-}
-
-export async function rdpStopSession(sessionId: string): Promise<void> {
-  return invokeSafe("rdp_stop_session", { sessionId });
-}
-
-export interface RdpInputEvent {
-  event_type: "mousemove" | "mousedown" | "mouseup" | "keydown" | "keyup";
-  x?: number;
-  y?: number;
-  button?: number;
-  scancode?: number;
-}
-
-export async function rdpSendInput(sessionId: string, event: RdpInputEvent): Promise<void> {
-  return invokeSafe("rdp_send_input", { sessionId, ...event });
-}
-
 export async function localRevealInFinder(path: string): Promise<void> {
   return invokeSafe("local_reveal_in_finder", { path });
-}
-
-// ===== 通知管理 =====
-
-export interface CreateNotificationRequest {
-  name: string;
-  notify_type: "scheduled" | "monitor";
-  content: string;
-  trigger_condition: string;
-}
-
-export async function listNotifications(): Promise<Notification[]> {
-  return invokeSafe("list_notifications");
-}
-
-export async function createNotification(
-  data: CreateNotificationRequest
-): Promise<number> {
-  return invokeSafe("create_notification", { req: data });
-}
-
-export async function updateNotification(data: Notification): Promise<void> {
-  return invokeSafe("update_notification", { req: data });
-}
-
-export async function deleteNotification(id: number): Promise<void> {
-  return invokeSafe("delete_notification", { id });
-}
-
-export async function toggleNotification(id: number, enabled: boolean): Promise<void> {
-  return invokeSafe("toggle_notification", { id, enabled });
-}
-
-export async function listNotificationLogs(notificationId: number): Promise<NotificationLog[]> {
-  return invokeSafe("list_notification_logs", { notificationId });
-}
-
-export async function dismissNotificationToday(notificationId: number): Promise<void> {
-  return invokeSafe("dismiss_notification_today", { notificationId });
 }
