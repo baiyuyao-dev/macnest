@@ -42,7 +42,6 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // Initialize database
             let app_handle = app.handle();

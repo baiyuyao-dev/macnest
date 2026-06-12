@@ -16,18 +16,14 @@ tauri-plugin-store = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
-tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
-sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
-cron = "0.15"
 tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util"] }
 sysinfo = "0.31"
-reqwest = { version = "0.12", features = ["json"] }
 anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
 regex = "1"
@@ -58,27 +54,6 @@ libc = "0.2"
 
 # === 凭据加密 ===
 aes-gcm = "0.10"
-
-# === URL 编码（RDP URI 构建）===
-urlencoding = "2.1"
-
-# === IronRDP（原生 RDP 客户端）===
-ironrdp-pdu = "0.8"
-ironrdp-connector = "0.9"
-ironrdp-session = "0.9"
-ironrdp-graphics = "0.8"
-ironrdp-blocking = "0.9"
-ironrdp = "0.9"
-ironrdp-core = "0.2"
-tokio-rustls = "0.26"
-socket2 = "0.5"
-tracing = "0.1"
-url = "2.5"
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
-webpki-roots = "0.26"
-image = { version = "0.25", default-features = false, features = ["png"] }
-ureq = { version = "2.12", default-features = false, features = ["tls"] }
-x509-cert = "0.2"
 
 [features]
 default = ["custom-protocol"]
