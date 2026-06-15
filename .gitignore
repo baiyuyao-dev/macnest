@@ -11,3 +11,4 @@ target/
 # Development tools
 .claude/
 .superpowers/
+.worktrees/
