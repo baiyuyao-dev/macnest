@@ -1542,6 +1542,65 @@ pub async fn sftp_write_file(
     sftp.write_file(&path, content.as_bytes()).map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SftpUnzipRequest {
+    pub session_id: String,
+    pub zip_path: String,
+    pub target_dir: String,
+    pub overwrite: bool,
+}
+
+#[tauri::command]
+pub async fn sftp_unzip(
+    state: State<'_, AppState>,
+    req: SftpUnzipRequest,
+) -> Result<(), String> {
+    let sftp = get_sftp_manager(&state, &req.session_id).await?;
+    let sftp = sftp.lock().await;
+
+    if !req.zip_path.to_lowercase().ends_with(".zip") {
+        return Err("仅支持解压 ZIP 文件".to_string());
+    }
+
+    sftp.validate_sftp_path(&req.zip_path).map_err(|e| e.to_string())?;
+    sftp.validate_sftp_path(&req.target_dir).map_err(|e| e.to_string())?;
+
+    let (_, _, exit_code) = sftp
+        .exec_command("command -v unzip")
+        .map_err(|e| e.to_string())?;
+    if exit_code != 0 {
+        return Err("远程服务器未安装 unzip，请先安装后再试".to_string());
+    }
+
+    let flag = if req.overwrite { "-o" } else { "-n" };
+    let command = format!(
+        "unzip -q {} {} -d {}",
+        flag,
+        shell_escape(&req.zip_path),
+        shell_escape(&req.target_dir)
+    );
+
+    let (stdout, stderr, exit_code) = sftp
+        .exec_command(&command)
+        .map_err(|e| e.to_string())?;
+
+    if exit_code != 0 {
+        let detail = if stderr.trim().is_empty() {
+            stdout
+        } else {
+            stderr
+        };
+        return Err(format!("解压失败: {}", detail.trim()));
+    }
+
+    Ok(())
+}
+
+/// 简单 shell 转义：用单引号包裹，内部单引号转义
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 // === Tmux 管理 ===
 
 use crate::tmux::types::{

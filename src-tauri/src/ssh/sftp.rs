@@ -69,7 +69,7 @@ impl SftpManager {
     }
 
     /// 验证路径安全性，防止路径遍历攻击
-    fn validate_sftp_path(&self, path: &str) -> anyhow::Result<()> {
+    pub fn validate_sftp_path(&self, path: &str) -> anyhow::Result<()> {
         // 拒绝包含 .. 的路径组件
         for component in Path::new(path).components() {
             if let std::path::Component::ParentDir = component {

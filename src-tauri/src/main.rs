@@ -243,6 +243,7 @@ fn main() {
             commands::sftp_clear_completed,
             commands::sftp_read_file,
             commands::sftp_write_file,
+            commands::sftp_unzip,
             // Tmux commands
             commands::tmux_list_sessions,
             commands::tmux_create_session,
