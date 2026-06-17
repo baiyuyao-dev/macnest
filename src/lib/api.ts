@@ -496,6 +496,17 @@ export async function sftpWriteFile(
   return invokeSafe("sftp_write_file", { sessionId, path, content });
 }
 
+export async function sftpUnzip(
+  sessionId: string,
+  zipPath: string,
+  targetDir: string,
+  overwrite: boolean
+): Promise<void> {
+  return invokeSafe("sftp_unzip", {
+    req: { session_id: sessionId, zip_path: zipPath, target_dir: targetDir, overwrite },
+  });
+}
+
 // ===== Tmux 管理 =====
 
 export interface TmuxSession {
