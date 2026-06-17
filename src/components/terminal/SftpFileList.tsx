@@ -15,6 +15,7 @@ import ContextMenu, { type ContextMenuItemOrDivider } from "./ContextMenu";
 interface SftpFileListProps {
   files: SftpFile[];
   currentPath: string;
+  sessionId: string;
   selectedFile: SftpFile | null;
   onSelectFile: (file: SftpFile | null) => void;
   onPathChange: (path: string) => void;
@@ -27,11 +28,13 @@ interface SftpFileListProps {
   onDropUpload: (localPath: string) => void;
   onEdit?: (file: SftpFile) => void;
   onSyncToTerminal?: () => void;
+  onUnzip?: (file: SftpFile, overwrite: boolean) => void;
 }
 
 export default function SftpFileList({
   files,
   currentPath,
+  sessionId,
   selectedFile,
   onSelectFile,
   onPathChange,
@@ -44,6 +47,7 @@ export default function SftpFileList({
   onDropUpload,
   onEdit,
   onSyncToTerminal,
+  onUnzip,
 }: SftpFileListProps) {
   const [showMkdirDialog, setShowMkdirDialog] = useState(false);
   const [mkdirName, setMkdirName] = useState("");
@@ -52,6 +56,11 @@ export default function SftpFileList({
   const [isDragging, setIsDragging] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
+
+  // 解压确认对话框状态
+  const [unzipConfirmOpen, setUnzipConfirmOpen] = useState(false);
+  const [pendingUnzip, setPendingUnzip] = useState<SftpFile | null>(null);
+  const [unzipOverwrite, setUnzipOverwrite] = useState(false);
 
   // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
@@ -119,6 +128,33 @@ export default function SftpFileList({
     }
   };
 
+  // ── 解压 ────────────────────────────────────────────────
+
+  const handleUnzip = async (file: SftpFile) => {
+    if (!onUnzip) return;
+
+    const baseName = file.name.replace(/\.zip$/i, "");
+    const exists = files.some(
+      (f) => f.is_dir && f.name.toLowerCase() === baseName.toLowerCase()
+    );
+
+    if (exists) {
+      setPendingUnzip(file);
+      setUnzipOverwrite(false);
+      setUnzipConfirmOpen(true);
+      return;
+    }
+
+    onUnzip(file, false);
+  };
+
+  const confirmUnzip = async (overwrite: boolean) => {
+    if (!pendingUnzip || !onUnzip) return;
+    setUnzipConfirmOpen(false);
+    onUnzip(pendingUnzip, overwrite);
+    setPendingUnzip(null);
+  };
+
   // ── 右键菜单 ────────────────────────────────────────────
 
   const handleFileContextMenu = (e: React.MouseEvent, file: SftpFile) => {
@@ -157,6 +193,16 @@ export default function SftpFileList({
         onClick: () => {
           onSelectFile(file);
           onDownload();
+        },
+      },
+      {
+        id: "unzip",
+        label: "解压到当前目录",
+        icon: <FolderOpen className="h-3.5 w-3.5" />,
+        disabled: file.is_dir || !file.name.toLowerCase().endsWith(".zip") || !onUnzip,
+        onClick: () => {
+          onSelectFile(file);
+          handleUnzip(file);
         },
       },
       {
@@ -408,6 +454,47 @@ export default function SftpFileList({
             />
             <Button className="w-full btn-macos rounded-lg" onClick={handleRename} disabled={!renameValue.trim()}>
               确认
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 解压确认对话框 */}
+      <Dialog open={unzipConfirmOpen} onOpenChange={setUnzipConfirmOpen}>
+        <DialogContent className="glass-strong border-[var(--glass-border-strong)] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold">目标目录已存在</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            目录 <strong className="text-foreground">{pendingUnzip?.name.replace(/\.zip$/i, "")}</strong> 已存在，是否覆盖已有文件？
+          </p>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-lg"
+              onClick={() => {
+                setUnzipConfirmOpen(false);
+                setPendingUnzip(null);
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-lg"
+              onClick={() => confirmUnzip(false)}
+            >
+              跳过
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              className="rounded-lg"
+              onClick={() => confirmUnzip(true)}
+            >
+              覆盖
             </Button>
           </div>
         </DialogContent>

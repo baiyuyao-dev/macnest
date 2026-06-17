@@ -6,7 +6,7 @@ import SftpFileList from "./SftpFileList";
 import SftpFileDetail, { type SftpFileDetailHandle } from "./SftpFileDetail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload, sftpGetProgress, sftpCancelTransfer, sftpReadFile, sftpWriteFile, getErrorMessage, showSuccess, showError } from "@/lib/api";
+import { sftpListDir, sftpDelete, sftpMkdir, sftpRename, sftpUpload, sftpDownload, sftpGetProgress, sftpCancelTransfer, sftpReadFile, sftpWriteFile, sftpUnzip, getErrorMessage, showSuccess, showError } from "@/lib/api";
 import type { SftpFile, SftpTransfer } from "@/types";
 
 interface SftpPanelProps {
@@ -350,6 +350,25 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
     }
   };
 
+  const handleUnzip = async (file: SftpFile, overwrite: boolean = false) => {
+    if (file.is_dir || !file.name.toLowerCase().endsWith(".zip")) {
+      showError("仅支持解压 ZIP 文件");
+      return;
+    }
+
+    const baseName = file.name.replace(/\.zip$/i, "");
+    const targetDir = currentPath === "/" ? `/${baseName}` : `${currentPath}/${baseName}`;
+
+    try {
+      await sftpUnzip(sessionId, file.path, targetDir, overwrite);
+      showSuccess("解压完成", baseName);
+      loadFiles(currentPath);
+    } catch (err) {
+      console.error("Failed to unzip:", err);
+      showError("解压失败", getErrorMessage(err));
+    }
+  };
+
   const saveEditor = async () => {
     if (!editorFile) return;
     setEditorSaving(true);
@@ -437,6 +456,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
           <SftpFileList
             files={files}
             currentPath={currentPath}
+            sessionId={sessionId}
             selectedFile={selectedFile}
             onSelectFile={setSelectedFile}
             onPathChange={loadFiles}
@@ -449,6 +469,7 @@ export default function SftpPanel({ sessionId, onSyncToTerminal, syncPath }: Sft
             onDropUpload={handleDropUpload}
             onEdit={handleEdit}
             onSyncToTerminal={onSyncToTerminal ? () => onSyncToTerminal(currentPath) : undefined}
+            onUnzip={handleUnzip}
           />
         </div>
 
