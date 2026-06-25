@@ -94,6 +94,7 @@ pub struct TmuxSessionRecord {
     pub start_directory: String,
     pub command: String,
     pub group_id: Option<i64>,
+    pub layout: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -270,6 +271,9 @@ impl Database {
 
         // Migration: add group_id to tmux_sessions
         let _ = conn.execute("ALTER TABLE tmux_sessions ADD COLUMN group_id INTEGER", []);
+
+        // Migration: add layout to tmux_sessions
+        let _ = conn.execute("ALTER TABLE tmux_sessions ADD COLUMN layout TEXT DEFAULT 'single'", []);
 
         // Migration: prune redundant columns from bookmarks (rebuild table)
         let bookmarks_sql: String = conn
@@ -926,11 +930,11 @@ impl Database {
 
     // === Tmux Session Mappings ===
 
-    pub fn create_tmux_session(&self, tmux_name: &str, display_name: &str, start_directory: &str, command: &str, group_id: Option<i64>) -> Result<i64> {
+    pub fn create_tmux_session(&self, tmux_name: &str, display_name: &str, start_directory: &str, command: &str, group_id: Option<i64>, layout: Option<&str>) -> Result<i64> {
         let conn = self.conn()?;
         conn.execute(
-            "INSERT INTO tmux_sessions (tmux_name, display_name, start_directory, command, group_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![tmux_name, display_name, start_directory, command, group_id],
+            "INSERT INTO tmux_sessions (tmux_name, display_name, start_directory, command, group_id, layout) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![tmux_name, display_name, start_directory, command, group_id, layout.unwrap_or("single")],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -938,7 +942,7 @@ impl Database {
     pub fn get_tmux_session_by_tmux_name(&self, tmux_name: &str) -> Result<Option<TmuxSessionRecord>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, tmux_name, display_name, start_directory, command, group_id, created_at, updated_at FROM tmux_sessions WHERE tmux_name = ?1"
+            "SELECT id, tmux_name, display_name, start_directory, command, group_id, layout, created_at, updated_at FROM tmux_sessions WHERE tmux_name = ?1"
         )?;
         let mut rows = stmt.query(params![tmux_name])?;
         if let Some(row) = rows.next()? {
@@ -949,8 +953,9 @@ impl Database {
                 start_directory: row.get(3)?,
                 command: row.get(4)?,
                 group_id: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                layout: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
             }))
         } else {
             Ok(None)
@@ -960,7 +965,7 @@ impl Database {
     pub fn get_tmux_session_by_display_name(&self, display_name: &str) -> Result<Option<TmuxSessionRecord>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, tmux_name, display_name, start_directory, command, group_id, created_at, updated_at FROM tmux_sessions WHERE display_name = ?1 ORDER BY id DESC LIMIT 1"
+            "SELECT id, tmux_name, display_name, start_directory, command, group_id, layout, created_at, updated_at FROM tmux_sessions WHERE display_name = ?1 ORDER BY id DESC LIMIT 1"
         )?;
         let mut rows = stmt.query(params![display_name])?;
         if let Some(row) = rows.next()? {
@@ -971,8 +976,9 @@ impl Database {
                 start_directory: row.get(3)?,
                 command: row.get(4)?,
                 group_id: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                layout: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
             }))
         } else {
             Ok(None)
@@ -982,7 +988,7 @@ impl Database {
     pub fn list_tmux_sessions(&self) -> Result<Vec<TmuxSessionRecord>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, tmux_name, display_name, start_directory, command, group_id, created_at, updated_at FROM tmux_sessions ORDER BY created_at DESC"
+            "SELECT id, tmux_name, display_name, start_directory, command, group_id, layout, created_at, updated_at FROM tmux_sessions ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(TmuxSessionRecord {
@@ -992,8 +998,9 @@ impl Database {
                 start_directory: row.get(3)?,
                 command: row.get(4)?,
                 group_id: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                layout: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
             })
         })?;
         rows.collect()
@@ -1027,6 +1034,20 @@ impl Database {
         let affected = conn.execute(
             "UPDATE tmux_sessions SET group_id = ?1, updated_at = CURRENT_TIMESTAMP WHERE tmux_name = ?2",
             params![group_id, tmux_name],
+        )?;
+        if affected == 0 {
+            return Err(rusqlite::Error::InvalidParameterName(
+                format!("未找到 tmux 会话 '{}' 的数据库记录", tmux_name)
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn update_tmux_session_layout(&self, tmux_name: &str, layout: &str) -> Result<()> {
+        let conn = self.conn()?;
+        let affected = conn.execute(
+            "UPDATE tmux_sessions SET layout = ?1, updated_at = CURRENT_TIMESTAMP WHERE tmux_name = ?2",
+            params![layout, tmux_name],
         )?;
         if affected == 0 {
             return Err(rusqlite::Error::InvalidParameterName(

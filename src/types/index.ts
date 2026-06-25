@@ -264,6 +264,8 @@ export interface TransferProgress {
 
 // ===== Tmux 管理 =====
 
+export type TmuxLayout = "single" | "horizontal" | "vertical" | "main-horizontal" | "tiled";
+
 export interface TmuxSession {
   name: string;
   display_name: string;
@@ -275,6 +277,7 @@ export interface TmuxSession {
   group_id?: number | null;
   group_name?: string;
   is_external?: boolean;
+  layout?: TmuxLayout;
 }
 
 export interface CreateTmuxSessionRequest {
@@ -283,7 +286,12 @@ export interface CreateTmuxSessionRequest {
   command?: string;
   group_id?: number | null;
   pane_count?: number;
-  layout?: "horizontal" | "vertical";
+  layout?: TmuxLayout;
+}
+
+export interface UpdateTmuxSessionLayoutRequest {
+  display_name: string;
+  layout: TmuxLayout;
 }
 
 export interface RenameTmuxSessionRequest {

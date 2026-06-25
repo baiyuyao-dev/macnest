@@ -509,6 +509,8 @@ export async function sftpUnzip(
 
 // ===== Tmux 管理 =====
 
+export type TmuxLayout = "single" | "horizontal" | "vertical" | "main-horizontal" | "tiled";
+
 export interface TmuxSession {
   name: string;
   display_name: string;
@@ -520,6 +522,7 @@ export interface TmuxSession {
   group_id?: number | null;
   group_name?: string;
   is_external?: boolean;
+  layout?: TmuxLayout;
 }
 
 export interface CreateTmuxSessionRequest {
@@ -528,7 +531,7 @@ export interface CreateTmuxSessionRequest {
   command?: string;
   group_id?: number | null;
   pane_count?: number;
-  layout?: "horizontal" | "vertical";
+  layout?: TmuxLayout;
 }
 
 export interface RenameTmuxSessionRequest {
@@ -572,6 +575,16 @@ export async function tmuxUpdateSessionGroupId(
   });
 }
 
+export async function tmuxUpdateSessionLayout(
+  display_name: string,
+  layout: TmuxLayout
+): Promise<void> {
+  return invokeSafe("tmux_update_session_layout", {
+    displayName: display_name,
+    layout,
+  });
+}
+
 export async function tmuxIsAvailable(): Promise<boolean> {
   return invokeSafe("tmux_is_available");
 }
@@ -580,9 +593,10 @@ export async function tmuxAttachPty(
   sessionName: string,
   channel: unknown,
   cols: number,
-  rows: number
+  rows: number,
+  windowIndex = 1
 ): Promise<string> {
-  return invokeSafe("tmux_attach_pty", { sessionName, channel, cols, rows });
+  return invokeSafe("tmux_attach_pty", { sessionName, channel, cols, rows, windowIndex });
 }
 
 export async function tmuxPtyWrite(ptyId: string, data: Uint8Array): Promise<void> {

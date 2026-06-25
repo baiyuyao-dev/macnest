@@ -251,6 +251,7 @@ fn main() {
             commands::tmux_rename_session,
             commands::tmux_update_session_start_directory,
             commands::tmux_update_session_group_id,
+            commands::tmux_update_session_layout,
             commands::tmux_is_available,
             commands::tmux_attach_pty,
             commands::tmux_pty_write,

@@ -1043,48 +1043,40 @@ export default function Docker() {
 
   return (
     <div className="p-6 space-y-5 animate-page-enter">
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between animate-slide-up">
-        <div>
-          <h1 className="text-[22px] font-bold tracking-tight">Docker</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">管理本地 Docker 容器与镜像</p>
+      {/* Tabs + Refresh */}
+      <div className="flex items-center gap-3 animate-slide-up" style={{ animationDelay: "50ms" }}>
+        <div className="flex-1">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "containers" | "images" | "volumes" | "networks")}>
+            <TabsList className="rounded-xl p-1 h-9">
+              <TabsTrigger value="containers" className="text-xs rounded-lg px-4 py-1.5">
+                <Container className="h-3.5 w-3.5 mr-1.5" />
+                容器 ({containers.length})
+              </TabsTrigger>
+              <TabsTrigger value="images" className="text-xs rounded-lg px-4 py-1.5">
+                <Image className="h-3.5 w-3.5 mr-1.5" />
+                镜像 ({images.length})
+              </TabsTrigger>
+              <TabsTrigger value="volumes" className="text-xs rounded-lg px-4 py-1.5">
+                <Database className="h-3.5 w-3.5 mr-1.5" />
+                卷 ({volumes.length})
+              </TabsTrigger>
+              <TabsTrigger value="networks" className="text-xs rounded-lg px-4 py-1.5">
+                <Globe className="h-3.5 w-3.5 mr-1.5" />
+                网络 ({networks.length})
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-muted-foreground">最后刷新: {lastRefresh}</span>
-          <Button variant="outline" size="sm" className="btn-macos-secondary rounded-xl h-8 text-xs" onClick={() => {
-            if (activeTab === "containers") loadContainers(true);
-            else if (activeTab === "images") loadImages();
-            else if (activeTab === "volumes") loadVolumes();
-            else if (activeTab === "networks") loadNetworks();
-          }} disabled={loading}>
-            <RotateCcw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            刷新
-          </Button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="animate-slide-up" style={{ animationDelay: "50ms" }}>
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "containers" | "images" | "volumes" | "networks")}>
-          <TabsList className="rounded-xl p-1 h-9">
-            <TabsTrigger value="containers" className="text-xs rounded-lg px-4 py-1.5">
-              <Container className="h-3.5 w-3.5 mr-1.5" />
-              容器 ({containers.length})
-            </TabsTrigger>
-            <TabsTrigger value="images" className="text-xs rounded-lg px-4 py-1.5">
-              <Image className="h-3.5 w-3.5 mr-1.5" />
-              镜像 ({images.length})
-            </TabsTrigger>
-            <TabsTrigger value="volumes" className="text-xs rounded-lg px-4 py-1.5">
-              <Database className="h-3.5 w-3.5 mr-1.5" />
-              卷 ({volumes.length})
-            </TabsTrigger>
-            <TabsTrigger value="networks" className="text-xs rounded-lg px-4 py-1.5">
-              <Globe className="h-3.5 w-3.5 mr-1.5" />
-              网络 ({networks.length})
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <span className="text-[11px] text-muted-foreground whitespace-nowrap">最后刷新: {lastRefresh}</span>
+        <Button variant="outline" size="sm" className="btn-macos-secondary rounded-xl h-8 text-xs" onClick={() => {
+          if (activeTab === "containers") loadContainers(true);
+          else if (activeTab === "images") loadImages();
+          else if (activeTab === "volumes") loadVolumes();
+          else if (activeTab === "networks") loadNetworks();
+        }} disabled={loading}>
+          <RotateCcw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          刷新
+        </Button>
       </div>
 
       {activeTab === "containers" ? (

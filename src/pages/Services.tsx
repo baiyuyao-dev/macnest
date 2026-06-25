@@ -355,18 +355,6 @@ export default function Services() {
   // ─── Render ───────────────────────────────────────────────
   return (
     <div className="p-6 space-y-5 animate-page-enter">
-      {/* Header */}
-      <div className="flex items-center justify-between animate-slide-up">
-        <div>
-          <h1 className="text-[22px] font-bold tracking-tight">服务管理</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">管理本地进程服务的启动、停止与监控</p>
-        </div>
-        <Button className="btn-macos rounded-xl" onClick={openCreateDialog}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          添加服务
-        </Button>
-      </div>
-
       {/* Search & Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between animate-slide-up" style={{ animationDelay: "50ms" }}>
         <div className="relative w-full sm:w-80">
@@ -378,7 +366,12 @@ export default function Services() {
             className="input-macos pl-10"
           />
         </div>
-        <div className="flex gap-1 p-0.5 rounded-xl bg-muted/50">
+        <div className="flex items-center gap-2">
+          <Button className="btn-macos rounded-xl" onClick={openCreateDialog}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            添加服务
+          </Button>
+          <div className="flex gap-1 p-0.5 rounded-xl bg-muted/50">
           {statusTabs.map((tab) => (
             <Button
               key={tab.value}
@@ -395,6 +388,7 @@ export default function Services() {
               )}
             </Button>
           ))}
+        </div>
         </div>
       </div>
 

@@ -151,17 +151,12 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-6 animate-page-enter">
-      {/* Header */}
-      <div className="flex items-center justify-between animate-slide-up">
-        <div>
-          <h1 className="text-[22px] font-bold tracking-tight">设置</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">自定义 MacNest 的偏好选项</p>
+        <div className="flex items-center justify-end animate-slide-up">
+          <Button className="btn-macos rounded-xl" onClick={handleSave} disabled={saving}>
+            <Save className="mr-1.5 h-3.5 w-3.5" />
+            {saving ? "保存中..." : "保存设置"}
+          </Button>
         </div>
-        <Button className="btn-macos rounded-xl" onClick={handleSave} disabled={saving}>
-          <Save className="mr-1.5 h-3.5 w-3.5" />
-          {saving ? "保存中..." : "保存设置"}
-        </Button>
-      </div>
 
       {/* 外观设置 */}
       <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "50ms" }}>

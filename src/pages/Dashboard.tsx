@@ -431,17 +431,6 @@ export default function Dashboard() {
 
   return (
     <div className="h-full flex flex-col p-6 animate-page-enter gap-6">
-      {/* Header */}
-      <div className="flex items-center justify-between animate-slide-up flex-shrink-0" style={{ animationDelay: "0ms" }}>
-        <div>
-          <h1 className="text-[22px] font-bold tracking-tight">仪表盘</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">概览系统运行状态</p>
-        </div>
-        <Badge variant="outline" className="text-[10px] font-medium px-2.5 py-0.5 rounded-full glass">
-          v0.2.0
-        </Badge>
-      </div>
-
       {/* Stats */}
       {initialLoading ? (
         <div className="grid grid-cols-3 gap-4 flex-shrink-0">

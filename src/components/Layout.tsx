@@ -12,13 +12,10 @@ import {
   Copy,
   Check,
   Globe,
-  Thermometer,
-  Gauge,
-  Cpu,
 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { getSystemInfo, getCpuDetailedUsage, showSuccess, showError } from "@/lib/api";
-import type { SystemInfo, CpuDetailedUsage } from "@/types";
+import { getSystemInfo, showSuccess, showError } from "@/lib/api";
+import type { SystemInfo } from "@/types";
 import MacNestLogo from "@/components/icons/MacNestLogo";
 import { useThemeStore } from "@/stores/theme";
 
@@ -36,9 +33,7 @@ export default function Layout() {
   const location = useLocation();
   const outlet = useOutlet();
   const cacheRef = useRef<Map<string, React.ReactNode>>(new Map());
-  const [collapsed, setCollapsed] = useState(false);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-  const [cpuUsage, setCpuUsage] = useState<CpuDetailedUsage | null>(null);
   const [ipCopied, setIpCopied] = useState(false);
 
   const currentPath = location.pathname;
@@ -58,115 +53,68 @@ export default function Layout() {
     }
   }, []);
 
-  const loadCpuUsage = useCallback(async () => {
-    try {
-      const usage = await getCpuDetailedUsage();
-      setCpuUsage(usage);
-    } catch (err) {
-      console.error("Failed to load CPU usage:", err);
-    }
-  }, []);
-
   useEffect(() => {
     loadSystemInfo();
-    loadCpuUsage();
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") {
         loadSystemInfo();
-        loadCpuUsage();
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [loadSystemInfo, loadCpuUsage]);
+  }, [loadSystemInfo]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background">
-      {/* ── Sidebar ── */}
-      <aside
-        className={`relative flex flex-col shrink-0 z-20 transition-all duration-300 ease-in-out ${
-          collapsed ? "w-16" : "w-[220px]"
-        }`}
-      >
-        {/* Glass background */}
-        <div className="absolute inset-0 glass-strong border-r border-[var(--glass-border-strong)]" />
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
+      {/* ── Top Header ── */}
+      <header className="relative flex h-[40px] shrink-0 items-center z-20 border-b border-[var(--glass-border)]">
 
         {/* Logo */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="relative flex h-[52px] w-full items-center px-3 cursor-pointer hover:bg-accent/40 transition-colors"
-        >
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <MacNestLogo className="h-5 w-5" size={20} />
+        <div className="relative flex h-full items-center px-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <MacNestLogo className="h-4 w-4" size={20} />
             </div>
-            <div
-              className="overflow-hidden whitespace-nowrap"
-              style={{
-                opacity: collapsed ? 0 : 1,
-                maxWidth: collapsed ? 0 : 120,
-                transition: collapsed
-                  ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
-                  : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
-              }}
-            >
+            <div className="overflow-hidden whitespace-nowrap">
               <span className="text-[15px] font-bold tracking-tight">MacNest</span>
               <span className="ml-1.5 text-[10px] font-medium text-muted-foreground">v0.2</span>
             </div>
           </div>
-        </button>
+        </div>
 
         {/* Nav */}
-        <nav className="relative flex-1 space-y-0.5 px-2 py-2">
-          {navItems.map((item, index) => (
+        <nav className="relative flex flex-1 items-center justify-center gap-2">
+          {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === "/"}
-              title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
-                `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-300 ${
+                `group relative flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-300 mb-1 ${
                   isActive
                     ? "text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 }`
               }
-              style={{ animationDelay: `${index * 40}ms` }}
             >
               {({ isActive }) => (
                 <>
-                  {/* Active background pill */}
                   {isActive && (
                     <div className="absolute inset-0 rounded-xl bg-primary shadow-glass transition-all duration-300" />
-                  )}
-                  {/* Active indicator dot */}
-                  {isActive && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-primary-foreground/80" />
                   )}
                   <item.icon
                     className={`relative h-[18px] w-[18px] shrink-0 transition-transform duration-300 ${
                       isActive ? "" : "group-hover:scale-110"
                     }`}
                   />
-                  <span
-                    className="relative overflow-hidden whitespace-nowrap"
-                    style={{
-                      opacity: collapsed ? 0 : 1,
-                      maxWidth: collapsed ? 0 : 120,
-                      transition: collapsed
-                        ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
-                        : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
-                    }}
-                  >
-                    {item.label}
-                  </span>
+                  <span className="relative">{item.label}</span>
                 </>
               )}
             </NavLink>
           ))}
         </nav>
 
-        {/* System Monitor Section */}
-        <div className="relative px-2 py-2 border-t border-[var(--glass-border)]">
+        {/* Right side: IP + Settings */}
+        <div className="relative flex items-center gap-2 px-4 border-l border-[var(--glass-border)]">
           {/* IP Display */}
           {systemInfo?.local_ip && (
             <button
@@ -182,29 +130,11 @@ export default function Layout() {
                   console.error("Copy failed:", err);
                 }
               }}
-              className="group flex items-center gap-2 w-full rounded-xl px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 active:scale-[0.97] transition-all duration-150 cursor-pointer"
+              className="group flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 active:scale-[0.97] transition-all duration-150 cursor-pointer"
             >
               <Globe className="relative h-[14px] w-[14px] shrink-0" />
-              <span
-                className="relative overflow-hidden whitespace-nowrap"
-                style={{
-                  opacity: collapsed ? 0 : 1,
-                  maxWidth: collapsed ? 0 : 120,
-                  transition: collapsed
-                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
-                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
-                }}
-              >
-                {systemInfo.local_ip}
-              </span>
-              <span className="flex-1" />
-              <span
-                className="shrink-0 transition-all duration-200"
-                style={{
-                  opacity: collapsed ? 0 : 1,
-                  maxWidth: collapsed ? 0 : undefined,
-                }}
-              >
+              <span>{systemInfo.local_ip}</span>
+              <span>
                 {ipCopied ? (
                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-emerald-600 font-semibold">
                     <Check className="h-2.5 w-2.5" />
@@ -220,73 +150,10 @@ export default function Layout() {
             </button>
           )}
 
-          {/* CPU Temperature */}
-          {cpuUsage?.thermal && (
-            <div className="flex items-center gap-2 w-full rounded-xl px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-              <Thermometer className="relative h-[14px] w-[14px] shrink-0" />
-              <span
-                className="relative overflow-hidden whitespace-nowrap flex-1"
-                style={{
-                  opacity: collapsed ? 0 : 1,
-                  maxWidth: collapsed ? 0 : 120,
-                  transition: collapsed
-                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
-                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
-                }}
-              >
-                <span className={cpuUsage.thermal.temperature_celsius > 80 ? "text-red-500 font-semibold" : ""}>
-                  {cpuUsage.thermal.temperature_celsius.toFixed(1)}°C
-                </span>
-              </span>
-            </div>
-          )}
-
-          {/* CPU Pressure */}
-          {cpuUsage?.pressure && (
-            <div className="flex items-center gap-2 w-full rounded-xl px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-              <Gauge className="relative h-[14px] w-[14px] shrink-0" />
-              <span
-                className="relative overflow-hidden whitespace-nowrap flex-1"
-                style={{
-                  opacity: collapsed ? 0 : 1,
-                  maxWidth: collapsed ? 0 : 120,
-                  transition: collapsed
-                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
-                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
-                }}
-              >
-                {cpuUsage.pressure.total_pressure.toFixed(1)}%
-              </span>
-            </div>
-          )}
-
-          {/* CPU Core Average Load */}
-          {cpuUsage?.cores && cpuUsage.cores.length > 0 && (
-            <div className="flex items-center gap-2 w-full rounded-xl px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-              <Cpu className="relative h-[14px] w-[14px] shrink-0" />
-              <span
-                className="relative overflow-hidden whitespace-nowrap flex-1"
-                style={{
-                  opacity: collapsed ? 0 : 1,
-                  maxWidth: collapsed ? 0 : 120,
-                  transition: collapsed
-                    ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
-                    : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
-                }}
-              >
-                {(cpuUsage.cores.reduce((sum, c) => sum + c.usage_percent, 0) / cpuUsage.cores.length).toFixed(1)}%
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Bottom actions */}
-        <div className="relative p-2 space-y-0.5">
           <NavLink
             to="/settings"
-            title={collapsed ? "设置" : undefined}
             className={({ isActive }) =>
-              `group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-300 ${
+              `group relative flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-300 ${
                 isActive
                   ? "text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -295,32 +162,23 @@ export default function Layout() {
           >
             {({ isActive }) => (
               <>
-                {isActive && <div className="absolute inset-0 rounded-xl bg-primary shadow-glass transition-all duration-300" />}
+                {isActive && (
+                  <div className="absolute inset-0 rounded-xl bg-primary shadow-glass transition-all duration-300" />
+                )}
                 <Settings
                   className={`relative h-[18px] w-[18px] shrink-0 transition-transform duration-300 ${
                     isActive ? "" : "group-hover:rotate-45"
                   }`}
                 />
-                <span
-                  className="relative overflow-hidden whitespace-nowrap"
-                  style={{
-                    opacity: collapsed ? 0 : 1,
-                    maxWidth: collapsed ? 0 : 120,
-                    transition: collapsed
-                      ? "opacity 120ms ease-in-out, max-width 300ms ease-in-out 120ms"
-                      : "max-width 300ms ease-in-out, opacity 120ms ease-in-out 180ms",
-                  }}
-                >
-                  设置
-                </span>
+                <span className="relative">设置</span>
               </>
             )}
           </NavLink>
         </div>
-      </aside>
+      </header>
 
       {/* ── Main Content ── */}
-      <main className="relative flex-1 overflow-hidden">
+      <main className="relative flex-1 overflow-hidden mx-2 mb-2">
         {Array.from(cacheRef.current.entries()).map(([path, element]) => {
           const isActive = currentPath === path;
           return (

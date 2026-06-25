@@ -11,9 +11,10 @@ pub struct TmuxPtySession {
     pub _reader_thread: Option<std::thread::JoinHandle<()>>,
 }
 
-/// 创建 PTY 并 attach 到 tmux 会话
+/// 创建 PTY 并 attach 到 tmux 会话的指定 window
 pub fn attach_session_pty(
     session_name: &str,
+    window_index: usize,
     channel: Channel<Vec<u8>>,
     cols: u16,
     rows: u16,
@@ -33,10 +34,11 @@ pub fn attach_session_pty(
         .map_err(|e| e.to_string())?;
 
     let tmux_path = crate::tmux::get_tmux_path();
+    let target = format!("{}:{}", session_name, window_index);
     let mut cmd = CommandBuilder::new(&tmux_path);
     cmd.arg("attach");
     cmd.arg("-t");
-    cmd.arg(session_name);
+    cmd.arg(&target);
     cmd.env("TERM", "xterm-256color");
     cmd.env("LANG", "en_US.UTF-8");
     cmd.env("LC_ALL", "en_US.UTF-8");
@@ -64,7 +66,7 @@ pub fn attach_session_pty(
     });
 
     Ok(TmuxPtySession {
-        session_name: session_name.to_string(),
+        session_name: target,
         master,
         writer: master_writer,
         child: Some(child),
