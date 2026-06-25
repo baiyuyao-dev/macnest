@@ -13,6 +13,7 @@ pub struct TmuxSession {
     pub group_id: Option<i64>,
     pub group_name: Option<String>,
     pub is_external: bool,
+    pub layout: Option<String>,
 }
 
 /// 创建会话请求

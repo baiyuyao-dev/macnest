@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText, readText } from "@tauri-apps/plugin-clipboard-manager";
+import ContextMenu, { type ContextMenuItemOrDivider } from "./ContextMenu";
 import "@xterm/xterm/css/xterm.css";
 
 interface BaseTerminalProps {
@@ -23,6 +24,12 @@ export default function BaseTerminal({
 }: BaseTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    items: ContextMenuItemOrDivider[];
+  }>({ open: false, x: 0, y: 0, items: [] });
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -33,16 +40,63 @@ export default function BaseTerminal({
     let lastWidth = 0;
     let lastHeight = 0;
     let initialized = false;
-    let lastFitCols = 0;
 
     // 捕获阶段拦截右键 mousedown，阻止 xterm.js 把右键转成 ANSI 序列发给 tmux
-    // 这样浏览器会弹出默认右键菜单（复制/粘贴）
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 2) {
         e.stopImmediatePropagation();
       }
     };
     container.addEventListener("mousedown", handleMouseDown, true);
+
+    // 捕获阶段拦截 contextmenu，阻止浏览器默认菜单，并弹出自定义菜单
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      const localTerm = termRef.current;
+      if (!localTerm) return;
+
+      const hasSelection = localTerm.hasSelection();
+      const items: ContextMenuItemOrDivider[] = [
+        {
+          id: "copy",
+          label: "复制",
+          shortcut: "⌘C",
+          disabled: !hasSelection,
+          onClick: () => {
+            writeText(localTerm.getSelection()).catch(() => {});
+          },
+        },
+        {
+          id: "paste",
+          label: "粘贴",
+          shortcut: "⌘V",
+          onClick: async () => {
+            try {
+              const text = await readText();
+              if (text) {
+                localTerm.paste(text);
+              }
+            } catch {
+              // ignore
+            }
+          },
+        },
+        "divider",
+        {
+          id: "select-all",
+          label: "全选",
+          shortcut: "⌘A",
+          onClick: () => {
+            localTerm.selectAll();
+          },
+        },
+      ];
+
+      setContextMenu({ open: true, x: e.clientX, y: e.clientY, items });
+    };
+    container.addEventListener("contextmenu", handleContextMenu, true);
 
     const initTerminal = () => {
       if (initialized) return;
@@ -79,16 +133,32 @@ export default function BaseTerminal({
         },
       });
 
-      // Cmd+C 复制选中文本；Escape 阻止冒泡避免 Dialog 捕获
+      // Cmd+C 复制选中文本；Cmd+V 粘贴；Cmd+A 全选；Escape 阻止冒泡避免 Dialog 捕获
       const localTerm = term;
       localTerm.attachCustomKeyEventHandler((e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
           return true;
         }
+        if ((e.metaKey || e.ctrlKey) && e.key === "a") {
+          e.preventDefault();
+          localTerm.selectAll();
+          return false;
+        }
         if ((e.metaKey || e.ctrlKey) && e.key === "c" && localTerm.hasSelection()) {
           e.preventDefault();
           writeText(localTerm.getSelection()).catch(() => {});
+          return false;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key === "v") {
+          e.preventDefault();
+          readText()
+            .then((text) => {
+              if (text) {
+                localTerm.paste(text);
+              }
+            })
+            .catch(() => {});
           return false;
         }
         return true;
@@ -99,11 +169,6 @@ export default function BaseTerminal({
 
       term.open(container);
       fitAddon.fit();
-      // 防止亚像素渲染导致最右侧截断（tmux 状态栏时间等贴边内容）
-      if (term.cols > 1) {
-        lastFitCols = term.cols;
-        term.resize(term.cols - 1, term.rows);
-      }
       term.focus();
       term.refresh(0, term.rows - 1);
 
@@ -138,10 +203,6 @@ export default function BaseTerminal({
 
         if (initialized && width > 0 && height > 0) {
           fitAddon?.fit();
-          if (term && term.cols > 1 && term.cols !== lastFitCols) {
-            lastFitCols = term.cols;
-            term.resize(term.cols - 1, term.rows);
-          }
           if (lastWidth === 0 || lastHeight === 0) {
             requestAnimationFrame(() => {
               term?.refresh(0, term.rows - 1);
@@ -162,10 +223,6 @@ export default function BaseTerminal({
           if (entry.isIntersecting && initialized) {
             requestAnimationFrame(() => {
               fitAddon?.fit();
-              if (term && term.cols > 1 && term.cols !== lastFitCols) {
-                lastFitCols = term.cols;
-                term.resize(term.cols - 1, term.rows);
-              }
               term?.refresh(0, term.rows - 1);
             });
             onVisibilityChange?.(true);
@@ -180,6 +237,7 @@ export default function BaseTerminal({
 
     return () => {
       container.removeEventListener("mousedown", handleMouseDown, true);
+      container.removeEventListener("contextmenu", handleContextMenu, true);
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       term?.dispose();
@@ -193,5 +251,18 @@ export default function BaseTerminal({
     }
   }, [active]);
 
-  return <div ref={terminalRef} className={className ?? "h-full w-full"} />;
+  return (
+    <>
+      <div className={`${className ?? "h-full w-full"} pr-2 box-border overflow-hidden`}>
+        <div ref={terminalRef} className="h-full w-full" />
+      </div>
+      <ContextMenu
+        open={contextMenu.open}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={contextMenu.items}
+        onClose={() => setContextMenu((prev) => ({ ...prev, open: false }))}
+      />
+    </>
+  );
 }

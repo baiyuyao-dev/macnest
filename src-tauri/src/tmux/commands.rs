@@ -69,6 +69,10 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
             let group_id = group_map.get(&tmux_name).copied().flatten();
             let group_name = group_id.and_then(|id| group_name_map.get(&id).cloned());
             let is_external = !name_map.contains_key(&tmux_name);
+            let layout = db_sessions
+                .iter()
+                .find(|r| r.tmux_name == tmux_name)
+                .and_then(|r| r.layout.clone());
             TmuxSession {
                 name: tmux_name,
                 display_name,
@@ -80,6 +84,7 @@ pub fn list_sessions(db: &Database) -> Result<Vec<TmuxSession>, String> {
                 group_id,
                 group_name,
                 is_external,
+                layout,
             }
         })
         .collect();
@@ -196,57 +201,106 @@ pub fn create_session(db: &Database, req: &CreateTmuxSessionRequest) -> Result<(
     // 重新加载配置，确保新会话继承最新的 ~/.tmux.conf
     source_tmux_config();
 
-    // 根据 pane_count 和 layout 创建 pane 布局
+    // 根据 pane_count 创建多个 tmux window（每个 window 对应 MacNest 前端一个 pane）
     let pane_count = req.pane_count.clamp(1, 4);
-    if pane_count > 1 {
-        let tmux = crate::tmux::get_tmux_path();
-
-        match pane_count {
-            2 => {
-                // 2 pane: 根据 layout 选择左右或上下
-                let split_flag = match req.layout.as_deref() {
-                    Some("vertical") => "-v",
-                    _ => "-h", // 默认左右
-                };
-                let _ = Command::new(&tmux)
-                    .args(["split-window", split_flag, "-t", &tmux_name])
-                    .output();
-            }
-            3 => {
-                // 3 pane 品字形: 先分两个，再用 main-horizontal 布局
-                let _ = Command::new(&tmux)
-                    .args(["split-window", "-h", "-t", &tmux_name])
-                    .output();
-                let _ = Command::new(&tmux)
-                    .args(["split-window", "-h", "-t", &tmux_name])
-                    .output();
-                let _ = Command::new(&tmux)
-                    .args(["select-layout", "-t", &tmux_name, "main-horizontal"])
-                    .output();
-            }
-            4 => {
-                // 4 pane 田字: 先分三个，再用 tiled 布局
-                let _ = Command::new(&tmux)
-                    .args(["split-window", "-h", "-t", &tmux_name])
-                    .output();
-                let _ = Command::new(&tmux)
-                    .args(["split-window", "-v", "-t", &tmux_name])
-                    .output();
-                let _ = Command::new(&tmux)
-                    .args(["split-window", "-v", "-t", &tmux_name])
-                    .output();
-                let _ = Command::new(&tmux)
-                    .args(["select-layout", "-t", &tmux_name, "tiled"])
-                    .output();
-            }
-            _ => {}
-        }
+    let layout = resolve_layout(req.layout.as_deref(), pane_count);
+    let tmux = crate::tmux::get_tmux_path();
+    for _ in 1..pane_count {
+        let _ = Command::new(&tmux)
+            .args(["new-window", "-t", &tmux_name])
+            .output();
     }
 
     // 存入数据库映射
     let command_str = req.command.as_deref().unwrap_or("");
-    db.create_tmux_session(&tmux_name, display_name, &start_dir, command_str, req.group_id)
-        .map_err(|e| format!("保存会话映射失败: {}", e))?;
+    db.create_tmux_session(
+        &tmux_name,
+        display_name,
+        &start_dir,
+        command_str,
+        req.group_id,
+        Some(&layout),
+    )
+    .map_err(|e| format!("保存会话映射失败: {}", e))?;
+
+    Ok(())
+}
+
+/// 把前端 layout 值规范化为后端存储值
+fn resolve_layout(layout: Option<&str>, pane_count: u8) -> String {
+    match pane_count {
+        1 => "single".to_string(),
+        2 => match layout {
+            Some("vertical") => "vertical".to_string(),
+            _ => "horizontal".to_string(),
+        },
+        3 => "main-horizontal".to_string(),
+        4 => "tiled".to_string(),
+        _ => "single".to_string(),
+    }
+}
+
+/// 根据 layout 返回需要的 window 数量
+fn layout_window_count(layout: &str) -> usize {
+    match layout {
+        "horizontal" | "vertical" => 2,
+        "main-horizontal" => 3,
+        "tiled" => 4,
+        _ => 1,
+    }
+}
+
+/// 切换 tmux session 的 MacNest 前端布局：按需创建或销毁 tmux window
+pub fn update_session_layout(
+    db: &Database,
+    display_name: &str,
+    layout: &str,
+) -> Result<(), String> {
+    let record = db
+        .get_tmux_session_by_display_name(display_name)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("未找到会话 '{}'", display_name))?;
+
+    let tmux_name = record.tmux_name;
+    let target_count = layout_window_count(layout);
+    let tmux = crate::tmux::get_tmux_path();
+
+    // 获取当前 window 数量
+    let current_count = {
+        let output = Command::new(&tmux)
+            .args([
+                "list-windows",
+                "-t",
+                &tmux_name,
+                "-F",
+                "#{window_index}",
+            ])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .filter(|l| !l.is_empty())
+                .count(),
+            _ => 1,
+        }
+    };
+
+    if current_count < target_count {
+        for _ in current_count..target_count {
+            let _ = Command::new(&tmux)
+                .args(["new-window", "-t", &tmux_name])
+                .output();
+        }
+    } else if current_count > target_count {
+        for i in (target_count + 1..=current_count).rev() {
+            let _ = Command::new(&tmux)
+                .args(["kill-window", "-t", &format!("{}:{}", tmux_name, i)])
+                .output();
+        }
+    }
+
+    db.update_tmux_session_layout(&tmux_name, layout)
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }

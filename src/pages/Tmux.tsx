@@ -1,3 +1,4 @@
+import { Group as ResizableGroup, Panel as ResizablePanel, Separator as ResizableSeparator } from "react-resizable-panels";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +39,11 @@ import {
   Check,
   StickyNote,
   AppWindow,
+  Maximize,
+  Columns2,
+  Rows2,
+  LayoutTemplate,
+  Grid2x2,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -50,6 +56,7 @@ import {
   tmuxRenameSession,
   tmuxUpdateSessionStartDirectory,
   tmuxUpdateSessionGroupId,
+  tmuxUpdateSessionLayout,
   tmuxOpenInGhostty,
   listGroups,
   createGroup,
@@ -67,7 +74,147 @@ import {
   showError,
 } from "@/lib/api";
 import { buildGroupTree, flattenGroups, type GroupNode } from "@/lib/tree";
-import type { TmuxSession, Group, LocalFileNode } from "@/types";
+import type { TmuxSession, Group, LocalFileNode, TmuxLayout } from "@/types";
+
+const LAYOUTS: { value: TmuxLayout; label: string; icon: React.ElementType; count: number }[] = [
+  { value: "single", label: "单 pane", icon: Maximize, count: 1 },
+  { value: "horizontal", label: "左右", icon: Columns2, count: 2 },
+  { value: "vertical", label: "上下", icon: Rows2, count: 2 },
+  { value: "main-horizontal", label: "品字", icon: LayoutTemplate, count: 3 },
+  { value: "tiled", label: "田字", icon: Grid2x2, count: 4 },
+];
+
+function layoutWindowCount(layout: TmuxLayout): number {
+  return LAYOUTS.find((l) => l.value === layout)?.count ?? 1;
+}
+
+interface TmuxTerminalLayoutProps {
+  sessionName: string;
+  layout: TmuxLayout;
+  onDetach: () => void;
+  onIdle?: (idle: boolean) => void;
+  readVersion?: number;
+}
+
+function TmuxTerminalLayout({
+  sessionName,
+  layout,
+  onDetach,
+  onIdle,
+  readVersion,
+}: TmuxTerminalLayoutProps) {
+  const common = {
+    sessionName,
+    onDetach,
+    onIdle,
+    readVersion,
+  };
+
+  const panelClass = "h-full w-full overflow-hidden";
+  const resizeHandleClass =
+    "group relative flex items-center justify-center transition-colors data-[resize-handle-state=drag]:bg-primary/20";
+  const resizeBarClass =
+    "rounded-full bg-border group-hover:bg-primary group-data-[resize-handle-state=drag]:bg-primary transition-colors";
+
+  switch (layout) {
+    case "horizontal":
+      return (
+        <ResizableGroup orientation="horizontal" className="h-full w-full">
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <TmuxTerminal key={`${sessionName}-1`} {...common} windowIndex={1} />
+          </ResizablePanel>
+          <ResizableSeparator className={`${resizeHandleClass} w-2`}>
+            <div className={`${resizeBarClass} w-[3px] h-8`} />
+          </ResizableSeparator>
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <TmuxTerminal key={`${sessionName}-2`} {...common} windowIndex={2} />
+          </ResizablePanel>
+        </ResizableGroup>
+      );
+    case "vertical":
+      return (
+        <ResizableGroup orientation="vertical" className="h-full w-full">
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <TmuxTerminal key={`${sessionName}-1`} {...common} windowIndex={1} />
+          </ResizablePanel>
+          <ResizableSeparator className={`${resizeHandleClass} h-2`}>
+            <div className={`${resizeBarClass} h-[3px] w-8`} />
+          </ResizableSeparator>
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <TmuxTerminal key={`${sessionName}-2`} {...common} windowIndex={2} />
+          </ResizablePanel>
+        </ResizableGroup>
+      );
+    case "main-horizontal":
+      return (
+        <ResizableGroup orientation="vertical" className="h-full w-full">
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <TmuxTerminal key={`${sessionName}-1`} {...common} windowIndex={1} />
+          </ResizablePanel>
+          <ResizableSeparator className={`${resizeHandleClass} h-2`}>
+            <div className={`${resizeBarClass} h-[3px] w-8`} />
+          </ResizableSeparator>
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <ResizableGroup orientation="horizontal" className="h-full w-full">
+              <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+                <TmuxTerminal key={`${sessionName}-2`} {...common} windowIndex={2} />
+              </ResizablePanel>
+              <ResizableSeparator className={`${resizeHandleClass} w-2`}>
+                <div className={`${resizeBarClass} w-[3px] h-8`} />
+              </ResizableSeparator>
+              <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+                <TmuxTerminal key={`${sessionName}-3`} {...common} windowIndex={3} />
+              </ResizablePanel>
+            </ResizableGroup>
+          </ResizablePanel>
+        </ResizableGroup>
+      );
+    case "tiled":
+      return (
+        <ResizableGroup orientation="horizontal" className="h-full w-full">
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <ResizableGroup orientation="vertical" className="h-full w-full">
+              <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+                <TmuxTerminal key={`${sessionName}-1`} {...common} windowIndex={1} />
+              </ResizablePanel>
+              <ResizableSeparator className={`${resizeHandleClass} h-2`}>
+                <div className={`${resizeBarClass} h-[3px] w-8`} />
+              </ResizableSeparator>
+              <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+                <TmuxTerminal key={`${sessionName}-2`} {...common} windowIndex={2} />
+              </ResizablePanel>
+            </ResizableGroup>
+          </ResizablePanel>
+          <ResizableSeparator className={`${resizeHandleClass} w-2`}>
+            <div className={`${resizeBarClass} w-[3px] h-8`} />
+          </ResizableSeparator>
+          <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+            <ResizableGroup orientation="vertical" className="h-full w-full">
+              <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+                <TmuxTerminal key={`${sessionName}-3`} {...common} windowIndex={3} />
+              </ResizablePanel>
+              <ResizableSeparator className={`${resizeHandleClass} h-2`}>
+                <div className={`${resizeBarClass} h-[3px] w-8`} />
+              </ResizableSeparator>
+              <ResizablePanel defaultSize={50} minSize={20} className={panelClass}>
+                <TmuxTerminal key={`${sessionName}-4`} {...common} windowIndex={4} />
+              </ResizablePanel>
+            </ResizableGroup>
+          </ResizablePanel>
+        </ResizableGroup>
+      );
+    case "single":
+    default:
+      return <TmuxTerminal key={`${sessionName}-1`} {...common} windowIndex={1} />;
+  }
+}
+
+function resolveCreateLayout(paneCount: number, layout: TmuxLayout): TmuxLayout | undefined {
+  if (paneCount === 1) return undefined;
+  if (paneCount === 2) return layout === "vertical" ? "vertical" : "horizontal";
+  if (paneCount === 3) return "main-horizontal";
+  return "tiled";
+}
 
 /* ── Types ── */
 
@@ -634,7 +781,7 @@ export default function Tmux() {
   const [newCwd, setNewCwd] = useState("");
   const [newGroupId, setNewGroupId] = useState<number | null>(null);
   const [newPaneCount, setNewPaneCount] = useState<number>(1);
-  const [newLayout, setNewLayout] = useState<"horizontal" | "vertical">("horizontal");
+  const [newLayout, setNewLayout] = useState<TmuxLayout>("horizontal");
   const [editTarget, setEditTarget] = useState("");
   const [editName, setEditName] = useState("");
   const [editCwd, setEditCwd] = useState("");
@@ -764,7 +911,7 @@ export default function Tmux() {
         start_directory: newCwd.trim() || undefined,
         group_id: newGroupId,
         pane_count: newPaneCount,
-        layout: newPaneCount === 2 ? newLayout : undefined,
+        layout: resolveCreateLayout(newPaneCount, newLayout),
       });
       setNewName("");
       setNewCwd("");
@@ -948,6 +1095,22 @@ export default function Tmux() {
       return next;
     });
   }, []);
+
+  const handleUpdateLayout = useCallback(
+    async (layout: TmuxLayout) => {
+      if (!activeSession) return;
+      const session = sessions.find((s) => s.name === activeSession);
+      if (!session) return;
+      try {
+        await tmuxUpdateSessionLayout(session.display_name, layout);
+        await loadSessions();
+      } catch (e: unknown) {
+        console.error("[Tmux Layout] Failed:", e);
+        showError("切换布局失败", getErrorMessage(e));
+      }
+    },
+    [activeSession, sessions, loadSessions]
+  );
 
   // ── File tree logic ──
 
@@ -1680,7 +1843,28 @@ export default function Tmux() {
                 <div className="h-2 w-2 rounded-full animate-pulse-dot bg-emerald-500" />
                 <span className="text-sm font-medium">{activeDisplayName}</span>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-muted/50 rounded-lg border border-[var(--glass-border)] px-1">
+                  {LAYOUTS.map((l) => {
+                    const Icon = l.icon;
+                    const activeLayout =
+                      sessions.find((s) => s.name === activeSession)?.layout || "single";
+                    return (
+                      <button
+                        key={l.value}
+                        onClick={() => handleUpdateLayout(l.value)}
+                        className={`h-6 w-6 rounded-md flex items-center justify-center transition-colors ${
+                          activeLayout === l.value
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                        }`}
+                        title={l.label}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                      </button>
+                    );
+                  })}
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1702,9 +1886,9 @@ export default function Tmux() {
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              <TmuxTerminal
-                key={activeSession}
+              <TmuxTerminalLayout
                 sessionName={activeSession}
+                layout={sessions.find((s) => s.name === activeSession)?.layout || "single"}
                 onDetach={handleDetach}
                 onIdle={(idle) => handleIdle(activeSession, idle)}
                 readVersion={readVersions[activeSession] || 0}

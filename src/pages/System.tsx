@@ -186,12 +186,6 @@ export default function System() {
 
   return (
     <div className="flex flex-col gap-5 p-6 min-h-full animate-page-enter">
-      {/* Header */}
-      <div className="animate-slide-up">
-        <h1 className="text-[22px] font-bold tracking-tight">系统监控</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">实时查看 macOS 系统资源与进程状态</p>
-      </div>
-
       {/* 系统信息卡片 */}
       <div className="card-macos overflow-hidden animate-slide-up" style={{ animationDelay: "50ms" }}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--glass-border)]">

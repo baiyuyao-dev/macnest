@@ -5,6 +5,7 @@ import { tmuxAttachPty, tmuxHasClaudeProcess, tmuxPtyClose, tmuxPtyResize, tmuxP
 
 interface TmuxTerminalProps {
   sessionName: string;
+  windowIndex?: number;
   onDetach: () => void;
   onIdle?: (idle: boolean) => void;
   readVersion?: number;
@@ -41,7 +42,7 @@ function outputHasWorkingIndicator(data: Uint8Array | number[]): boolean {
   return false;
 }
 
-export default function TmuxTerminal({ sessionName, onDetach, onIdle, readVersion = 0 }: TmuxTerminalProps) {
+export default function TmuxTerminal({ sessionName, windowIndex = 1, onDetach, onIdle, readVersion = 0 }: TmuxTerminalProps) {
   const [ptyId, setPtyId] = useState<string | null>(null);
   const [hasClaude, setHasClaude] = useState(false);
   const termRef = useRef<Terminal | null>(null);
@@ -149,13 +150,13 @@ export default function TmuxTerminal({ sessionName, onDetach, onIdle, readVersio
       });
 
       try {
-        const id = await tmuxAttachPty(sessionName, channel, term.cols, term.rows);
+        const id = await tmuxAttachPty(sessionName, channel, term.cols, term.rows, windowIndex);
         setPtyId(id);
       } catch (e) {
         term.writeln(`\r\n\x1b[31m[Failed to attach: ${e}]\x1b[0m`);
       }
     },
-    [sessionName, hasClaude]
+    [sessionName, hasClaude, windowIndex]
   );
 
   const handleData = useCallback((data: string) => {

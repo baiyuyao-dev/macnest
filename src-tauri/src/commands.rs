@@ -1527,7 +1527,7 @@ pub async fn sftp_read_file(
     let sftp = get_sftp_manager(&state, &session_id).await?;
     let sftp = sftp.lock().await;
     let bytes = sftp.read_file(&path).map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|e| format!("文件不是有效的 UTF-8 文本: {}", e))
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[tauri::command]
@@ -1645,13 +1645,14 @@ pub fn tmux_is_available() -> bool {
 #[tauri::command]
 pub fn tmux_attach_pty(
     session_name: String,
+    window_index: usize,
     channel: Channel<Vec<u8>>,
     cols: u16,
     rows: u16,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let tmux_name = crate::tmux::commands::resolve_tmux_name(&state.db, &session_name)?;
-    let pty_session = crate::tmux::pty::attach_session_pty(&tmux_name, channel, cols, rows)?;
+    let pty_session = crate::tmux::pty::attach_session_pty(&tmux_name, window_index, channel, cols, rows)?;
     let pty_id = uuid::Uuid::new_v4().to_string();
 
     state
@@ -1848,6 +1849,15 @@ pub fn tmux_update_session_group_id(
 }
 
 #[tauri::command]
+pub fn tmux_update_session_layout(
+    state: State<AppState>,
+    display_name: String,
+    layout: String,
+) -> Result<(), String> {
+    crate::tmux::commands::update_session_layout(&state.db, &display_name, &layout)
+}
+
+#[tauri::command]
 pub fn tmux_has_claude_process(session_name: String) -> Result<bool, String> {
     // 检查 tmux session 中是否有 claude 相关进程
     let output = std::process::Command::new("tmux")
@@ -1924,7 +1934,8 @@ pub fn local_list_dir(path: String) -> Result<Vec<LocalFileNode>, String> {
 
 #[tauri::command]
 pub fn local_read_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[tauri::command]
@@ -2201,4 +2212,20 @@ pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn exit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_read_file_replaces_invalid_utf8_instead_of_failing() {
+        let temp_path =
+            std::env::temp_dir().join("macnest_local_read_file_invalid_utf8_test.txt");
+        let _ = std::fs::remove_file(&temp_path);
+        std::fs::write(&temp_path, b"hello \xff world").unwrap();
+        let result = local_read_file(temp_path.to_string_lossy().to_string());
+        let _ = std::fs::remove_file(&temp_path);
+        assert_eq!(result.unwrap(), "hello � world");
+    }
 }

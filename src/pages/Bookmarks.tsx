@@ -565,28 +565,8 @@ export default function BookmarksPage() {
 
       {/* Main Content */}
       <div className="flex-1 p-6 space-y-4 overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between animate-slide-up">
-          <div>
-            <h1 className="text-[22px] font-bold tracking-tight">服务导航</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">管理常用服务导航</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 text-xs rounded-xl btn-macos-secondary"
-              onClick={handleSyncFromSafari}
-              disabled={syncing}
-            >
-              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "同步中..." : "从 Safari 同步"}
-            </Button>
-          </div>
-        </div>
-
         {/* Search + View toggle */}
-        <div className="flex items-center gap-3 animate-slide-up" style={{ animationDelay: "50ms" }}>
+        <div className="flex items-center justify-between gap-3 animate-slide-up" style={{ animationDelay: "50ms" }}>
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
